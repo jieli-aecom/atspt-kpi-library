@@ -109,8 +109,8 @@ const validDefaultFocus = (config: KpiPoolConfig, focus?: KpiDefaultFocus): UseC
 
 const categoryFields: KpiEnumCategoryKey[] = [];
 
-const initialColumnWidths = [125, 145, 185, 310, 275, 115, 120, 135, 180, 138];
-const minColumnWidths = [100, 115, 145, 230, 210, 100, 105, 110, 145, 118];
+const initialColumnWidths = [170, 145, 185, 334, 251, 115, 120, 135, 180, 138];
+const minColumnWidths = [150, 115, 145, 240, 180, 100, 105, 110, 145, 118];
 const defaultHiddenEnumColumns: KpiEnumCategoryKey[] = ['previousApplication', 'federalRequirement'];
 const estimatedCollapsedRowHeight = 78;
 const estimatedExpandedRowHeight = 960;
@@ -815,8 +815,7 @@ const formatLastModified = (timestamp: string) => {
 };
 
 const activeFilterCount = (filters: ColumnFilters) =>
-  (filters.name ? 1 : 0) +
-  (filters.description ? 1 : 0) +
+  (filters.name || filters.description ? 1 : 0) +
   (filters.formula ? 1 : 0) +
   (filters.prerequisite ? 1 : 0) +
   filters.prerequisiteModules.length +
@@ -828,7 +827,12 @@ const activeFilterCount = (filters: ColumnFilters) =>
 
 const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFilters, pinnedNameFilterIds: Set<string>, assignment?: UseCaseAssignment) => {
   const search = indexes.searchByKpiId.get(kpi.id);
-  if (filters.name && !pinnedNameFilterIds.has(kpi.id) && !search?.name.includes(filters.name)) {
+  if (
+    filters.name &&
+    !pinnedNameFilterIds.has(kpi.id) &&
+    !search?.name.includes(filters.name) &&
+    !search?.description.includes(filters.name)
+  ) {
     return false;
   }
 
@@ -836,7 +840,7 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
     return true;
   }
 
-  if (filters.description && !search?.description.includes(filters.description)) {
+  if (filters.description && !search?.name.includes(filters.description) && !search?.description.includes(filters.description)) {
     return false;
   }
 
@@ -3626,6 +3630,7 @@ function ExpandedKpiEditor({
   } | null>(null);
   const [formulaGroupDrag, setFormulaGroupDrag] = useState<number | null>(null);
   const [formulaGroupDragOver, setFormulaGroupDragOver] = useState<{ groupIndex: number; position: DropPosition } | null>(null);
+  const [activeExpandedPanel, setActiveExpandedPanel] = useState<'formulae' | 'scales'>('formulae');
   const updateFormulaGroups = (updater: (groups: KpiFormulaGroup[]) => KpiFormulaGroup[]) => {
     patch({
       description: {
@@ -3783,8 +3788,30 @@ function ExpandedKpiEditor({
 
   return (
     <div className="expanded-editor">
-      <section className="expanded-section wide">
-        <label className="field">
+      <div className="expanded-editor-tabs" role="tablist" aria-label="Expanded KPI editor sections">
+        <button
+          className={activeExpandedPanel === 'formulae' ? 'is-active' : ''}
+          type="button"
+          role="tab"
+          aria-selected={activeExpandedPanel === 'formulae'}
+          aria-controls={`formulae-panel-${kpi.id}`}
+          onClick={() => setActiveExpandedPanel('formulae')}
+        >
+          Formulae
+        </button>
+        <button
+          className={activeExpandedPanel === 'scales' ? 'is-active' : ''}
+          type="button"
+          role="tab"
+          aria-selected={activeExpandedPanel === 'scales'}
+          aria-controls={`scales-panel-${kpi.id}`}
+          onClick={() => setActiveExpandedPanel('scales')}
+        >
+          Spatial Scales
+        </button>
+      </div>
+      <section className="expanded-section wide formulae-expanded-column">
+        <label className="field expanded-independent expanded-overview">
           <span>Full overview</span>
           <textarea
             rows={2}
@@ -3799,7 +3826,11 @@ function ExpandedKpiEditor({
             }
           />
         </label>
-        <section className="formula-items-panel">
+        <section
+          className={`formula-items-panel expanded-tab-panel formulae-tab-panel ${activeExpandedPanel === 'formulae' ? 'is-active' : 'is-inactive'}`}
+          id={`formulae-panel-${kpi.id}`}
+          role="tabpanel"
+        >
           <div className="formula-items-heading">
             <span>Formula groups</span>
           </div>
@@ -4041,12 +4072,18 @@ function ExpandedKpiEditor({
         </section>
       </section>
 
-      <section className="expanded-section source-and-scale-section">
-        <div className="field">
+      <section className="expanded-section source-and-scale-section scales-expanded-column">
+        <div className="field expanded-independent expanded-sources">
           <span>Sources</span>
           <KpiSourceEditor config={config} kpi={kpi} onChange={(sources) => patch({ sources })} />
         </div>
-        <SpatialScaleMatrix config={config} kpi={kpi} onChange={(spatialScales) => patch({ spatialScales })} />
+        <div
+          className={`expanded-tab-panel spatial-scales-tab-panel ${activeExpandedPanel === 'scales' ? 'is-active' : 'is-inactive'}`}
+          id={`scales-panel-${kpi.id}`}
+          role="tabpanel"
+        >
+          <SpatialScaleMatrix config={config} kpi={kpi} onChange={(spatialScales) => patch({ spatialScales })} />
+        </div>
       </section>
     </div>
   );
@@ -4062,6 +4099,7 @@ function KpiRow({
   dragPosition,
   visibleEnumCategories,
   tableColumnCount,
+  tableViewportWidth,
   useCaseAssignment,
   sortingActive,
   onExpand,
@@ -4080,6 +4118,7 @@ function KpiRow({
   dragPosition?: DropPosition;
   visibleEnumCategories: KpiEnumCategoryKey[];
   tableColumnCount: number;
+  tableViewportWidth: number;
   useCaseAssignment?: UseCaseAssignment;
   sortingActive: boolean;
   onExpand: () => void;
@@ -4113,47 +4152,47 @@ function KpiRow({
     <>
       <tr className={rowClass} data-kpi-id={kpi.id} ref={compactRowRef}>
         <td>
-          <div className="name-cell">
-            <button className="kpi-insert-before" type="button" title="Insert KPI here" aria-label={`Insert KPI before ${kpi.name}`} onClick={(event) => { event.stopPropagation(); onInsertBefore(); }}><Plus size={11} aria-hidden="true" /><span>Add KPI</span></button>
-            <button
-              className="expand-button"
-              type="button"
-              aria-label={expanded ? 'Collapse row' : 'Expand row'}
-              onClick={(event) => {
-                event.stopPropagation();
-                onExpand();
-              }}
-            >
-              <ChevronDown size={14} aria-hidden="true" className={expanded ? 'rotate' : ''} />
-            </button>
+          <div className="name-description-cell">
+            <div className="name-cell">
+              <button className="kpi-insert-before" type="button" title="Insert KPI here" aria-label={`Insert KPI before ${kpi.name}`} onClick={(event) => { event.stopPropagation(); onInsertBefore(); }}><Plus size={11} aria-hidden="true" /><span>Add KPI</span></button>
+              <button
+                className="expand-button"
+                type="button"
+                aria-label={expanded ? 'Collapse row' : 'Expand row'}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onExpand();
+                }}
+              >
+                <ChevronDown size={14} aria-hidden="true" className={expanded ? 'rotate' : ''} />
+              </button>
+              <AutoGrowTextarea
+                className="inline-textarea strong-input"
+                rows={1}
+                value={kpi.name}
+                aria-label={`${kpi.name} name`}
+                preventLineBreaks
+                onClick={stopRowToggle}
+                onValueChange={(name) => patch({ name })}
+              />
+            </div>
             <AutoGrowTextarea
-              className="inline-textarea strong-input"
-              rows={1}
-              value={kpi.name}
-              aria-label={`${kpi.name} name`}
-              preventLineBreaks
+              className="inline-textarea description-input"
+              rows={2}
+              value={kpi.description.overview}
+              placeholder="Overview"
+              aria-label={`${kpi.name} description`}
               onClick={stopRowToggle}
-              onValueChange={(name) => patch({ name })}
+              onValueChange={(overview) =>
+                patch({
+                  description: {
+                    ...kpi.description,
+                    overview
+                  }
+                })
+              }
             />
           </div>
-        </td>
-        <td>
-          <AutoGrowTextarea
-            className="inline-textarea"
-            rows={2}
-            value={kpi.description.overview}
-            placeholder="Overview"
-            aria-label={`${kpi.name} description`}
-            onClick={stopRowToggle}
-            onValueChange={(overview) =>
-              patch({
-                description: {
-                  ...kpi.description,
-                  overview
-                }
-              })
-            }
-          />
         </td>
         <td>
           <div onClick={stopRowToggle}>
@@ -4263,7 +4302,9 @@ function KpiRow({
       {expanded ? (
         <tr className="expanded-row" ref={expandedRowRef}>
           <td colSpan={tableColumnCount}>
-            <ExpandedKpiEditor config={config} kpi={kpi} onChange={onChange} />
+            <div className="expanded-row-viewport" style={{ width: tableViewportWidth || '100%' }}>
+              <ExpandedKpiEditor config={config} kpi={kpi} onChange={onChange} />
+            </div>
           </td>
         </tr>
       ) : null}
@@ -4353,7 +4394,7 @@ function KpiTable({
   const [dragState, setDragState] = useState<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
   const dragSessionRef = useRef<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const [scrollFrame, setScrollFrame] = useState({ top: 0, height: 0 });
+  const [scrollFrame, setScrollFrame] = useState({ top: 0, height: 0, width: 0 });
   const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map());
   const visibleEnumCategories = useMemo(
     () => categoryFields.filter((category) => !hiddenEnumColumns.includes(category)),
@@ -4362,7 +4403,6 @@ function KpiTable({
   const visibleColumnIndices = useMemo(
     () => [
       0,
-      1,
       2,
       3,
       4,
@@ -4378,6 +4418,28 @@ function KpiTable({
     () => visibleColumnIndices.reduce((sum, index) => sum + columnWidths[index], 0),
     [columnWidths, visibleColumnIndices]
   );
+  const minimumTableWidth = useMemo(
+    () => visibleColumnIndices.reduce((sum, index) => sum + minColumnWidths[index], 0),
+    [visibleColumnIndices]
+  );
+  const fittedColumnWidths = useMemo(() => {
+    const availableWidth = scrollFrame.width;
+    if (!availableWidth || availableWidth >= tableWidth) {
+      return visibleColumnIndices.map((index) => columnWidths[index]);
+    }
+
+    if (availableWidth <= minimumTableWidth) {
+      return visibleColumnIndices.map((index) => minColumnWidths[index]);
+    }
+
+    const shrinkableWidth = tableWidth - minimumTableWidth;
+    const shrinkRatio = shrinkableWidth > 0 ? (tableWidth - availableWidth) / shrinkableWidth : 0;
+    return visibleColumnIndices.map((index) => {
+      const preferredWidth = columnWidths[index];
+      const minimumWidth = minColumnWidths[index];
+      return preferredWidth - (preferredWidth - minimumWidth) * shrinkRatio;
+    });
+  }, [columnWidths, minimumTableWidth, scrollFrame.width, tableWidth, visibleColumnIndices]);
   const expandedIdSet = useMemo(() => new Set(expandedIds), [expandedIds]);
   const rowScopeFilters = useMemo(
     () => ({
@@ -4433,8 +4495,8 @@ function KpiTable({
     }
 
     setScrollFrame((current) => {
-      const next = { top: element.scrollTop, height: element.clientHeight };
-      return current.top === next.top && current.height === next.height ? current : next;
+      const next = { top: element.scrollTop, height: element.clientHeight, width: element.clientWidth };
+      return current.top === next.top && current.height === next.height && current.width === next.width ? current : next;
     });
   }, []);
 
@@ -4466,6 +4528,13 @@ function KpiTable({
   useLayoutEffect(() => {
     updateScrollFrame();
   }, [kpis.length, updateScrollFrame]);
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (element && scrollFrame.width >= minimumTableWidth && element.scrollLeft !== 0) {
+      element.scrollLeft = 0;
+    }
+  }, [minimumTableWidth, scrollFrame.width]);
 
   useEffect(() => {
     const validIds = new Set(kpis.map((kpi) => kpi.id));
@@ -4648,32 +4717,27 @@ function KpiTable({
 
   return (
     <section className="table-panel">
-      <div className="table-scroll" ref={scrollRef} onScroll={updateScrollFrame}>
-        <table className="kpi-table" style={{ width: tableWidth, minWidth: '100%' }}>
+      <div
+        className={`table-scroll ${scrollFrame.width >= minimumTableWidth ? 'columns-fit' : 'columns-overflow'}`}
+        ref={scrollRef}
+        onScroll={updateScrollFrame}
+      >
+        <table className="kpi-table" style={{ width: '100%', minWidth: minimumTableWidth }}>
           <colgroup>
-            {visibleColumnIndices.map((index) => (
-              <col key={index} style={{ width: columnWidths[index] }} />
+            {visibleColumnIndices.map((index, visibleIndex) => (
+              <col key={index} style={{ width: fittedColumnWidths[visibleIndex] }} />
             ))}
           </colgroup>
           <thead>
             <tr>
               <th className={headerClass(0)}>
                 <TextHeaderFilter
-                  label="Name"
-                  value={filters.name}
-                  placeholder="Search name..."
-                  onChange={(name) => onFiltersChange({ ...filters, name })}
+                  label="Name / Description"
+                  value={filters.name || filters.description}
+                  placeholder="Search name or description..."
+                  onChange={(name) => onFiltersChange({ ...filters, name, description: '' })}
                 />
-                {resizeHandle(0, 'Name')}
-              </th>
-              <th className={headerClass(1)}>
-                <TextHeaderFilter
-                  label="Description"
-                  value={filters.description}
-                  placeholder="Search description..."
-                  onChange={(description) => onFiltersChange({ ...filters, description })}
-                />
-                {resizeHandle(1, 'Description')}
+                {resizeHandle(0, 'Name and description')}
               </th>
               <th className={headerClass(2)}>
                 <DataSourceHeader config={config} filter={filters.prerequisite} onFilterChange={(prerequisite) => onFiltersChange({ ...filters, prerequisite })} onConfigChange={onConfigChange} />
@@ -4801,6 +4865,7 @@ function KpiTable({
                 dragPosition={dragState?.overId === kpi.id ? dragState.position : undefined}
                 visibleEnumCategories={visibleEnumCategories}
                 tableColumnCount={tableColumnCount}
+                tableViewportWidth={scrollFrame.width}
                 useCaseAssignment={focusedAssignment}
                 sortingActive={Boolean(performanceAreaSort)}
                 onExpand={() => onToggleExpanded(kpi.id)}
@@ -4957,7 +5022,7 @@ function EditorApp({
   };
 
   const updateFilters = (next: ColumnFilters) => {
-    if (next.name !== filters.name) {
+    if (next.name !== filters.name || next.description !== filters.description) {
       setPinnedNameFilterIds([]);
     }
     setFilters(next);
@@ -5092,7 +5157,11 @@ function EditorApp({
 
   const updateKpiFromRow = (next: KpiMetric) => {
     const previous = config.kpis.find((entry) => entry.id === next.id);
-    if (filters.name.trim() && previous && previous.name !== next.name) {
+    if (
+      (filters.name.trim() || filters.description.trim()) &&
+      previous &&
+      (previous.name !== next.name || previous.description.overview !== next.description.overview)
+    ) {
       setPinnedNameFilterIds((current) => [...new Set([...current, next.id])]);
     }
 
