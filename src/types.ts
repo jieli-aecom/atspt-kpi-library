@@ -1,6 +1,8 @@
 export const spatialScaleKeys = ['link', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
 export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
 
+export const CURRENT_SCHEMA_VERSION = 18 as const;
+
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
 
@@ -162,7 +164,7 @@ export type KpiMetric = {
 };
 
 export type KpiPoolConfig = {
-  schemaVersion: 18;
+  schemaVersion: typeof CURRENT_SCHEMA_VERSION;
   title: string;
   updatedAt?: string;
   defaultFocus?: KpiDefaultFocus;

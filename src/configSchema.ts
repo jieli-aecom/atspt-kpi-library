@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import {
+  CURRENT_SCHEMA_VERSION,
   enumCategoryKeys,
   type EnumCategoryKey,
   type EnumDefinitions,
@@ -172,7 +173,7 @@ const kpiSchema = z.object({
 });
 
 export const kpiPoolConfigSchema = z.object({
-  schemaVersion: z.literal(18),
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
   title: z.string(),
   updatedAt: z.string().optional(),
   defaultFocus: defaultFocusSchema.optional(),
@@ -283,7 +284,7 @@ const hasDuplicate = (values: string[]) => new Set(values).size !== values.lengt
 const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   if (
     !isRecord(input) ||
-    input.schemaVersion !== 18 ||
+    input.schemaVersion !== CURRENT_SCHEMA_VERSION ||
     typeof input.title !== 'string' ||
     (input.updatedAt !== undefined && typeof input.updatedAt !== 'string') ||
     !isRecord(input.enums) ||
@@ -1757,7 +1758,7 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
 };
 
 export const createBlankConfig = (): KpiPoolConfig => ({
-  schemaVersion: 18,
+  schemaVersion: CURRENT_SCHEMA_VERSION,
   title: 'Untitled KPI Library',
   updatedAt: new Date().toISOString(),
   enums: {
@@ -1812,7 +1813,22 @@ export const createEnumOption = (label = 'New option', userGroup?: string, useCa
   useCase
 });
 
+export class UnsupportedSchemaVersionError extends Error {
+  readonly schemaVersion: number;
+
+  constructor(schemaVersion: number) {
+    super(`Schema version ${schemaVersion} is newer than this application supports (${CURRENT_SCHEMA_VERSION}).`);
+    this.name = 'UnsupportedSchemaVersionError';
+    this.schemaVersion = schemaVersion;
+  }
+}
+
 export const repairConfig = (input: unknown): RepairResult => {
+  const inputSchemaVersion = isRecord(input) ? Number(input.schemaVersion) : Number.NaN;
+  if (Number.isFinite(inputSchemaVersion) && inputSchemaVersion > CURRENT_SCHEMA_VERSION) {
+    throw new UnsupportedSchemaVersionError(inputSchemaVersion);
+  }
+
   if (isCurrentKpiPoolConfig(input)) {
     return { config: input, warnings: [] };
   }
@@ -1822,6 +1838,10 @@ export const repairConfig = (input: unknown): RepairResult => {
   const rawConfig = isRecord(input) ? input : {};
   if (!isRecord(input)) {
     warnings.push('The embedded configuration root was not an object; initialized a blank config.');
+  } else if (Number.isFinite(inputSchemaVersion) && inputSchemaVersion < CURRENT_SCHEMA_VERSION) {
+    warnings.push(`Upgraded schema version ${inputSchemaVersion} to ${CURRENT_SCHEMA_VERSION}.`);
+  } else if (!Number.isFinite(inputSchemaVersion)) {
+    warnings.push(`Upgraded an unversioned configuration to schema version ${CURRENT_SCHEMA_VERSION}.`);
   }
   const legacyPerformanceAreas = isLegacyPerformanceAreaSchema(rawConfig);
 
@@ -1962,7 +1982,7 @@ export const repairConfig = (input: unknown): RepairResult => {
   const defaultFocus = repairDefaultFocus(rawConfig, scopedEnums, warnings);
 
   const repaired: KpiPoolConfig = {
-    schemaVersion: 18,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     title: stringValue(rawConfig.title).trim() || 'Untitled KPI Library',
     updatedAt: stringValue(rawConfig.updatedAt) || new Date().toISOString(),
     defaultFocus,
@@ -1985,7 +2005,7 @@ export const prepareForExport = (config: KpiPoolConfig): KpiPoolConfig => {
   const repaired = repairConfig(config).config;
   return {
     ...repaired,
-    schemaVersion: 18,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
     updatedAt: new Date().toISOString()
   };
 };

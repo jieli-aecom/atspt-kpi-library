@@ -11,6 +11,7 @@ import {
   ChevronsUp,
   Columns3,
   Copy,
+  Cloud,
   Database,
   Download,
   FileJson,
@@ -20,6 +21,8 @@ import {
   ListFilter,
   Plus,
   Pencil,
+  RefreshCw,
+  Save,
   Search,
   SortAsc,
   SortDesc,
@@ -36,6 +39,15 @@ import {
   prepareForExport,
   repairConfig
 } from './configSchema';
+import { mergeImportedConfig } from './configMerge';
+import {
+  forceRemoteConfig,
+  loadRemoteConfig,
+  LIBRARY_SECRET_SESSION_KEY,
+  RemoteConfigError,
+  syncRemoteConfig,
+  type RemoteConfigResult
+} from './remoteConfig';
 import {
   enumCategoryLabels,
   enumCategoryKeys,
@@ -68,6 +80,7 @@ type LoadState = {
 };
 
 const CONFIG_SCRIPT_ID = 'kpi-pool-config';
+const EXPORTED_SNAPSHOT_ATTRIBUTE = 'data-kpi-exported-snapshot';
 
 type ColumnFilters = {
   name: string;
@@ -365,6 +378,7 @@ const readConfigFromHtml = (html: string) => {
 
 const buildExportHtml = (config: KpiPoolConfig) => {
   const clone = document.documentElement.cloneNode(true) as HTMLElement;
+  clone.setAttribute(EXPORTED_SNAPSHOT_ATTRIBUTE, 'true');
   const root = clone.querySelector('#root');
   if (root) {
     root.innerHTML = '';
@@ -798,83 +812,6 @@ const formatLastModified = (timestamp: string) => {
     hour: 'numeric',
     minute: '2-digit'
   }).format(date);
-};
-
-type ConfigMergeResult = {
-  config: KpiPoolConfig;
-  importedKpiIds: Set<string>;
-  addedKpis: number;
-  updatedKpis: number;
-  addedEnumOptions: number;
-  enumConflicts: number;
-};
-
-const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolConfig): ConfigMergeResult => {
-  let addedEnumOptions = 0;
-  let enumConflicts = 0;
-  const enums = Object.fromEntries(
-    enumCategoryKeys.map((category) => {
-      const currentById = new Map(current.enums[category].map((option) => [option.id, option]));
-      const additions = incoming.enums[category].filter((option) => {
-        const existing = currentById.get(option.id);
-        if (!existing) {
-          addedEnumOptions += 1;
-          return true;
-        }
-        if (JSON.stringify(existing) !== JSON.stringify(option)) {
-          enumConflicts += 1;
-        }
-        return false;
-      });
-      return [category, [...current.enums[category], ...additions]];
-    })
-  ) as KpiPoolConfig['enums'];
-
-  const incomingById = new Map(incoming.kpis.map((kpi) => [kpi.id, kpi]));
-  const currentIds = new Set(current.kpis.map((kpi) => kpi.id));
-  const importedKpiIds = new Set<string>();
-  let updatedKpis = 0;
-  const mergedCurrentKpis = current.kpis.map((currentKpi) => {
-    const importedKpi = incomingById.get(currentKpi.id);
-    if (!importedKpi || Date.parse(importedKpi.lastModified) <= Date.parse(currentKpi.lastModified)) {
-      return currentKpi;
-    }
-
-    importedKpiIds.add(importedKpi.id);
-    updatedKpis += 1;
-    return importedKpi;
-  });
-  const addedKpis = incoming.kpis.filter((kpi) => !currentIds.has(kpi.id));
-  addedKpis.forEach((kpi) => importedKpiIds.add(kpi.id));
-  const currentIsEmpty = current.kpis.length === 0 && current.dataSources.length === 0 && current.lookups.length === 0 && enumCategoryKeys.every((category) => current.enums[category].length === 0);
-  const currentDataSourceIds = new Set(current.dataSources.map((source) => source.id));
-  const dataSources = [
-    ...current.dataSources,
-    ...incoming.dataSources.filter((source) => !currentDataSourceIds.has(source.id))
-  ];
-  const currentLookupIds = new Set(current.lookups.map((lookup) => lookup.id));
-  const lookups = [
-    ...current.lookups,
-    ...incoming.lookups.filter((lookup) => !currentLookupIds.has(lookup.id))
-  ];
-
-  return {
-    config: {
-      ...current,
-      schemaVersion: 18,
-      title: currentIsEmpty ? incoming.title : current.title,
-      defaultFocus: currentIsEmpty ? incoming.defaultFocus : current.defaultFocus,
-      enums,
-      dataSources,
-      lookups,
-      kpis: [...mergedCurrentKpis, ...addedKpis]
-    },
-    importedKpiIds,
-    addedKpis: addedKpis.length,
-    updatedKpis,
-    addedEnumOptions,
-    enumConflicts
-  };
 };
 
 const activeFilterCount = (filters: ColumnFilters) =>
@@ -4895,15 +4832,36 @@ function KpiTable({
   );
 }
 
+type SaveState = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
+
 function EditorApp({
   initialConfig,
-  initialWarnings
+  initialWarnings,
+  initialEtag,
+  initialRemoteExists,
+  hostedSecret,
+  exportedSnapshot,
+  onAuthorizationLost
 }: {
   initialConfig: KpiPoolConfig;
   initialWarnings: string[];
+  initialEtag: string | null;
+  initialRemoteExists: boolean;
+  hostedSecret?: string;
+  exportedSnapshot: boolean;
+  onAuthorizationLost?: () => void;
 }) {
   const [config, setConfig] = useState(initialConfig);
   const [warnings, setWarnings] = useState(initialWarnings);
+  const [etag, setEtag] = useState(initialEtag);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [saveNotice, setSaveNotice] = useState(
+    exportedSnapshot
+      ? 'Offline snapshot: hosted JSON saving is disabled.'
+      : initialRemoteExists
+        ? 'Connected to hosted JSON.'
+        : 'The hosted JSON is empty. Save to initialize it.'
+  );
   const [filters, setFilters] = useState(emptyFilters);
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
   const [pinnedNameFilterIds, setPinnedNameFilterIds] = useState<string[]>([]);
@@ -4912,6 +4870,11 @@ function EditorApp({
   const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(false);
   const [performanceAreaSort, setPerformanceAreaSort] = useState<PerformanceAreaSortOrder>();
   const baselineKpisRef = useRef(new Map(initialConfig.kpis.map((kpi) => [kpi.id, kpi])));
+  const lastSavedConfigRef = useRef(
+    initialRemoteExists || exportedSnapshot ? JSON.stringify(initialConfig) : ''
+  );
+  const serializedConfig = useMemo(() => JSON.stringify(config), [config]);
+  const hasUnsavedChanges = serializedConfig !== lastSavedConfigRef.current;
 
   const commitConfig = (action: KpiPoolConfig | ((current: KpiPoolConfig) => KpiPoolConfig)) => {
     setConfig((current) => {
@@ -5136,6 +5099,109 @@ function EditorApp({
     commitConfig((current) => updateKpi(current, next.id, () => next));
   };
 
+  const replaceWithRemoteConfig = (result: RemoteConfigResult, notice: string) => {
+    const repaired = repairConfig(result.config);
+    baselineKpisRef.current = new Map(repaired.config.kpis.map((kpi) => [kpi.id, kpi]));
+    lastSavedConfigRef.current = JSON.stringify(repaired.config);
+    setConfig(repaired.config);
+    setEtag(result.etag);
+    setWarnings([...repaired.warnings, ...(result.warnings ?? [])]);
+    setFilters(emptyFilters());
+    setPinnedNameFilterIds([]);
+    setExpandedIds([]);
+    const nextFocus = validDefaultFocus(repaired.config, repaired.config.defaultFocus);
+    setExamineAssignment(nextFocus);
+    setFocusedAssignment(nextFocus);
+    setHideOutsideFocusedGroup(false);
+    setSaveState('saved');
+    setSaveNotice(notice);
+  };
+
+  const handleRemoteFailure = (error: unknown, fallback: string) => {
+    if (error instanceof RemoteConfigError && error.status === 401) {
+      onAuthorizationLost?.();
+      return;
+    }
+    setSaveState('error');
+    setSaveNotice(error instanceof Error ? error.message : fallback);
+  };
+
+  const saveToHostedJson = async () => {
+    if (exportedSnapshot || !hostedSecret) {
+      return;
+    }
+
+    setSaveState('saving');
+    setSaveNotice('Reading and merging with the hosted JSON...');
+    try {
+      const result = await syncRemoteConfig(hostedSecret, config, etag);
+      replaceWithRemoteConfig(
+        result,
+        result.mergedAfterRemoteChange
+          ? 'Saved after merging changes made by another editor.'
+          : 'Saved to hosted JSON.'
+      );
+    } catch (error) {
+      handleRemoteFailure(error, 'The hosted JSON could not be saved.');
+    }
+  };
+
+  const forceSaveToHostedJson = async () => {
+    if (exportedSnapshot || !hostedSecret) {
+      return;
+    }
+    if (
+      !window.confirm(
+        'Force Save replaces the complete hosted JSON, including deletions. Continue?'
+      )
+    ) {
+      return;
+    }
+
+    setSaveState('saving');
+    setSaveNotice('Replacing the hosted JSON...');
+    try {
+      const result = await forceRemoteConfig(hostedSecret, config, etag);
+      replaceWithRemoteConfig(result, 'Hosted JSON was force-replaced.');
+    } catch (error) {
+      if (
+        error instanceof RemoteConfigError &&
+        error.conflict &&
+        window.confirm(
+          'Another editor saved a newer version. Overwrite that newer hosted JSON anyway? This cannot be merged automatically.'
+        )
+      ) {
+        try {
+          const result = await forceRemoteConfig(hostedSecret, config, etag, true);
+          replaceWithRemoteConfig(result, 'A newer hosted JSON was explicitly overwritten.');
+          return;
+        } catch (overrideError) {
+          handleRemoteFailure(overrideError, 'The hosted JSON could not be force-replaced.');
+          return;
+        }
+      }
+      handleRemoteFailure(error, 'The hosted JSON could not be force-replaced.');
+    }
+  };
+
+  const refreshFromHostedJson = async () => {
+    if (exportedSnapshot || !hostedSecret) {
+      return;
+    }
+    if (hasUnsavedChanges && !window.confirm('Discard local changes and reload the hosted JSON?')) {
+      return;
+    }
+
+    setSaveState('loading');
+    setSaveNotice('Reloading hosted JSON...');
+    try {
+      const result = await loadRemoteConfig(hostedSecret);
+      replaceWithRemoteConfig(result, 'Reloaded from hosted JSON.');
+    } catch (error) {
+      handleRemoteFailure(error, 'The hosted JSON could not be reloaded.');
+    }
+  };
+
   const importHtml = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -5166,6 +5232,12 @@ function EditorApp({
         ...repaired.warnings,
         ...(merged.enumConflicts > 0
           ? [`${merged.enumConflicts} imported enum option${merged.enumConflicts === 1 ? '' : 's'} had an existing ID with different content; the current option was kept.`]
+          : []),
+        ...(merged.dataSourceConflicts > 0
+          ? [`${merged.dataSourceConflicts} imported data source${merged.dataSourceConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
+          : []),
+        ...(merged.lookupConflicts > 0
+          ? [`${merged.lookupConflicts} imported lookup${merged.lookupConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : [])
       ]);
       setFilters(emptyFilters());
@@ -5183,9 +5255,13 @@ function EditorApp({
   const exportHtml = () => {
     const output = prepareForExport(config);
     baselineKpisRef.current = new Map(output.kpis.map((kpi) => [kpi.id, kpi]));
-    setConfig(output);
     downloadFile(`${configFileStem(output.title)}.html`, buildExportHtml(output), 'text/html;charset=utf-8');
   };
+
+  const saveBusy = saveState === 'saving' || saveState === 'loading';
+  const remoteActionTitle = exportedSnapshot
+    ? 'This exported HTML is an offline snapshot and cannot write to the hosted JSON.'
+    : undefined;
 
   return (
     <main className="app-shell">
@@ -5199,11 +5275,57 @@ function EditorApp({
             </label>
           </div>
           <div className="topbar-actions topbar-actions-right">
+            <span
+              className={`persistence-status ${saveState === 'error' ? 'error' : ''} ${hasUnsavedChanges ? 'dirty' : ''}`}
+              title={saveNotice}
+            >
+              <Cloud size={14} aria-hidden="true" />
+              {exportedSnapshot
+                ? 'Offline snapshot'
+                : saveBusy
+                  ? saveState === 'loading'
+                    ? 'Loading...'
+                    : 'Saving...'
+                  : hasUnsavedChanges
+                    ? 'Unsaved changes'
+                    : saveState === 'error'
+                      ? 'Save error'
+                      : 'Hosted JSON current'}
+            </span>
             <span className="result-count">
               {visibleKpis.length} of {config.kpis.length} KPIs
               {filterCount ? ` | ${filterCount} filters` : ''}
               {performanceAreaSort ? ` | performance area ${performanceAreaSort === 'asc' ? 'A-Z' : 'Z-A'}` : ''}
             </span>
+            <button
+              className="secondary-action small"
+              type="button"
+              onClick={refreshFromHostedJson}
+              disabled={exportedSnapshot || saveBusy}
+              title={remoteActionTitle ?? 'Discard local changes and reload the hosted JSON'}
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              Refresh
+            </button>
+            <button
+              className="primary-action small"
+              type="button"
+              onClick={saveToHostedJson}
+              disabled={exportedSnapshot || saveBusy || !hasUnsavedChanges}
+              title={remoteActionTitle ?? 'Add or update records without applying deletions'}
+            >
+              <Save size={15} aria-hidden="true" />
+              Save to JSON
+            </button>
+            <button
+              className="secondary-action small danger-action"
+              type="button"
+              onClick={forceSaveToHostedJson}
+              disabled={exportedSnapshot || saveBusy}
+              title={remoteActionTitle ?? 'Replace the complete hosted JSON, including deletions'}
+            >
+              Force Save
+            </button>
             <label className="secondary-action small file-action">
               <Upload size={15} aria-hidden="true" />
               Import HTML
@@ -5268,7 +5390,152 @@ function EditorApp({
   );
 }
 
+type HostedAppState =
+  | { kind: 'loading' }
+  | { kind: 'locked'; error?: string }
+  | { kind: 'ready'; secret: string; result: RemoteConfigResult };
+
+function HostedUnlock({
+  loading,
+  error,
+  onUnlock
+}: {
+  loading: boolean;
+  error?: string;
+  onUnlock: (secret: string) => Promise<void>;
+}) {
+  const [secret, setSecret] = useState('');
+
+  return (
+    <main className="connection-screen">
+      <form
+        className="connection-panel"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (secret) {
+            void onUnlock(secret);
+          }
+        }}
+      >
+        <Cloud size={28} aria-hidden="true" />
+        <div>
+          <h1>KPI Library Manager</h1>
+          <p>Enter the shared library secret to load the hosted JSON.</p>
+        </div>
+        <label>
+          <span>Library secret</span>
+          <input
+            type="password"
+            value={secret}
+            onChange={(event) => setSecret(event.target.value)}
+            autoComplete="current-password"
+            autoFocus
+            disabled={loading}
+          />
+        </label>
+        {error ? <p className="connection-error" role="alert">{error}</p> : null}
+        <button className="primary-action" type="submit" disabled={!secret || loading}>
+          {loading ? 'Loading...' : 'Open library'}
+        </button>
+        <p className="connection-note">The secret is retained only for this browser session.</p>
+      </form>
+    </main>
+  );
+}
+
 export function App() {
-  const [loadState] = useState<LoadState>(() => readEmbeddedConfig());
-  return <EditorApp initialConfig={loadState.config} initialWarnings={loadState.warnings} />;
+  const [embeddedLoadState] = useState<LoadState>(() => readEmbeddedConfig());
+  const [exportedSnapshot] = useState(() => document.documentElement.getAttribute(EXPORTED_SNAPSHOT_ATTRIBUTE) === 'true');
+  const [hostedState, setHostedState] = useState<HostedAppState>({ kind: 'loading' });
+  const [unlockLoading, setUnlockLoading] = useState(false);
+
+  useEffect(() => {
+    if (exportedSnapshot) {
+      return;
+    }
+
+    const storedSecret = window.sessionStorage.getItem(LIBRARY_SECRET_SESSION_KEY);
+    if (!storedSecret) {
+      setHostedState({ kind: 'locked' });
+      return;
+    }
+
+    let active = true;
+    loadRemoteConfig(storedSecret)
+      .then((result) => {
+        if (active) {
+          setHostedState({ kind: 'ready', secret: storedSecret, result });
+        }
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        if (error instanceof RemoteConfigError && error.status === 401) {
+          window.sessionStorage.removeItem(LIBRARY_SECRET_SESSION_KEY);
+        }
+        setHostedState({ kind: 'locked', error: error instanceof Error ? error.message : 'The hosted JSON could not be loaded.' });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [exportedSnapshot]);
+
+  const unlock = async (secret: string) => {
+    setUnlockLoading(true);
+    try {
+      const result = await loadRemoteConfig(secret);
+      window.sessionStorage.setItem(LIBRARY_SECRET_SESSION_KEY, secret);
+      setHostedState({ kind: 'ready', secret, result });
+    } catch (error) {
+      window.sessionStorage.removeItem(LIBRARY_SECRET_SESSION_KEY);
+      setHostedState({ kind: 'locked', error: error instanceof Error ? error.message : 'The hosted JSON could not be loaded.' });
+    } finally {
+      setUnlockLoading(false);
+    }
+  };
+
+  if (exportedSnapshot) {
+    return (
+      <EditorApp
+        initialConfig={embeddedLoadState.config}
+        initialWarnings={embeddedLoadState.warnings}
+        initialEtag={null}
+        initialRemoteExists
+        exportedSnapshot
+      />
+    );
+  }
+
+  if (hostedState.kind === 'loading') {
+    return (
+      <main className="connection-screen">
+        <div className="connection-panel loading-panel">
+          <Cloud size={28} aria-hidden="true" />
+          <h1>KPI Library Manager</h1>
+          <p>Connecting to the hosted JSON...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (hostedState.kind === 'locked') {
+    return <HostedUnlock loading={unlockLoading} error={hostedState.error} onUnlock={unlock} />;
+  }
+
+  return (
+    <EditorApp
+      initialConfig={hostedState.result.config}
+      initialWarnings={hostedState.result.warnings ?? []}
+      initialEtag={hostedState.result.etag}
+      initialRemoteExists={hostedState.result.exists !== false}
+      hostedSecret={hostedState.secret}
+      exportedSnapshot={false}
+      onAuthorizationLost={() => {
+        window.sessionStorage.removeItem(LIBRARY_SECRET_SESSION_KEY);
+        setHostedState({ kind: 'locked', error: 'Library access expired. Enter the shared secret again.' });
+      }}
+    />
+  );
 }

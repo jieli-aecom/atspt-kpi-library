@@ -1,46 +1,125 @@
 # KPI Library Manager
 
-Local, single-HTML web app for curating a KPI library. The KPI data is embedded directly inside the HTML file.
+Single-page React/Vite application for curating a shared KPI library. The hosted application reads and writes one JSON document in a private Vercel Blob store through a same-origin Vercel Function. Standalone HTML exports remain available as offline snapshots.
 
 ## Commands
 
 ```bash
 npm install
-npm run dev
 npm run build
 npm run preview
 ```
 
-The production artifact is `dist/index.html`. It is fully bundled for offline use and includes an embedded KPI pool configuration. Opening the HTML shows the current embedded state immediately.
+For hosted-data development, use the Vercel development server instead of the Vite-only `npm run dev` command:
 
-The app supports one local persistence path:
+```bash
+npx vercel login
+npx vercel link
+npx vercel env pull .env.local
+npx vercel dev
+```
 
-- **Import HTML** merges another KPI Library HTML into the current state. Older HTML files remain supported and are upgraded during import. New KPI, data-source, and enum IDs are added; a matching KPI ID is replaced only when the imported KPI has a later `lastModified` timestamp.
-- **Export HTML** downloads a new `.html` file with the merged/current configuration embedded inside it and solidifies the current KPI timestamps as the new edit baselines.
+`vercel dev` serves both the Vite application and the `/api/config` Function. The `.env.local` and `.vercel/` files are intentionally ignored by Git.
 
-Table columns can be resized by dragging the dividers in the header row.
+The pulled `.env.local` must contain both `BLOB_READ_WRITE_TOKEN` and `KPI_LIBRARY_SECRET`. Production, Preview, and Development are separate scopes: a Development pull does not include a variable configured only for Production or Preview. Add a regular `KPI_LIBRARY_SECRET` entry for the Development environment and pull again:
 
-## Embedded Config Shape
+```bash
+npx vercel env pull .env.local --environment=development
+```
 
-The app stores JSON in a script tag with `id="kpi-pool-config"`:
+Vercel Sensitive Environment Variables can only target Production and Preview. If the existing secret is marked Sensitive, create a separate regular Development-scoped entry with the same key and value, or add `KPI_LIBRARY_SECRET` directly to the ignored `.env.local` for local testing. Restart `vercel dev` after changing environment variables.
 
-- `schemaVersion`: always `18`
-- `title`: pool title
-- `updatedAt`: ISO timestamp written on export
-- `enums`: option lists for `prerequisiteModule`, `userGroup`, `previousApplication`, `federalRequirement`, `performanceArea`, and group-owned `useCase`
-- `dataSources`: reusable data-source definitions with stable `id`, `name`, custom `spatialUnit`, fields, and optional versioned field groups
-- `dataSources[].fields`: fields with stable `id`, `name`, `meaning`, and `valueUnit`
-- `lookups`: reusable function-like definitions with documented input representations and an explained output
-- `kpis`: KPI objects with stable `id`, ISO `lastModified` timestamp, display `name`, `sources`, description overview, grouped `description.formulas`, retained legacy prerequisite data, spatial scale settings, grouped user-group/use-case references, use-case-scoped performance-area references, notes, and enum ID references
-- `kpis[].sources`: data-source/field references, lookup references, KPI references, or named custom sources, each paired with a user-authored `latex` representation
-- `description.formulas`: list of formula groups with `name` and `items`
-- `description.formulas[].items`: formula items with `tag`, separate LaTeX `leftExpression` and `rightExpression`, a backward-compatible combined `formula`, `generalExplanation`, and term-wise explanation pairs
-- `spatialScales`: per-scale applicability/basic-unit settings plus LaTeX `leftExpression`, `rightExpression`, combined `formula`, and the retained `aggregationMethod` text used as a hidden explanation
-- `description.formulaComment`: optional explanatory text displayed when the KPI has no formula, such as “Direct from source”
-- `prerequisite.modules`: list of `prerequisiteModule` enum option IDs
-- `prerequisite.kpis`: list of prerequisite KPI IDs
-- `userGroupUseCases`: list of objects with `userGroup` enum option ID and `useCases` enum option IDs
-- `performanceAreasByUseCase`: list of objects with `useCase` enum option ID and `performanceAreas` enum option IDs
-- `enums.useCase[]`: each use-case enum option includes a `userGroup` ID tying it to one user group
+## Vercel configuration
 
-If the embedded configuration is older or partial, the app repairs missing IDs and optional fields, maps legacy enum labels to option IDs when possible, splits legacy combined formulas at the first equals sign, and shows warnings for dropped or corrected values. A KPI without a timestamp receives the HTML import time.
+The Vercel project needs these server-side environment variables in Production, Preview, and Development:
+
+- `BLOB_READ_WRITE_TOKEN`: added by connecting a private Vercel Blob store to the project
+- `KPI_LIBRARY_SECRET`: a shared application secret entered by users when opening the hosted library
+
+Neither variable may use a `VITE_` prefix. Variables prefixed with `VITE_` are browser-visible. Do not commit either value or place it in `index.html`.
+
+The Blob store contains one private object:
+
+```text
+kpi-library.json
+```
+
+The store may initially be empty. The first normal Save or Force Save creates the object.
+
+The previously created Vercel Edge Config store is not used for the KPI document. Its plan-dependent document limits are too small for a growing KPI library.
+
+## Data workflows
+
+### 1. Open hosted site
+
+The browser asks for the shared library secret and calls `GET /api/config`. The Function authenticates the request, reads the private Blob without using the CDN cache, repairs older schemas, and returns the configuration with its Blob ETag. The Blob token and URL never reach the browser.
+
+### 2. Normal Save
+
+**Save to JSON** sends the edited configuration and the ETag from the last successful load. The Function rereads the hosted document before every write.
+
+- Existing edited objects are updated when the editor started from the current ETag.
+- New KPI, enum, data-source, and lookup IDs are added.
+- Locally deleted objects are retained; normal Save is additive.
+- If another editor saved first, KPI conflicts use `lastModified`; non-versioned definition conflicts keep the hosted value and are reported.
+- The final Blob write uses its current ETag. A concurrent modification causes a retry rather than a lost update.
+
+The authoritative saved configuration and new ETag are returned to the editor.
+
+### 3. Force Save
+
+**Force Save** replaces the complete hosted JSON and therefore applies deletions. It requires confirmation. If the loaded ETag is stale, the app warns about the newer hosted version and requires a second explicit confirmation before overwriting it.
+
+### 4. Export HTML
+
+**Export HTML** downloads a fully bundled, offline HTML snapshot with the current configuration embedded in a script tag. The exported document is marked with `data-kpi-exported-snapshot="true"`.
+
+When an exported HTML opens:
+
+- it hydrates from embedded JSON;
+- it makes no `/api/config` request;
+- it does not ask for the shared secret;
+- Refresh, Save to JSON, and Force Save are disabled;
+- local editing, Import HTML, and Export HTML remain available.
+
+### 5. Import HTML
+
+**Import HTML** reads embedded JSON from another KPI Library HTML file and merges it into the in-memory configuration. Importing does not change the hosted Blob until the user chooses Save to JSON or Force Save.
+
+## API
+
+The root-level [`api/config.ts`](api/config.ts) Vercel Function exposes:
+
+- `GET /api/config`: load and repair the hosted document
+- `POST /api/config`: additive, concurrency-aware synchronization
+- `PUT /api/config`: complete replacement with stale-version protection and explicit override support
+
+All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use `Cache-Control: no-store`, and request/configuration bodies are limited to 5 MB.
+
+## Schema compatibility
+
+`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `18`.
+
+The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to enum IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
+
+A configuration whose `schemaVersion` is newer than the running application supports is rejected. It is never silently converted to an older schema, preventing a stale deployment from deleting fields introduced by a future release.
+
+When introducing a future schema:
+
+1. Increment `CURRENT_SCHEMA_VERSION`.
+2. Add migration/repair behavior for the previous representation.
+3. Update the current Zod schema and TypeScript types.
+4. Add verification fixtures for the previous, current, and unsupported-future versions.
+5. Deploy application and Function changes together before writing the new schema.
+
+## Config shape
+
+- `schemaVersion`: currently `18`
+- `title`: library title
+- `updatedAt`: ISO timestamp written by the server or during HTML export
+- `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned use-case definitions
+- `dataSources`: reusable data-source definitions, fields, spatial units, and optional versioned field groups
+- `lookups`: reusable lookup definitions with documented inputs and output
+- `kpis`: KPI definitions with stable IDs, `lastModified`, sources, formulas, prerequisites, spatial scales, use-case assignments, performance areas, and notes
+
+See [`src/types.ts`](src/types.ts) for the complete current model.
