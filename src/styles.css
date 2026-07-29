@@ -2878,6 +2878,12 @@ h1 {
   box-shadow: inset 0 -2px 0 rgba(32, 128, 75, 0.46);
 }
 
+.formula-semantic-token.formula-dimension-token {
+  background: rgba(107, 59, 135, 0.1) !important;
+  color: #6b3b87 !important;
+  box-shadow: inset 0 -2px 0 rgba(107, 59, 135, 0.44);
+}
+
 .formula-result-insert,
 .formula-result-insert .katex {
   color: #245d99;

@@ -1908,7 +1908,7 @@ function SpatialScaleBadges({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMe
             >
               {spatialScaleLabels[scale]}
             </span>
-            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} inline highlightSpatialScales />
+            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} inline />
           </div>
         );
       })}
@@ -3466,9 +3466,11 @@ type FormulaSemanticToken = {
   latex: string;
   matchLatex?: string;
   requiresFollowingParenthesis?: boolean;
-  kind: 'source' | 'result' | 'scale';
+  kind: 'source' | 'result' | 'dimension' | 'scale';
   label: string;
 };
+
+const spatialScaleFormulaKeywords = [...spatialScaleKeys.map((scale) => spatialScaleLabels[scale]), 'Zone'];
 
 const allowFormulaSemanticClass = (context: TrustContext) => context.command === '\\htmlClass';
 
@@ -3556,10 +3558,28 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]) 
   return { decorated: buildDecoratedFormula(validTokens) || formula, tokens: validTokens };
 };
 
-function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false, highlightSpatialScales = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean; highlightSpatialScales?: boolean }) {
+function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean }) {
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const dimensionTokens = useMemo(() => kpi.sources.flatMap((source): FormulaSemanticToken[] => {
+    if (source.type !== 'dataField') return [];
+    const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
+    const group = dataSource?.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
+    return group?.dimensions.flatMap((dimension): FormulaSemanticToken[] => [
+      {
+        latex: latexIdentifier(dimension.name),
+        kind: 'dimension',
+        label: `Dimension: ${dimension.name}`
+      },
+      ...dimension.options.map((option) => ({
+        latex: latexIdentifier(option),
+        kind: 'dimension' as const,
+        label: `${dimension.name} option: ${option}`
+      }))
+    ]) ?? [];
+  }), [config.dataSources, kpi.sources]);
   const semantic = useMemo(
     () => decorateFormulaTokens(item.formula, [
+      ...dimensionTokens,
       ...priorItems.map((prior) => ({ latex: prior.leftExpression, kind: 'result' as const, label: `Previous formula: ${prior.tag || 'Untitled formula'}` })),
       ...kpi.sources.map((source) => {
         const lookupOpenParenthesis = source.type === 'lookup' ? source.latex.indexOf('(') : -1;
@@ -3571,14 +3591,14 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
           label: `Source: ${sourceItemLabel(config, source)}`
         };
       }),
-      ...(highlightSpatialScales ? spatialScaleKeys.map((scale) => ({
-        latex: spatialScaleLabels[scale],
+      ...spatialScaleFormulaKeywords.map((keyword) => ({
+        latex: keyword,
         kind: 'scale' as const,
-        label: `Spatial scale: ${spatialScaleLabels[scale]}`
-      })) : []),
+        label: `Spatial scale: ${keyword}`
+      })),
       { latex: item.leftExpression, kind: 'result' as const, label: `Formula tag: ${item.tag.trim() || 'Untitled formula'}` }
     ]),
-    [config, highlightSpatialScales, item.formula, item.leftExpression, item.tag, kpi.sources, priorItems]
+    [config, dimensionTokens, item.formula, item.leftExpression, item.tag, kpi.sources, priorItems]
   );
   const renderedHtml = useMemo(() => {
     try {
@@ -3848,7 +3868,7 @@ function SpatialScaleMatrix({
                     rightExpression: partial.rightExpression ?? scaleValue.rightExpression
                   })}
                 />
-                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} highlightSpatialScales />
+                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} />
                 <details className="formula-explanations spatial-scale-explanation">
                   <summary title="Show aggregation explanation"><Info size={13} aria-hidden="true" /><span>Aggregation explanation</span></summary>
                   <label className="field">
