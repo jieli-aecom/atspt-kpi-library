@@ -1543,7 +1543,7 @@ const repairFormulaGroups = (description: Record<string, unknown>, warnings: str
       if (isRecord(item) && Array.isArray(item.items ?? item.formulas ?? item.Formulas)) {
         const rawGroupItems = item.items ?? item.formulas ?? item.Formulas;
         groups.push({
-          name: stringValue(item.name ?? item.groupName ?? item.label ?? item.title ?? item['Group Name']).trim() || `Group ${groups.length + 1}`,
+          name: stringValue(item.name ?? item.groupName ?? item.label ?? item.title ?? item['Group Name']).trim(),
           items: (rawGroupItems as unknown[]).map((formulaItem, itemIndex) =>
             repairFormulaItem(formulaItem, itemIndex, warnings, kpiName)
           )
