@@ -2243,7 +2243,7 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   return `${source?.name ?? 'Missing source'} / ${field?.name ?? 'Missing field'}${dimensionLabel}`;
 };
 
-const sourceItemFormulaTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
+const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const label = sourceItemLabel(config, item);
   if (item.type !== 'dataField') return label;
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
@@ -3102,7 +3102,7 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
           <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}</span></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
             const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-            return <span className="source-summary-item" key={source.id}>{field.name}{dimensionLabel ? ` [${dimensionLabel}]` : ''}</span>;
+            return <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)}>{field.name}{dimensionLabel ? ` [${dimensionLabel}]` : ''}</span>;
           })}</span>
         </span>
       ))}
@@ -3196,7 +3196,7 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
     <div className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''}`} key={item.id}>
       {item.type === 'custom'
         ? <input value={item.name} aria-label="Custom source name" onChange={(event) => updateItem(item.id, { name: event.target.value })} />
-        : <span title={sourceItemLabel(config, item)}>{label}</span>}
+        : <span title={sourceItemTooltip(config, item)}>{label}</span>}
       <input className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onChange={(event) => updateItem(item.id, { latex: event.target.value })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
       <button className="mini-icon-button danger" type="button" title="Remove source" onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
@@ -3596,7 +3596,7 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
           matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
           requiresFollowingParenthesis: lookupOpenParenthesis > 0,
           kind: 'source' as const,
-          label: `Source: ${sourceItemFormulaTooltip(config, source)}`
+          label: `Source: ${sourceItemTooltip(config, source)}`
         };
       }),
       ...spatialScaleFormulaKeywords.map((keyword) => ({
