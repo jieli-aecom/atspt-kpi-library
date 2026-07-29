@@ -1921,9 +1921,42 @@ function FormulaDisplay({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric
   const comment = kpi.description.formulaComment;
   const allFormulaItems = formulas.flatMap((group) => group.items);
   const hasFormula = formulas.some((group) => group.items.some((item) => item.formula.trim()));
+  const displayRef = useRef<HTMLDivElement | null>(null);
+  const [hasVisibleOverflow, setHasVisibleOverflow] = useState(false);
+
+  useLayoutEffect(() => {
+    const element = displayRef.current;
+    if (!element) return undefined;
+    let active = true;
+
+    const measure = () => {
+      if (!active) return;
+      const containerRect = element.getBoundingClientRect();
+      const paddingBottom = Number.parseFloat(getComputedStyle(element).paddingBottom) || 0;
+      const visibleContentBottom = Array.from(element.children).reduce(
+        (bottom, child) => Math.max(bottom, child.getBoundingClientRect().bottom - containerRect.top + element.scrollTop),
+        0
+      );
+      const nextHasVisibleOverflow = visibleContentBottom > element.clientHeight - paddingBottom + 1;
+      setHasVisibleOverflow((current) => (current === nextHasVisibleOverflow ? current : nextHasVisibleOverflow));
+    };
+
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    Array.from(element.children).forEach((child) => observer?.observe(child));
+    void document.fonts?.ready.then(measure);
+
+    return () => {
+      active = false;
+      observer?.disconnect();
+    };
+  }, [comment, formulas, hasFormula]);
+
+  const displayClassName = `formula-display${hasVisibleOverflow ? ' has-visible-overflow' : ''}`;
   if (!hasFormula) {
     return (
-      <div className="formula-display formula-comment-display">
+      <div className={`${displayClassName} formula-comment-display`} ref={displayRef}>
         {comment.trim() ? <span>{comment}</span> : <span className="muted-dash">No formula</span>}
       </div>
     );
@@ -1942,7 +1975,7 @@ function FormulaDisplay({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric
     .filter((group) => group.name.trim() || group.items.length > 0);
 
   return (
-    <div className="formula-display">
+    <div className={displayClassName} ref={displayRef}>
       {visibleGroups.length ? (
         visibleGroups.map((group, groupIndex) => (
           <div className="formula-display-group" key={`${group.name}-${groupIndex}`}>
@@ -3269,7 +3302,7 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   );
 }
 
-function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, rightOnly = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; onChange: (partial: Partial<KpiFormulaItem>) => void; rightOnly?: boolean }) {
+function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, rightOnly = false, spatialScale }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; onChange: (partial: Partial<KpiFormulaItem>) => void; rightOnly?: boolean; spatialScale?: SpatialScaleKey }) {
   const leftRef = useRef<HTMLTextAreaElement | null>(null);
   const rightRef = useRef<HTMLTextAreaElement | null>(null);
   const paletteOptionsRef = useRef<HTMLDivElement | null>(null);
@@ -3310,6 +3343,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   };
   const insertableSources = kpi.sources.filter((source) => source.latex.trim());
   const insertableResults = priorItems.filter((prior) => prior.tag.trim() && prior.leftExpression.trim());
+  const lastFormulaItem = priorItems[priorItems.length - 1];
   const dimensionShortcuts = useMemo(() => {
     const shortcuts = new Map<string, { latex: string; label: string; kind: 'Dimension' | 'Option' | 'Set' }>();
     kpi.sources.forEach((source) => {
@@ -3391,6 +3425,25 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
           ref={paletteOptionsRef}
           style={{ maxHeight: paletteExpanded ? 'none' : paletteRowHeight }}
         >
+          {spatialScale ? (
+            <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[spatialScale]}`} onClick={() => insertLatex(spatialScaleLabels[spatialScale])}>
+              <span>Scale</span>
+              <InlineMath math={spatialScaleLabels[spatialScale]} errorColor="#b42318" />
+            </button>
+          ) : null}
+          {spatialScale && lastFormulaItem ? (
+            <button className="formula-result-insert" type="button" disabled={!lastFormulaItem.leftExpression.trim()} title={lastFormulaItem.leftExpression.trim() ? `Last formula result: ${lastFormulaItem.tag}` : 'The last formula has no left term'} onClick={() => insertLatex(lastFormulaItem.leftExpression)}>
+              <span>{lastFormulaItem.tag.trim() || 'Last formula'}</span>
+              {lastFormulaItem.leftExpression.trim() ? <InlineMath math={lastFormulaItem.leftExpression} errorColor="#b42318" /> : 'No left term'}
+            </button>
+          ) : null}
+          {insertableResults.map((prior, index) => (
+            spatialScale && prior === lastFormulaItem ? null :
+            <button className="formula-result-insert" type="button" title={`Formula result: ${prior.tag}`} key={`${prior.tag}-${index}`} onClick={() => insertLatex(prior.leftExpression)}>
+              <span>{prior.tag}</span>
+              <InlineMath math={prior.leftExpression} errorColor="#b42318" />
+            </button>
+          ))}
           {kpi.sources.map((source) => (
             <button className="formula-source-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
               {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
@@ -3402,13 +3455,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
               <InlineMath math={shortcut.latex} errorColor="#b42318" />
             </button>
           ))}
-          {insertableResults.map((prior, index) => (
-            <button className="formula-result-insert" type="button" title={`Formula result: ${prior.tag}`} key={`${prior.tag}-${index}`} onClick={() => insertLatex(prior.leftExpression)}>
-              <span>{prior.tag}</span>
-              <InlineMath math={prior.leftExpression} errorColor="#b42318" />
-            </button>
-          ))}
-          {insertableSources.length === 0 && dimensionShortcuts.length === 0 && insertableResults.length === 0 ? <span className="empty-option">No insertable sources, dimensions, or formula results.</span> : null}
+          {insertableSources.length === 0 && dimensionShortcuts.length === 0 && insertableResults.length === 0 && !spatialScale ? <span className="empty-option">No insertable sources, dimensions, or formula results.</span> : null}
         </div>
       </div>
     </div>
@@ -3419,7 +3466,7 @@ type FormulaSemanticToken = {
   latex: string;
   matchLatex?: string;
   requiresFollowingParenthesis?: boolean;
-  kind: 'source' | 'result';
+  kind: 'source' | 'result' | 'scale';
   label: string;
 };
 
@@ -3509,7 +3556,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]) 
   return { decorated: buildDecoratedFormula(validTokens) || formula, tokens: validTokens };
 };
 
-function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean }) {
+function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false, highlightSpatialScales = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean; highlightSpatialScales?: boolean }) {
   const previewRef = useRef<HTMLDivElement | null>(null);
   const semantic = useMemo(
     () => decorateFormulaTokens(item.formula, [
@@ -3524,9 +3571,14 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
           label: `Source: ${sourceItemLabel(config, source)}`
         };
       }),
+      ...(highlightSpatialScales ? spatialScaleKeys.map((scale) => ({
+        latex: spatialScaleLabels[scale],
+        kind: 'scale' as const,
+        label: `Spatial scale: ${spatialScaleLabels[scale]}`
+      })) : []),
       { latex: item.leftExpression, kind: 'result' as const, label: `Formula tag: ${item.tag.trim() || 'Untitled formula'}` }
     ]),
-    [config, item.formula, item.leftExpression, item.tag, kpi.sources, priorItems]
+    [config, highlightSpatialScales, item.formula, item.leftExpression, item.tag, kpi.sources, priorItems]
   );
   const renderedHtml = useMemo(() => {
     try {
@@ -3789,13 +3841,14 @@ function SpatialScaleMatrix({
                   item={item}
                   priorItems={normalFormulaItems}
                   rightOnly
+                  spatialScale={scale}
                   onChange={(partial) => updateScale(scale, {
                     formula: partial.formula ?? scaleValue.formula,
                     leftExpression: '',
                     rightExpression: partial.rightExpression ?? scaleValue.rightExpression
                   })}
                 />
-                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} />
+                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} highlightSpatialScales />
                 <details className="formula-explanations spatial-scale-explanation">
                   <summary title="Show aggregation explanation"><Info size={13} aria-hidden="true" /><span>Aggregation explanation</span></summary>
                   <label className="field">
