@@ -5354,13 +5354,11 @@ function EditorApp({
     setConfig(repaired.config);
     setEtag(result.etag);
     setWarnings([...repaired.warnings, ...(result.warnings ?? [])]);
-    setFilters(emptyFilters());
-    setPinnedNameFilterIds([]);
-    setExpandedIds([]);
-    const nextFocus = validDefaultFocus(repaired.config, repaired.config.defaultFocus);
-    setExamineAssignment(nextFocus);
-    setFocusedAssignment(nextFocus);
-    setHideOutsideFocusedGroup(false);
+    const validIds = new Set(repaired.config.kpis.map((kpi) => kpi.id));
+    setPinnedNameFilterIds((current) => current.filter((id) => validIds.has(id)));
+    setExpandedIds((current) => current.filter((id) => validIds.has(id)));
+    setExamineAssignment((current) => (current && validDefaultFocus(repaired.config, current) ? current : undefined));
+    setFocusedAssignment((current) => (current && validDefaultFocus(repaired.config, current) ? current : undefined));
     setSaveState('saved');
     setSaveNotice(notice);
   };
@@ -5488,13 +5486,6 @@ function EditorApp({
           ? [`${merged.lookupConflicts} imported lookup${merged.lookupConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : [])
       ]);
-      setFilters(emptyFilters());
-      setPinnedNameFilterIds([]);
-      setExpandedIds([]);
-      const mergedFocus = validDefaultFocus(merged.config, merged.config.defaultFocus);
-      setExamineAssignment(mergedFocus);
-      setFocusedAssignment(mergedFocus);
-      setHideOutsideFocusedGroup(false);
     } catch (err) {
       setWarnings([`Could not import "${file.name}". ${err instanceof Error ? err.message : 'The file was not a valid KPI Library HTML file.'}`]);
     }
