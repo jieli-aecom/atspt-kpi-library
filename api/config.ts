@@ -27,6 +27,12 @@ type WriteRequest = {
   override?: unknown;
 };
 
+// Private Blob downloads expose the object ETag as a weak HTTP validator
+// (W/"..."). Blob conditional writes require the corresponding strong value.
+// Keeping this normalization at the read boundary also ensures the browser's
+// baseEtag can be passed back unchanged on a later save.
+const normalizeBlobEtag = (etag: string) => etag.startsWith('W/') ? etag.slice(2) : etag;
+
 const jsonResponse = (body: unknown, status = 200, headers?: HeadersInit) =>
   Response.json(body, {
     status,
@@ -98,7 +104,7 @@ const readStoredConfig = async (): Promise<StoredConfig> => {
   const repaired = repairConfig(parsed);
   return {
     config: repaired.config,
-    etag: result.blob.etag,
+    etag: normalizeBlobEtag(result.blob.etag),
     exists: true,
     warnings: repaired.warnings
   };

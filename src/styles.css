@@ -484,6 +484,17 @@ h1 {
   color: #8d2b24;
 }
 
+.save-error-bar {
+  flex: 0 0 auto;
+  margin: 10px 12px 0;
+  border: 1px solid #dfb4af;
+  border-radius: 7px;
+  background: #faecea;
+  color: #76241e;
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
 .warning-bar {
   flex: 0 0 auto;
   margin: 10px 12px 0;

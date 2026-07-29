@@ -5355,10 +5355,10 @@ function EditorApp({
                   ? saveState === 'loading'
                     ? 'Loading...'
                     : 'Saving...'
-                  : hasUnsavedChanges
-                    ? 'Unsaved changes'
-                    : saveState === 'error'
-                      ? 'Save error'
+                  : saveState === 'error'
+                    ? 'Save failed'
+                    : hasUnsavedChanges
+                      ? 'Unsaved changes'
                       : 'Hosted JSON current'}
             </span>
             <span className="result-count">
@@ -5433,6 +5433,12 @@ function EditorApp({
           </div>
         </div>
       </header>
+
+      {saveState === 'error' ? (
+        <div className="save-error-bar" role="alert">
+          <strong>Hosted JSON was not updated.</strong> {saveNotice} Your local edits remain unsaved.
+        </div>
+      ) : null}
 
       <WarningBar warnings={warnings} onDismiss={() => setWarnings([])} />
 
