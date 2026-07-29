@@ -1908,7 +1908,7 @@ function SpatialScaleBadges({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMe
             >
               {spatialScaleLabels[scale]}
             </span>
-            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} inline />
+            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} inline highlightSpatialScales />
           </div>
         );
       })}
