@@ -72,10 +72,15 @@ const request = async (secret: string, init?: RequestInit): Promise<RemoteConfig
 
 export const loadRemoteConfig = (secret: string) => request(secret);
 
-export const syncRemoteConfig = (secret: string, config: KpiPoolConfig, baseEtag: string | null) =>
+export const syncRemoteConfig = (
+  secret: string,
+  config: KpiPoolConfig,
+  baseEtag: string | null,
+  deletedKpiIds: string[]
+) =>
   request(secret, {
     method: 'POST',
-    body: JSON.stringify({ config, baseEtag })
+    body: JSON.stringify({ config, baseEtag, deletedKpiIds })
   });
 
 export const forceRemoteConfig = (

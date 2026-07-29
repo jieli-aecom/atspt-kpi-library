@@ -71,7 +71,8 @@ The browser asks for the shared library secret and calls `GET /api/config`. The 
 
 - Existing edited objects are updated when the editor started from the current ETag.
 - New KPI, enum, data-source, and lookup IDs are added.
-- Locally deleted objects are retained; normal Save is additive.
+- KPI IDs deleted in this editor are sent as tombstones and removed from the merged result.
+- A KPI deleted by another editor is restored when it is still present in this editor; other collections remain additive.
 - If another editor saved first, KPI conflicts use `lastModified`; non-versioned definition conflicts keep the hosted value and are reported.
 - The final Blob write uses its current ETag. A concurrent modification causes a retry rather than a lost update.
 
@@ -102,7 +103,7 @@ When an exported HTML opens:
 The root-level [`api/config.ts`](api/config.ts) Vercel Function exposes:
 
 - `GET /api/config`: load and repair the hosted document
-- `POST /api/config`: additive, concurrency-aware synchronization
+- `POST /api/config`: additive, concurrency-aware synchronization with explicit KPI deletion tombstones
 - `PUT /api/config`: complete replacement with stale-version protection and explicit override support
 
 All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use `Cache-Control: no-store`, and request/configuration bodies are limited to 5 MB.

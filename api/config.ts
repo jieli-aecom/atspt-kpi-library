@@ -7,7 +7,7 @@ import {
   repairConfig,
   UnsupportedSchemaVersionError
 } from '../src/configSchema.js';
-import { mergeCurrentAdditiveConfig, mergeImportedConfig } from '../src/configMerge.js';
+import { applyKpiDeletions, mergeCurrentAdditiveConfig, mergeImportedConfig } from '../src/configMerge.js';
 import type { KpiPoolConfig } from '../src/types.js';
 
 const CONFIG_PATH = 'kpi-library.json';
@@ -25,6 +25,7 @@ type WriteRequest = {
   config?: unknown;
   baseEtag?: unknown;
   override?: unknown;
+  deletedKpiIds?: unknown;
 };
 
 // Private Blob downloads expose the object ETag as a weak HTTP validator
@@ -136,6 +137,16 @@ const readWriteRequest = async (request: Request) => {
     });
   }
 
+  if (
+    body.deletedKpiIds !== undefined &&
+    (!Array.isArray(body.deletedKpiIds) || body.deletedKpiIds.some((id) => typeof id !== 'string' || !id.trim()))
+  ) {
+    throw new Response(JSON.stringify({ error: 'Deleted KPI IDs must be non-empty strings.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const repaired = repairConfig(body.config);
   const serialized = JSON.stringify(repaired.config);
   if (Buffer.byteLength(serialized, 'utf8') > MAX_CONFIG_BYTES) {
@@ -149,7 +160,8 @@ const readWriteRequest = async (request: Request) => {
     config: repaired.config,
     warnings: repaired.warnings,
     baseEtag: typeof body.baseEtag === 'string' ? body.baseEtag : null,
-    override: body.override === true
+    override: body.override === true,
+    deletedKpiIds: [...new Set((body.deletedKpiIds as string[] | undefined) ?? [])]
   };
 };
 
@@ -172,9 +184,13 @@ const normalSync = async (request: Request) => {
     const stored = await readStoredConfig();
     const basedOnCurrent = incoming.baseEtag === stored.etag;
     const mergeResult = basedOnCurrent ? null : mergeImportedConfig(stored.config, incoming.config);
-    const mergedConfig = basedOnCurrent
+    const additiveConfig = basedOnCurrent
       ? mergeCurrentAdditiveConfig(stored.config, incoming.config)
       : mergeResult!.config;
+    // Additive merging intentionally restores a KPI deleted by another editor
+    // when this editor still has it. Explicit tombstones make this editor's own
+    // deletions win without treating every absent hosted KPI as a deletion.
+    const mergedConfig = applyKpiDeletions(additiveConfig, incoming.deletedKpiIds);
 
     try {
       const written = await writeConfig(mergedConfig, stored.etag);

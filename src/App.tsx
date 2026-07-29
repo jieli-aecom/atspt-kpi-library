@@ -2245,6 +2245,10 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
 
 const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const label = sourceItemLabel(config, item);
+  if (item.type === 'lookup') {
+    const explanation = config.lookups.find((lookup) => lookup.id === item.lookupId)?.outputExplanation.trim();
+    return explanation ? `${label}\n${explanation}` : label;
+  }
   if (item.type !== 'dataField') return label;
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const meaning = source?.fields.find((entry) => entry.id === item.fieldId)?.meaning.trim();
@@ -3115,7 +3119,7 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
       {lookupSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><BookOpen size={12} aria-hidden="true" /><span>Lookups</span></span>
-          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className="source-summary-item" key={source.id}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
+          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
         </span>
       ) : null}
       {customSources.length ? (
@@ -5218,9 +5222,12 @@ function EditorApp({
   const [pinnedNameFilterIds, setPinnedNameFilterIds] = useState<string[]>([]);
   const [examineAssignment, setExamineAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
   const [focusedAssignment, setFocusedAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
-  const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(false);
+  const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(true);
   const [performanceAreaSort, setPerformanceAreaSort] = useState<PerformanceAreaSortOrder>();
   const baselineKpisRef = useRef(new Map(initialConfig.kpis.map((kpi) => [kpi.id, kpi])));
+  const lastSyncedKpiIdsRef = useRef(
+    new Set(initialRemoteExists ? initialConfig.kpis.map((kpi) => kpi.id) : [])
+  );
   const lastSavedConfigRef = useRef(
     initialRemoteExists || exportedSnapshot ? JSON.stringify(initialConfig) : ''
   );
@@ -5457,6 +5464,7 @@ function EditorApp({
   const replaceWithRemoteConfig = (result: RemoteConfigResult, notice: string) => {
     const repaired = repairConfig(result.config);
     baselineKpisRef.current = new Map(repaired.config.kpis.map((kpi) => [kpi.id, kpi]));
+    lastSyncedKpiIdsRef.current = new Set(repaired.config.kpis.map((kpi) => kpi.id));
     lastSavedConfigRef.current = JSON.stringify(repaired.config);
     setConfig(repaired.config);
     setEtag(result.etag);
@@ -5487,7 +5495,9 @@ function EditorApp({
     setSaveState('saving');
     setSaveNotice('Reading and merging with the hosted JSON...');
     try {
-      const result = await syncRemoteConfig(hostedSecret, config, etag);
+      const currentKpiIds = new Set(config.kpis.map((kpi) => kpi.id));
+      const deletedKpiIds = [...lastSyncedKpiIdsRef.current].filter((id) => !currentKpiIds.has(id));
+      const result = await syncRemoteConfig(hostedSecret, config, etag, deletedKpiIds);
       replaceWithRemoteConfig(
         result,
         result.mergedAfterRemoteChange
@@ -5658,7 +5668,7 @@ function EditorApp({
               type="button"
               onClick={saveToHostedJson}
               disabled={exportedSnapshot || saveBusy || !hasUnsavedChanges}
-              title={remoteActionTitle ?? 'Add or update records without applying deletions'}
+              title={remoteActionTitle ?? 'Add or update records and apply your KPI deletions'}
             >
               <Save size={15} aria-hidden="true" />
               Save to JSON

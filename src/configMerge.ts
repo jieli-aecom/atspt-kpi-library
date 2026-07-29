@@ -132,3 +132,28 @@ export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: Kpi
   lookups: mergeAdditiveCollection(current.lookups, incoming.lookups),
   kpis: mergeAdditiveCollection(current.kpis, incoming.kpis)
 });
+
+/**
+ * Applies explicit KPI deletion tombstones after an additive hosted merge.
+ * References to deleted KPIs are removed along with the KPI records.
+ */
+export const applyKpiDeletions = (config: KpiPoolConfig, deletedKpiIds: readonly string[]): KpiPoolConfig => {
+  if (deletedKpiIds.length === 0) {
+    return config;
+  }
+
+  const deletedIds = new Set(deletedKpiIds);
+  return {
+    ...config,
+    kpis: config.kpis
+      .filter((kpi) => !deletedIds.has(kpi.id))
+      .map((kpi) => ({
+        ...kpi,
+        sources: kpi.sources.filter((source) => source.type !== 'kpi' || !deletedIds.has(source.kpiId)),
+        prerequisite: {
+          ...kpi.prerequisite,
+          kpis: kpi.prerequisite.kpis.filter((id) => !deletedIds.has(id))
+        }
+      }))
+  };
+};
