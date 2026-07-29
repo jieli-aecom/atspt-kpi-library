@@ -31,12 +31,13 @@ Vercel Sensitive Environment Variables can only target Production and Preview. I
 
 ## Vercel configuration
 
-The Vercel project needs these server-side environment variables in Production, Preview, and Development:
+The Vercel project needs the following server-side configuration:
 
-- `BLOB_READ_WRITE_TOKEN`: added by connecting a private Vercel Blob store to the project
-- `KPI_LIBRARY_SECRET`: a shared application secret entered by users when opening the hosted library
+- A private Vercel Blob store connected to Production and Preview using OIDC. Vercel injects the short-lived OIDC credential and `BLOB_STORE_ID` automatically.
+- `KPI_LIBRARY_SECRET`: a shared application secret entered by users when opening the hosted library, configured for Production and Preview and supplied locally for Development.
+- `BLOB_READ_WRITE_TOKEN`: optional legacy/local fallback. It is not required by hosted deployments after the Blob project connection is upgraded to OIDC.
 
-Neither variable may use a `VITE_` prefix. Variables prefixed with `VITE_` are browser-visible. Do not commit either value or place it in `index.html`.
+No secret may use a `VITE_` prefix. Variables prefixed with `VITE_` are browser-visible. Do not commit secret values or place them in `index.html`.
 
 The Blob store contains one private object:
 

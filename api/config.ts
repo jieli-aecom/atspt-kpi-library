@@ -1,4 +1,5 @@
 import { timingSafeEqual } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { BlobPreconditionFailedError, get, put } from '@vercel/blob';
 import {
   createBlankConfig,
@@ -57,26 +58,17 @@ const authorize = (request: Request) => {
     return jsonResponse({ error: 'Library access is required.' }, 401, { 'WWW-Authenticate': 'Bearer' });
   }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return jsonResponse({ error: 'BLOB_READ_WRITE_TOKEN is not configured for this environment.' }, 503);
+  if (!process.env.BLOB_STORE_ID && !process.env.BLOB_READ_WRITE_TOKEN) {
+    return jsonResponse({ error: 'No Vercel Blob store is connected to this environment.' }, 503);
   }
 
   return null;
 };
 
-const blobToken = () => {
-  const token = process.env.BLOB_READ_WRITE_TOKEN;
-  if (!token) {
-    throw new Error('BLOB_READ_WRITE_TOKEN is not configured.');
-  }
-  return token;
-};
-
 const readStoredConfig = async (): Promise<StoredConfig> => {
   const result = await get(CONFIG_PATH, {
     access: 'private',
-    useCache: false,
-    token: blobToken()
+    useCache: false
   });
   if (!result) {
     return {
@@ -159,7 +151,6 @@ const writeConfig = async (config: KpiPoolConfig, etag: string | null) => {
   const output = prepareForExport(config);
   const blob = await put(CONFIG_PATH, JSON.stringify(output, null, 2), {
     access: 'private',
-    token: blobToken(),
     contentType: 'application/json; charset=utf-8',
     cacheControlMaxAge: 60,
     allowOverwrite: etag !== null,
@@ -254,7 +245,7 @@ const forceReplace = async (request: Request) => {
   return jsonResponse({ error: 'The library changed repeatedly while being replaced. Try again.' }, 409);
 };
 
-const handler = async (request: Request) => {
+const handleWebRequest = async (request: Request) => {
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: { Allow: 'GET, POST, PUT, OPTIONS' } });
   }
@@ -304,7 +295,43 @@ const handler = async (request: Request) => {
   }
 };
 
-// Vercel Web Handlers use a fetch object (or named HTTP method exports). A bare
-// default function is interpreted as the legacy request/response signature by
-// some `vercel dev` versions, leaving returned Web Responses unresolved.
-export default { fetch: handler };
+type VercelNodeRequest = IncomingMessage & { body?: unknown };
+
+const webRequestFromNodeRequest = (request: VercelNodeRequest) => {
+  const headers = new Headers();
+  for (const [name, value] of Object.entries(request.headers)) {
+    if (Array.isArray(value)) {
+      value.forEach((entry) => headers.append(name, entry));
+    } else if (value !== undefined) {
+      headers.set(name, value);
+    }
+  }
+
+  const method = request.method ?? 'GET';
+  const body = method === 'GET' || method === 'HEAD' || request.body === undefined
+    ? undefined
+    : typeof request.body === 'string'
+      ? request.body
+      : request.body instanceof Uint8Array
+        ? Buffer.from(request.body).toString('utf8')
+      : JSON.stringify(request.body);
+  const origin = `https://${headers.get('host') ?? 'localhost'}`;
+
+  return new Request(new URL(request.url ?? '/api/config', origin), {
+    method,
+    headers,
+    body
+  });
+};
+
+const sendWebResponse = async (webResponse: Response, response: ServerResponse) => {
+  response.statusCode = webResponse.status;
+  webResponse.headers.forEach((value, name) => response.setHeader(name, value));
+  response.end(Buffer.from(await webResponse.arrayBuffer()));
+};
+
+// Vite projects use Vercel's Node request/response function signature. The
+// adapter keeps the application logic on standard Web Request/Response APIs.
+export default async function handler(request: VercelNodeRequest, response: ServerResponse) {
+  await sendWebResponse(await handleWebRequest(webRequestFromNodeRequest(request)), response);
+}
