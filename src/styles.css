@@ -1052,11 +1052,35 @@ h1 {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: center;
   gap: 6px;
-  min-height: 14px;
+  min-height: 22px;
+  margin-block: 1px;
+  border-radius: 4px;
+  transition: background-color 100ms ease, box-shadow 100ms ease;
 }
 
 .field-insert-actions .list-insert-divider {
-  margin-block: -5px;
+  min-height: 20px;
+  margin-block: 0;
+}
+
+.field-insert-actions.is-grouped-field-insert {
+  min-height: 16px;
+  margin-block: 0;
+}
+
+.field-insert-actions.is-grouped-field-insert .list-insert-divider {
+  min-height: 16px;
+}
+
+.field-insert-actions.is-drag-over {
+  background: #e6f2f5;
+  box-shadow: inset 0 0 0 1px #5a8ea1;
+}
+
+.field-insert-actions.is-drag-over .list-insert-divider {
+  border-top-color: #5a8ea1;
+  color: #315a6c;
+  opacity: 1;
 }
 
 .field-group-insert-divider {
