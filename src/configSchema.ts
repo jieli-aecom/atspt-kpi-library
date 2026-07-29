@@ -62,6 +62,12 @@ const dataSourceFieldSchema = z.object({
   valueUnit: z.string()
 });
 
+const dataSourceFieldDimensionSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  options: z.array(z.string())
+});
+
 const dataSourceSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -69,8 +75,7 @@ const dataSourceSchema = z.object({
   fields: z.array(dataSourceFieldSchema),
   fieldGroups: z.array(z.object({
     id: z.string().min(1),
-    versionName: z.string(),
-    versions: z.array(z.string()),
+    dimensions: z.array(dataSourceFieldDimensionSchema),
     fieldIds: z.array(z.string()),
     position: z.number().int().nonnegative()
   }))
@@ -93,7 +98,6 @@ const kpiSourceItemSchema = z.discriminatedUnion('type', [
     type: z.literal('dataField'),
     dataSourceId: z.string().min(1),
     fieldId: z.string().min(1),
-    version: z.string().optional(),
     latex: z.string()
   }),
   z.object({
@@ -254,7 +258,7 @@ const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
       isRecord(source) &&
       typeof source.id === 'string' &&
       typeof source.latex === 'string' &&
-      ((source.type === 'dataField' && typeof source.dataSourceId === 'string' && typeof source.fieldId === 'string' && (source.version === undefined || typeof source.version === 'string')) ||
+      ((source.type === 'dataField' && typeof source.dataSourceId === 'string' && typeof source.fieldId === 'string' && source.version === undefined) ||
         (source.type === 'kpi' && typeof source.kpiId === 'string') ||
         (source.type === 'lookup' && typeof source.lookupId === 'string') ||
         (source.type === 'custom' && typeof source.name === 'string'))
@@ -315,8 +319,13 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
           (group) =>
             isRecord(group) &&
             typeof group.id === 'string' &&
-            typeof group.versionName === 'string' &&
-            isStringArray(group.versions) &&
+            Array.isArray(group.dimensions) &&
+            group.dimensions.every((dimension) =>
+              isRecord(dimension) &&
+              typeof dimension.id === 'string' &&
+              typeof dimension.name === 'string' &&
+              isStringArray(dimension.options)
+            ) &&
             isStringArray(group.fieldIds) &&
             typeof group.position === 'number' &&
             Number.isInteger(group.position) &&
@@ -409,7 +418,10 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
         hasDuplicate(source.fieldGroups.map((group) => group.id)) ||
         hasDuplicate(groupedFieldIds) ||
         source.fieldGroups.some((group) =>
-          !group.fieldIds.every((fieldId) => fieldIds.has(fieldId)) || hasDuplicate(group.versions)
+          !group.fieldIds.every((fieldId) => fieldIds.has(fieldId)) ||
+          hasDuplicate(group.dimensions.map((dimension) => dimension.id)) ||
+          hasDuplicate(group.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase())) ||
+          group.dimensions.some((dimension) => hasDuplicate(dimension.options.map((option) => option.toLocaleLowerCase())))
         );
     })
   ) {
@@ -418,7 +430,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
 
   return input.kpis.every((kpi) => {
     const dataFieldKeys = kpi.sources.flatMap((source) => source.type === 'dataField'
-      ? [`${source.dataSourceId}\u0000${source.fieldId}\u0000${source.version ?? ''}`]
+      ? [`${source.dataSourceId}\u0000${source.fieldId}`]
       : []
     );
     if (hasDuplicate(dataFieldKeys)) return false;
@@ -428,10 +440,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
           ? (() => {
               const dataSource = dataSourceById.get(source.dataSourceId);
               if (!dataSource?.fields.some((field) => field.id === source.fieldId)) return false;
-              const group = dataSource.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
-              return group
-                ? source.version === undefined || group.versions.includes(source.version)
-                : source.version === undefined;
+              return true;
             })()
           : source.type === 'kpi'
             ? source.kpiId !== kpi.id && validKpis.has(source.kpiId)
@@ -1648,15 +1657,49 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
         .map((value) => stringValue(value))
         .filter((fieldId) => validFieldIds.has(fieldId) && !claimedFieldIds.has(fieldId));
       fieldIds.forEach((fieldId) => claimedFieldIds.add(fieldId));
-      const versions = [...new Set(
-        (Array.isArray(rawGroup.versions) ? rawGroup.versions : stringValue(rawGroup.versions).split(','))
+      const rawDimensions = Array.isArray(rawGroup.dimensions)
+        ? rawGroup.dimensions
+        : [
+            {
+              name: rawGroup.dimensionName ?? rawGroup.versionName ?? rawGroup.name,
+              options: rawGroup.dimensionOptions ?? rawGroup.versions
+            }
+          ];
+      const usedDimensionIds = new Set<string>();
+      const seenDimensionNames = new Set<string>();
+      const dimensions = rawDimensions.flatMap((rawDimension, dimensionIndex) => {
+        const dimensionRecord = isRecord(rawDimension) ? rawDimension : undefined;
+        const dimensionName = stringValue(
+          dimensionRecord?.name ?? dimensionRecord?.dimensionName ?? dimensionRecord?.label ?? rawDimension
+        ).trim();
+        const normalizedName = dimensionName.toLocaleLowerCase();
+        if (!dimensionName || seenDimensionNames.has(normalizedName)) return [];
+        seenDimensionNames.add(normalizedName);
+        const rawOptions = dimensionRecord?.options ?? dimensionRecord?.dimensionOptions ?? dimensionRecord?.versions;
+        const seenOptions = new Set<string>();
+        const options = (Array.isArray(rawOptions) ? rawOptions : stringValue(rawOptions).split(','))
           .map((value) => stringValue(value).trim())
-          .filter(Boolean)
-      )];
+          .filter((option) => {
+            const normalizedOption = option.toLocaleLowerCase();
+            if (!option || seenOptions.has(normalizedOption)) return false;
+            seenOptions.add(normalizedOption);
+            return true;
+          });
+        return [{
+          id: ensureUniqueId(
+            dimensionRecord?.id,
+            'dimension',
+            usedDimensionIds,
+            warnings,
+            `${name}: field group ${groupIndex + 1}, dimension ${dimensionIndex + 1}`
+          ),
+          name: dimensionName,
+          options
+        }];
+      });
       return [{
         id: ensureUniqueId(rawGroup.id, 'field-group', usedGroupIds, warnings, `${name}: field group ${groupIndex + 1}`),
-        versionName: stringValue(rawGroup.versionName ?? rawGroup.name).trim(),
-        versions,
+        dimensions,
         fieldIds,
         position: Math.max(0, Math.min(Number.isInteger(rawGroup.position) ? Number(rawGroup.position) : 0, fields.length))
       }];
@@ -1750,7 +1793,6 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
           type,
           dataSourceId,
           fieldId,
-          version: stringValue(rawSource.version).trim() || undefined,
           latex: stringValue(rawSource.latex ?? rawSource.symbol)
         }]
       : [];
@@ -1928,15 +1970,7 @@ export const repairConfig = (input: unknown): RepairResult => {
       if (source.type !== 'dataField') return [source];
       const dataSource = dataSourceById.get(source.dataSourceId);
       if (!dataSource?.fields.some((field) => field.id === source.fieldId)) return [];
-      const group = dataSource.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
-      if (group) {
-        if (source.version === undefined || group.versions.includes(source.version)) return [source];
-        const { version: _obsoleteVersion, ...allVersions } = source;
-        return [allVersions];
-      }
-      if (source.version === undefined) return [source];
-      const { version: _obsoleteVersion, ...withoutVersion } = source;
-      return [withoutVersion];
+      return [source];
     });
     const seenDataFields = new Set<string>();
     const seenLookups = new Set<string>();
@@ -1947,7 +1981,7 @@ export const repairConfig = (input: unknown): RepairResult => {
         return true;
       }
       if (source.type !== 'dataField') return true;
-      const key = `${source.dataSourceId}\u0000${source.fieldId}\u0000${source.version ?? ''}`;
+      const key = `${source.dataSourceId}\u0000${source.fieldId}`;
       if (seenDataFields.has(key)) return false;
       seenDataFields.add(key);
       return true;

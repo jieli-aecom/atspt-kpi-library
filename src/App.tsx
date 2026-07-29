@@ -55,6 +55,7 @@ import {
   type EnumCategoryKey,
   type DataSource,
   type DataSourceField,
+  type DataSourceFieldDimension,
   type DataSourceFieldGroup,
   type LookupDefinition,
   type LookupInput,
@@ -2204,8 +2205,9 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
   const group = source?.fieldGroups.find((entry) => entry.fieldIds.includes(item.fieldId));
-  const versionLabel = group ? ` [${group.versionName || 'version'}${item.version ? `=${item.version}` : ''}]` : '';
-  return `${source?.name ?? 'Missing source'} / ${field?.name ?? 'Missing field'}${versionLabel}`;
+  const dimensionNames = group?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean) ?? [];
+  const dimensionLabel = dimensionNames.length ? ` [${dimensionNames.join(', ')}]` : '';
+  return `${source?.name ?? 'Missing source'} / ${field?.name ?? 'Missing field'}${dimensionLabel}`;
 };
 
 const lookupDefaultLatex = (lookup: LookupDefinition) => {
@@ -2223,14 +2225,18 @@ const selectedDataSourceGroups = (config: KpiPoolConfig, kpi: KpiMetric) =>
     return items.length ? [{ dataSource, items }] : [];
   });
 
-const sourceFieldDefaultLatex = (fieldName: string, spatialUnit: string, versionName?: string, version?: string) => {
-  const latexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
+const latexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
+
+const sourceFieldDefaultLatex = (fieldName: string, spatialUnit: string, dimensions: DataSourceFieldDimension[] = []) => {
   const field = latexIdentifier(fieldName);
   const spatial = latexIdentifier(spatialUnit);
-  const versionTag = versionName?.trim() ? `${latexIdentifier(versionName)}${version?.trim() ? `=${latexIdentifier(version)}` : ''}` : '';
-  const subscript = [versionTag, spatial].filter(Boolean).join(', ');
+  const dimensionTags = dimensions.map((dimension) => latexIdentifier(dimension.name)).filter(Boolean);
+  const subscript = [...dimensionTags, spatial].filter(Boolean).join(', ');
   return subscript ? `${field}_{${subscript}}` : field;
 };
+
+const fieldGroupDimensionLabel = (group?: DataSourceFieldGroup) =>
+  group?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
 
 function DataSourceHeader({
   config,
@@ -2248,7 +2254,8 @@ function DataSourceHeader({
   const [expandedFieldGroupIds, setExpandedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [lookupsExpanded, setLookupsExpanded] = useState(true);
-  const [fieldGroupVersionDrafts, setFieldGroupVersionDrafts] = useState<Record<string, string>>({});
+  const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
+  const [dimensionOptionDrafts, setDimensionOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
@@ -2294,24 +2301,7 @@ function DataSourceHeader({
     };
   }, [open]);
   const patchDataSources = (dataSources: DataSource[]) => {
-    const dataSourceById = new Map(dataSources.map((source) => [source.id, source]));
-    const kpis = config.kpis.map((kpi) => ({
-      ...kpi,
-      sources: kpi.sources.map((item) => {
-        if (item.type !== 'dataField') return item;
-        const dataSource = dataSourceById.get(item.dataSourceId);
-        const group = dataSource?.fieldGroups.find((entry) => entry.fieldIds.includes(item.fieldId));
-        if (group) {
-          if (item.version === undefined || group.versions.includes(item.version)) return item;
-          const { version: _obsoleteVersion, ...allVersions } = item;
-          return allVersions;
-        }
-        if (item.version === undefined) return item;
-        const { version: _obsoleteVersion, ...withoutVersion } = item;
-        return withoutVersion;
-      })
-    }));
-    onConfigChange({ ...config, dataSources, kpis });
+    onConfigChange({ ...config, dataSources });
   };
   const patchLookups = (lookups: LookupDefinition[]) => onConfigChange({ ...config, lookups });
   const addLookup = (insertionIndex = config.lookups.length) => {
@@ -2394,7 +2384,11 @@ function DataSourceHeader({
       fieldGroups: source.fieldGroups.map((group) => ({
         ...group,
         id: createLocalId('field-group'),
-        versions: [...group.versions],
+        dimensions: group.dimensions.map((dimension) => ({
+          ...dimension,
+          id: createLocalId('dimension'),
+          options: [...dimension.options]
+        })),
         fieldIds: group.fieldIds.flatMap((fieldId) => fieldIdMap.get(fieldId) ?? [])
       }))
     };
@@ -2474,8 +2468,7 @@ function DataSourceHeader({
     updateDataSource(sourceIndex, {
       fieldGroups: [...source.fieldGroups, {
         id: groupId,
-        versionName: 'period',
-        versions: [],
+        dimensions: [],
         fieldIds: [],
         position: Math.max(0, Math.min(position, source.fields.length))
       }]
@@ -2488,22 +2481,57 @@ function DataSourceHeader({
       fieldGroups: source.fieldGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
     });
   };
-  const addFieldGroupVersion = (sourceIndex: number, groupId: string) => {
-    const value = (fieldGroupVersionDrafts[groupId] ?? '').trim();
+  const addFieldGroupDimension = (sourceIndex: number, groupId: string) => {
+    const value = (fieldGroupDimensionDrafts[groupId] ?? '').trim();
     if (!value) return;
     const source = config.dataSources[sourceIndex];
     const group = source.fieldGroups.find((entry) => entry.id === groupId);
     if (!group) return;
-    if (!group.versions.some((version) => version.toLocaleLowerCase() === value.toLocaleLowerCase())) {
-      updateFieldGroup(sourceIndex, groupId, { versions: [...group.versions, value] });
+    if (!group.dimensions.some((dimension) => dimension.name.toLocaleLowerCase() === value.toLocaleLowerCase())) {
+      updateFieldGroup(sourceIndex, groupId, {
+        dimensions: [...group.dimensions, { id: createLocalId('dimension'), name: value, options: [] }]
+      });
     }
-    setFieldGroupVersionDrafts((current) => ({ ...current, [groupId]: '' }));
+    setFieldGroupDimensionDrafts((current) => ({ ...current, [groupId]: '' }));
   };
-  const removeFieldGroupVersion = (sourceIndex: number, groupId: string, version: string) => {
+  const updateFieldGroupDimension = (sourceIndex: number, groupId: string, dimensionId: string, partial: Partial<DataSourceFieldDimension>) => {
     const source = config.dataSources[sourceIndex];
     const group = source.fieldGroups.find((entry) => entry.id === groupId);
     if (!group) return;
-    updateFieldGroup(sourceIndex, groupId, { versions: group.versions.filter((entry) => entry !== version) });
+    updateFieldGroup(sourceIndex, groupId, {
+      dimensions: group.dimensions.map((dimension) => dimension.id === dimensionId ? { ...dimension, ...partial } : dimension)
+    });
+  };
+  const removeFieldGroupDimension = (sourceIndex: number, groupId: string, dimensionId: string) => {
+    const source = config.dataSources[sourceIndex];
+    const group = source.fieldGroups.find((entry) => entry.id === groupId);
+    if (!group) return;
+    updateFieldGroup(sourceIndex, groupId, { dimensions: group.dimensions.filter((dimension) => dimension.id !== dimensionId) });
+    setDimensionOptionDrafts((current) => {
+      const { [dimensionId]: _removedDraft, ...remaining } = current;
+      return remaining;
+    });
+  };
+  const addDimensionOption = (sourceIndex: number, groupId: string, dimensionId: string) => {
+    const value = (dimensionOptionDrafts[dimensionId] ?? '').trim();
+    if (!value) return;
+    const source = config.dataSources[sourceIndex];
+    const group = source.fieldGroups.find((entry) => entry.id === groupId);
+    const dimension = group?.dimensions.find((entry) => entry.id === dimensionId);
+    if (!dimension) return;
+    if (!dimension.options.some((option) => option.toLocaleLowerCase() === value.toLocaleLowerCase())) {
+      updateFieldGroupDimension(sourceIndex, groupId, dimensionId, { options: [...dimension.options, value] });
+    }
+    setDimensionOptionDrafts((current) => ({ ...current, [dimensionId]: '' }));
+  };
+  const removeDimensionOption = (sourceIndex: number, groupId: string, dimensionId: string, option: string) => {
+    const source = config.dataSources[sourceIndex];
+    const group = source.fieldGroups.find((entry) => entry.id === groupId);
+    const dimension = group?.dimensions.find((entry) => entry.id === dimensionId);
+    if (!dimension) return;
+    updateFieldGroupDimension(sourceIndex, groupId, dimensionId, {
+      options: dimension.options.filter((entry) => entry !== option)
+    });
   };
   const assignFieldToGroup = (sourceIndex: number, fieldId: string, groupId?: string) => {
     const source = config.dataSources[sourceIndex];
@@ -2519,10 +2547,14 @@ function DataSourceHeader({
   const deleteFieldGroup = (sourceIndex: number, groupId: string) => {
     const source = config.dataSources[sourceIndex];
     setExpandedFieldGroupIds((current) => current.filter((id) => id !== groupId));
-    setFieldGroupVersionDrafts((current) => {
+    setFieldGroupDimensionDrafts((current) => {
       const { [groupId]: _removedDraft, ...remaining } = current;
       return remaining;
     });
+    const removedDimensionIds = new Set(source.fieldGroups.find((group) => group.id === groupId)?.dimensions.map((dimension) => dimension.id) ?? []);
+    setDimensionOptionDrafts((current) => Object.fromEntries(
+      Object.entries(current).filter(([dimensionId]) => !removedDimensionIds.has(dimensionId))
+    ));
     updateDataSource(sourceIndex, { fieldGroups: source.fieldGroups.filter((group) => group.id !== groupId) });
   };
   const moveField = (sourceIndex: number, targetIndex: number, position: DropPosition, groupId?: string) => {
@@ -2693,8 +2725,8 @@ function DataSourceHeader({
                     className="mini-icon-button drag-handle data-source-field-drag"
                     type="button"
                     draggable
-                    aria-label={`Drag ${field.name} to reorder or move into a versioned set`}
-                    title="Drag to reorder or move into a versioned set"
+                    aria-label={`Drag ${field.name} to reorder or move into a dimensioned set`}
+                    title="Drag to reorder or move into a dimensioned set"
                     onDragStart={(event) => {
                       setFieldDrag({ sourceIndex, fieldIndex });
                       event.dataTransfer.effectAllowed = 'move';
@@ -2755,44 +2787,65 @@ function DataSourceHeader({
                     }}
                   >
                     <summary>
-                      <span>Versioned fields</span>
-                      <small>{group.fieldIds.length} {group.fieldIds.length === 1 ? 'field' : 'fields'} · {group.versionName.trim() || 'version'}: {group.versions.length ? group.versions.join(', ') : 'add options'}</small>
+                      <span>Dimensioned fields</span>
+                      <small>{group.fieldIds.length} {group.fieldIds.length === 1 ? 'field' : 'fields'} · {group.dimensions.length ? group.dimensions.map((dimension) => `${dimension.name || 'Untitled dimension'}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join(' · ') : 'add dimensions'}</small>
                       <ChevronDown size={12} aria-hidden="true" />
                     </summary>
                     <div className="data-source-field-group-body">
                       <div className="data-source-field-group-settings">
-                        <label className="data-source-field-group-control">
-                          <small>Version name used in the subscript</small>
-                          <input value={group.versionName} aria-label="Version name" placeholder="period" onChange={(event) => updateFieldGroup(sourceIndex, group.id, { versionName: event.target.value })} />
-                        </label>
-                        <div className="data-source-field-group-control">
-                          <small>Version options</small>
-                          <div className="field-group-version-options">
-                            {group.versions.map((version) => (
-                              <span className="field-group-version-chip" key={version}>
-                                <span>{version}</span>
-                                <button type="button" title={`Remove ${version}`} aria-label={`Remove version ${version}`} onClick={() => removeFieldGroupVersion(sourceIndex, group.id, version)}><X size={10} /></button>
-                              </span>
-                            ))}
-                            <span className="field-group-version-adder">
-                              <input
-                                value={fieldGroupVersionDrafts[group.id] ?? ''}
-                                aria-label="New version option"
-                                placeholder="AM"
-                                onChange={(event) => setFieldGroupVersionDrafts((current) => ({ ...current, [group.id]: event.target.value }))}
-                                onKeyDown={(event) => {
-                                  if (event.key !== 'Enter') return;
-                                  event.preventDefault();
-                                  addFieldGroupVersion(sourceIndex, group.id);
-                                }}
-                              />
-                              <button type="button" title="Add version option" aria-label="Add version option" disabled={!(fieldGroupVersionDrafts[group.id] ?? '').trim()} onClick={() => addFieldGroupVersion(sourceIndex, group.id)}><Plus size={11} /></button>
-                            </span>
+                        <div className="field-group-dimension-list">
+                          {group.dimensions.map((dimension) => (
+                            <div className="field-group-dimension-row" key={dimension.id}>
+                              <label className="data-source-field-group-control">
+                                <small>Dimension name used in the subscript</small>
+                                <input value={dimension.name} aria-label="Dimension name" placeholder="Mode" onChange={(event) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { name: event.target.value })} />
+                              </label>
+                              <div className="data-source-field-group-control">
+                                <small>Dimension options (library and formula shortcuts)</small>
+                                <div className="field-group-dimension-options">
+                                  {dimension.options.map((option) => (
+                                    <span className="field-group-dimension-chip" key={option}>
+                                      <span>{option}</span>
+                                      <button type="button" title={`Remove ${option}`} aria-label={`Remove dimension option ${option}`} onClick={() => removeDimensionOption(sourceIndex, group.id, dimension.id, option)}><X size={10} /></button>
+                                    </span>
+                                  ))}
+                                  <span className="field-group-dimension-adder">
+                                    <input
+                                      value={dimensionOptionDrafts[dimension.id] ?? ''}
+                                      aria-label={`New option for ${dimension.name || 'dimension'}`}
+                                      placeholder="Add option"
+                                      onChange={(event) => setDimensionOptionDrafts((current) => ({ ...current, [dimension.id]: event.target.value }))}
+                                      onKeyDown={(event) => {
+                                        if (event.key !== 'Enter') return;
+                                        event.preventDefault();
+                                        addDimensionOption(sourceIndex, group.id, dimension.id);
+                                      }}
+                                    />
+                                    <button type="button" title="Add dimension option" aria-label="Add dimension option" disabled={!(dimensionOptionDrafts[dimension.id] ?? '').trim()} onClick={() => addDimensionOption(sourceIndex, group.id, dimension.id)}><Plus size={11} /></button>
+                                  </span>
+                                </div>
+                              </div>
+                              <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeFieldGroupDimension(sourceIndex, group.id, dimension.id)}><Trash2 size={12} /></button>
+                            </div>
+                          ))}
+                          <div className="field-group-dimension-add">
+                            <input
+                              value={fieldGroupDimensionDrafts[group.id] ?? ''}
+                              aria-label="New dimension name"
+                              placeholder="Mode, distance band, cost band..."
+                              onChange={(event) => setFieldGroupDimensionDrafts((current) => ({ ...current, [group.id]: event.target.value }))}
+                              onKeyDown={(event) => {
+                                if (event.key !== 'Enter') return;
+                                event.preventDefault();
+                                addFieldGroupDimension(sourceIndex, group.id);
+                              }}
+                            />
+                            <button className="secondary-action tiny" type="button" disabled={!(fieldGroupDimensionDrafts[group.id] ?? '').trim()} onClick={() => addFieldGroupDimension(sourceIndex, group.id)}><Plus size={11} /> Add dimension</button>
                           </div>
                         </div>
-                        <button className="mini-icon-button danger" type="button" title="Delete versioned field set" aria-label="Delete versioned field set" onClick={() => deleteFieldGroup(sourceIndex, group.id)}><Trash2 size={12} /></button>
+                        <button className="mini-icon-button danger" type="button" title="Delete dimensioned field set" aria-label="Delete dimensioned field set" onClick={() => deleteFieldGroup(sourceIndex, group.id)}><Trash2 size={12} /></button>
                       </div>
-                      <div className="data-source-version-dropzone">
+                      <div className="data-source-dimension-dropzone">
                         {groupFields.length === 0 ? <span><GripVertical size={12} aria-hidden="true" /> Drag fields here</span> : null}
                         {groupFields.flatMap(({ field, fieldIndex }) => [
                           renderInsertControls(fieldIndex, group.id, `group-${group.id}-insert-${field.id}`),
@@ -2886,9 +2939,9 @@ function DataSourceHeader({
                           setFieldGroupDragOver(null);
                         }}
                       >
-                        <div className="data-source-field-heading"><span /><span>Fields without versions</span><span>Meaning</span><span>Value unit</span><span>Actions</span></div>
+                        <div className="data-source-field-heading"><span /><span>Fields without dimensions</span><span>Meaning</span><span>Value unit</span><span>Actions</span></div>
                         {source.fields.length === 0 ? <span className="empty-option">No fields in this data source.</span> : null}
-                        {source.fields.length > 0 && groupedFieldIds.size === source.fields.length ? <span className="data-source-ungroup-drop-hint">Drag a field here to remove it from a versioned set.</span> : null}
+                        {source.fields.length > 0 && groupedFieldIds.size === source.fields.length ? <span className="data-source-ungroup-drop-hint">Drag a field here to remove it from a dimensioned set.</span> : null}
                         {source.fields.flatMap((field, fieldIndex) => {
                           const groupsAtPosition = source.fieldGroups.filter((group) => group.position === fieldIndex);
                           const isUngrouped = !groupedFieldIds.has(field.id);
@@ -2934,8 +2987,8 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
         <span className="source-summary-group" key={dataSource.id}>
           <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}</span></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
-            const versionGroup = dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id));
-            return <span className="source-summary-item" key={source.id}>{field.name}{versionGroup ? ` [${source.version ?? (versionGroup.versionName || 'version')}]` : ''}</span>;
+            const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
+            return <span className="source-summary-item" key={source.id}>{field.name}{dimensionLabel ? ` [${dimensionLabel}]` : ''}</span>;
           })}</span>
         </span>
       ))}
@@ -2969,9 +3022,9 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   const [customLatex, setCustomLatex] = useState('');
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
   const normalizedQuery = normalize(query);
-  const toggleDataField = (dataSourceId: string, fieldId: string, version?: string) => {
+  const toggleDataField = (dataSourceId: string, fieldId: string) => {
     const sameField = (item: KpiSourceItem) => item.type === 'dataField' && item.dataSourceId === dataSourceId && item.fieldId === fieldId;
-    const existing = kpi.sources.find((item) => sameField(item) && item.type === 'dataField' && item.version === version);
+    const existing = kpi.sources.find(sameField);
     const dataSource = config.dataSources.find((source) => source.id === dataSourceId);
     const field = dataSource?.fields.find((entry) => entry.id === fieldId);
     const group = dataSource?.fieldGroups.find((entry) => entry.fieldIds.includes(fieldId));
@@ -2979,16 +3032,12 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
       onChange(kpi.sources.filter((item) => item.id !== existing.id));
       return;
     }
-    const retainedSources = kpi.sources.filter((item) =>
-      !sameField(item) || (version !== undefined && item.type === 'dataField' && item.version !== undefined)
-    );
-    onChange([...retainedSources, {
+    onChange([...kpi.sources, {
           id: createLocalId('kpi-source'),
           type: 'dataField',
           dataSourceId,
           fieldId,
-          version,
-          latex: sourceFieldDefaultLatex(field?.name ?? '', dataSource?.spatialUnit ?? '', group?.versionName, version)
+          latex: sourceFieldDefaultLatex(field?.name ?? '', dataSource?.spatialUnit ?? '', group?.dimensions)
         }]);
   };
   const toggleKpi = (kpiId: string) => {
@@ -3089,26 +3138,11 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
               {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
               {visibleFields.map((field) => {
                 const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));
-                return group ? (
-                  <div className="source-choice-versioned" key={field.id}>
-                    <span><strong>{field.name}</strong><small>{field.meaning}{field.valueUnit ? ` · ${field.valueUnit}` : ''}</small></span>
-                    <div>
-                      <label>
-                        <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id && item.version === undefined)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                        <span>{group.versionName || 'Version'}: All</span>
-                      </label>
-                      {group.versions.map((version) => (
-                        <label key={version}>
-                          <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id && item.version === version)} onChange={() => toggleDataField(selectedDataSource.id, field.id, version)} />
-                          <span>{group.versionName || 'Version'}: {version}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                ) : (
+                const dimensionLabel = fieldGroupDimensionLabel(group);
+                return (
                   <label className="source-choice-row" key={field.id}>
-                    <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id && item.version === undefined)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{field.name}</strong><small>{field.meaning}{field.valueUnit ? ` · ${field.valueUnit}` : ''}</small></span>
+                    <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
+                    <span><strong>{field.name}</strong><small>{field.meaning}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{dimensionLabel ? ` · Dimensions: ${dimensionLabel}` : ''}</small></span>
                   </label>
                 );
               })}
@@ -3130,8 +3164,8 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
                   <section className="selected-source-group" key={dataSource.id}>
                     <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{dataSource.name}</span></div>
                     {items.map(({ source, field }) => {
-                      const versionGroup = dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id));
-                      return renderSelectedSourceRow(source, `${field.name}${versionGroup ? ` [${source.version ?? (versionGroup.versionName || 'version')}]` : ''}`);
+                      const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
+                      return renderSelectedSourceRow(source, `${field.name}${dimensionLabel ? ` [${dimensionLabel}]` : ''}`);
                     })}
                   </section>
                 ))}
@@ -3203,6 +3237,38 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   };
   const insertableSources = kpi.sources.filter((source) => source.latex.trim());
   const insertableResults = priorItems.filter((prior) => prior.tag.trim() && prior.leftExpression.trim());
+  const dimensionShortcuts = useMemo(() => {
+    const shortcuts = new Map<string, { latex: string; label: string; kind: 'Dimension' | 'Option' | 'Set' }>();
+    kpi.sources.forEach((source) => {
+      if (source.type !== 'dataField') return;
+      const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
+      const group = dataSource?.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
+      group?.dimensions.forEach((dimension) => {
+        const dimensionLatex = latexIdentifier(dimension.name);
+        if (!dimensionLatex) return;
+        shortcuts.set(`dimension:${dimensionLatex}`, {
+          latex: dimensionLatex,
+          label: `Dimension: ${dimension.name}`,
+          kind: 'Dimension'
+        });
+        const optionLatex = dimension.options.map((option) => ({ option, latex: latexIdentifier(option) })).filter((option) => option.latex);
+        optionLatex.forEach(({ option, latex }) => shortcuts.set(`option:${dimensionLatex}:${latex}`, {
+          latex,
+          label: `${dimension.name} option: ${option}`,
+          kind: 'Option'
+        }));
+        if (optionLatex.length) {
+          const membershipLatex = `${dimensionLatex} \\in \\{${optionLatex.map((option) => option.latex).join(', ')}\\}`;
+          shortcuts.set(`set:${membershipLatex}`, {
+            latex: membershipLatex,
+            label: `${dimension.name} and all of its options`,
+            kind: 'Set'
+          });
+        }
+      });
+    });
+    return [...shortcuts.values()];
+  }, [config.dataSources, kpi.sources]);
   useLayoutEffect(() => {
     const container = paletteOptionsRef.current;
     if (!container) return undefined;
@@ -3257,13 +3323,19 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
               {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
             </button>
           ))}
+          {dimensionShortcuts.map((shortcut) => (
+            <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
+              <span>{shortcut.kind}</span>
+              <InlineMath math={shortcut.latex} errorColor="#b42318" />
+            </button>
+          ))}
           {insertableResults.map((prior, index) => (
             <button className="formula-result-insert" type="button" title={`Formula result: ${prior.tag}`} key={`${prior.tag}-${index}`} onClick={() => insertLatex(prior.leftExpression)}>
               <span>{prior.tag}</span>
               <InlineMath math={prior.leftExpression} errorColor="#b42318" />
             </button>
           ))}
-          {insertableSources.length === 0 && insertableResults.length === 0 ? <span className="empty-option">No insertable sources or formula results.</span> : null}
+          {insertableSources.length === 0 && dimensionShortcuts.length === 0 && insertableResults.length === 0 ? <span className="empty-option">No insertable sources, dimensions, or formula results.</span> : null}
         </div>
       </div>
     </div>

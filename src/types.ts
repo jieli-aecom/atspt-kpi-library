@@ -1,7 +1,7 @@
 export const spatialScaleKeys = ['link', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
 export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
 
-export const CURRENT_SCHEMA_VERSION = 18 as const;
+export const CURRENT_SCHEMA_VERSION = 19 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -40,10 +40,15 @@ export type DataSourceField = {
   valueUnit: string;
 };
 
+export type DataSourceFieldDimension = {
+  id: string;
+  name: string;
+  options: string[];
+};
+
 export type DataSourceFieldGroup = {
   id: string;
-  versionName: string;
-  versions: string[];
+  dimensions: DataSourceFieldDimension[];
   fieldIds: string[];
   position: number;
 };
@@ -74,7 +79,6 @@ export type KpiDataFieldSource = {
   type: 'dataField';
   dataSourceId: string;
   fieldId: string;
-  version?: string;
   latex: string;
 };
 
