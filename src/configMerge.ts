@@ -1,4 +1,4 @@
-import { CURRENT_SCHEMA_VERSION, enumCategoryKeys, type KpiPoolConfig } from './types';
+import { CURRENT_SCHEMA_VERSION, enumCategoryKeys, type KpiPoolConfig } from './types.js';
 
 export type ConfigMergeResult = {
   config: KpiPoolConfig;

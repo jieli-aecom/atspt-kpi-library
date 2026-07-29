@@ -6,9 +6,9 @@ import {
   prepareForExport,
   repairConfig,
   UnsupportedSchemaVersionError
-} from '../src/configSchema';
-import { mergeCurrentAdditiveConfig, mergeImportedConfig } from '../src/configMerge';
-import type { KpiPoolConfig } from '../src/types';
+} from '../src/configSchema.js';
+import { mergeCurrentAdditiveConfig, mergeImportedConfig } from '../src/configMerge.js';
+import type { KpiPoolConfig } from '../src/types.js';
 
 const CONFIG_PATH = 'kpi-library.json';
 const MAX_CONFIG_BYTES = 5 * 1024 * 1024;

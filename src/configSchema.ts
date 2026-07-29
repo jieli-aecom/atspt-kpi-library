@@ -22,7 +22,7 @@ import {
   type RepairResult,
   spatialScaleKeys,
   type SpatialScaleConfig
-} from './types';
+} from './types.js';
 
 const enumOptionSchema = z.object({
   id: z.string().min(1),
