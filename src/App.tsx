@@ -2243,6 +2243,14 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   return `${source?.name ?? 'Missing source'} / ${field?.name ?? 'Missing field'}${dimensionLabel}`;
 };
 
+const sourceItemFormulaTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
+  const label = sourceItemLabel(config, item);
+  if (item.type !== 'dataField') return label;
+  const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
+  const meaning = source?.fields.find((entry) => entry.id === item.fieldId)?.meaning.trim();
+  return meaning ? `${label}\n${meaning}` : label;
+};
+
 const lookupDefaultLatex = (lookup: LookupDefinition) => {
   const name = lookup.outputName.trim().replace(/\s+/g, '\\ ') || 'Lookup';
   return `${name}(${','.repeat(Math.max(0, lookup.inputs.length - 1))})`;
@@ -3588,7 +3596,7 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
           matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
           requiresFollowingParenthesis: lookupOpenParenthesis > 0,
           kind: 'source' as const,
-          label: `Source: ${sourceItemLabel(config, source)}`
+          label: `Source: ${sourceItemFormulaTooltip(config, source)}`
         };
       }),
       ...spatialScaleFormulaKeywords.map((keyword) => ({
