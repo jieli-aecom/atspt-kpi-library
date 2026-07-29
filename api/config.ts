@@ -64,8 +64,20 @@ const authorize = (request: Request) => {
   return null;
 };
 
+const blobToken = () => {
+  const token = process.env.BLOB_READ_WRITE_TOKEN;
+  if (!token) {
+    throw new Error('BLOB_READ_WRITE_TOKEN is not configured.');
+  }
+  return token;
+};
+
 const readStoredConfig = async (): Promise<StoredConfig> => {
-  const result = await get(CONFIG_PATH, { access: 'private', useCache: false });
+  const result = await get(CONFIG_PATH, {
+    access: 'private',
+    useCache: false,
+    token: blobToken()
+  });
   if (!result) {
     return {
       config: createBlankConfig(),
@@ -147,6 +159,7 @@ const writeConfig = async (config: KpiPoolConfig, etag: string | null) => {
   const output = prepareForExport(config);
   const blob = await put(CONFIG_PATH, JSON.stringify(output, null, 2), {
     access: 'private',
+    token: blobToken(),
     contentType: 'application/json; charset=utf-8',
     cacheControlMaxAge: 60,
     allowOverwrite: etag !== null,
@@ -281,7 +294,13 @@ const handler = async (request: Request) => {
     }
 
     console.error('KPI library request failed.', error);
-    return jsonResponse({ error: 'The KPI library request failed.' }, 500);
+    return jsonResponse(
+      {
+        error: 'The hosted Blob could not be accessed. Verify the Blob connection for this deployment.',
+        diagnosticCode: 'BLOB_ACCESS_FAILED'
+      },
+      500
+    );
   }
 };
 

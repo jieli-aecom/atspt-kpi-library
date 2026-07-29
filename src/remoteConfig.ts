@@ -15,12 +15,14 @@ export type RemoteConfigResult = {
 type ErrorPayload = {
   error?: string;
   conflict?: boolean;
+  diagnosticCode?: string;
   unsupportedSchemaVersion?: number;
 };
 
 export class RemoteConfigError extends Error {
   readonly status: number;
   readonly conflict: boolean;
+  readonly diagnosticCode?: string;
   readonly unsupportedSchemaVersion?: number;
 
   constructor(status: number, payload: ErrorPayload) {
@@ -28,6 +30,7 @@ export class RemoteConfigError extends Error {
     this.name = 'RemoteConfigError';
     this.status = status;
     this.conflict = payload.conflict === true || status === 409;
+    this.diagnosticCode = payload.diagnosticCode;
     this.unsupportedSchemaVersion = payload.unsupportedSchemaVersion;
   }
 }
