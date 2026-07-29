@@ -1,7 +1,7 @@
-export const spatialScaleKeys = ['link', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
+export const spatialScaleKeys = ['link', 'grid', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
 export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
 
-export const CURRENT_SCHEMA_VERSION = 19 as const;
+export const CURRENT_SCHEMA_VERSION = 20 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -185,6 +185,7 @@ export type RepairResult = {
 
 export const spatialScaleLabels: Record<SpatialScaleKey, string> = {
   link: 'Link',
+  grid: 'Grid',
   project: 'Project',
   taz: 'TAZ',
   corridor: 'Corridor',

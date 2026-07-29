@@ -109,7 +109,7 @@ All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use 
 
 ## Schema compatibility
 
-`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `19`.
+`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `20`.
 
 The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to enum IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
 
@@ -125,7 +125,7 @@ When introducing a future schema:
 
 ## Config shape
 
-- `schemaVersion`: currently `19`
+- `schemaVersion`: currently `20`
 - `title`: library title
 - `updatedAt`: ISO timestamp written by the server or during HTML export
 - `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned use-case definitions

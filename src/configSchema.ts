@@ -162,6 +162,7 @@ const kpiSchema = z.object({
   }),
   spatialScales: z.object({
     link: spatialScaleSchema,
+    grid: spatialScaleSchema,
     project: spatialScaleSchema,
     taz: spatialScaleSchema,
     corridor: spatialScaleSchema,
@@ -489,6 +490,21 @@ const isRecord = (value: unknown): value is Record<string, unknown> => {
 const stringValue = (value: unknown): string => {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
 };
+
+const latexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
+
+const defaultDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionNames: string[]) => {
+  const field = latexIdentifier(fieldName);
+  const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), latexIdentifier(spatialUnit)]
+    .filter(Boolean)
+    .join(', ');
+  return subscript ? `${field}_{${subscript}}` : field;
+};
+
+const legacyDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionName: string, option: string) =>
+  defaultDataFieldLatex(fieldName, spatialUnit, [
+    dimensionName.trim() ? `${dimensionName.trim()}=${option.trim()}` : ''
+  ]);
 
 const booleanValue = (value: unknown): boolean => {
   return typeof value === 'boolean' ? value : false;
@@ -1787,15 +1803,16 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
     }
     const dataSourceId = stringValue(rawSource.dataSourceId ?? rawSource.sourceId ?? rawSource.dataSource).trim();
     const fieldId = stringValue(rawSource.fieldId ?? rawSource.field).trim();
-    return dataSourceId && fieldId
-      ? [{
-          id,
-          type,
-          dataSourceId,
-          fieldId,
-          latex: stringValue(rawSource.latex ?? rawSource.symbol)
-        }]
-      : [];
+    if (!dataSourceId || !fieldId) return [];
+    const legacyOption = stringValue(rawSource.version).trim();
+    return [{
+      id,
+      type,
+      dataSourceId,
+      fieldId,
+      ...(legacyOption ? { version: legacyOption } : {}),
+      latex: stringValue(rawSource.latex ?? rawSource.symbol)
+    } as KpiSourceItem];
   });
 };
 
@@ -1833,6 +1850,7 @@ export const createBlankKpi = (): KpiMetric => ({
   },
   spatialScales: {
     link: emptyScale(),
+    grid: emptyScale(),
     project: emptyScale(),
     taz: emptyScale(),
     corridor: emptyScale(),
@@ -1969,8 +1987,17 @@ export const repairConfig = (input: unknown): RepairResult => {
       if (source.type === 'lookup') return validLookupIds.has(source.lookupId) ? [source] : [];
       if (source.type !== 'dataField') return [source];
       const dataSource = dataSourceById.get(source.dataSourceId);
-      if (!dataSource?.fields.some((field) => field.id === source.fieldId)) return [];
-      return [source];
+      const field = dataSource?.fields.find((entry) => entry.id === source.fieldId);
+      if (!dataSource || !field) return [];
+      const legacySource = source as typeof source & { version?: string };
+      if (legacySource.version === undefined) return [source];
+      const { version: legacyOption, ...withoutLegacyOption } = legacySource;
+      const group = dataSource.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
+      const firstDimension = group?.dimensions[0];
+      const latex = firstDimension && source.latex === legacyDataFieldLatex(field.name, dataSource.spatialUnit, firstDimension.name, legacyOption)
+        ? defaultDataFieldLatex(field.name, dataSource.spatialUnit, group.dimensions.map((dimension) => dimension.name))
+        : source.latex;
+      return [{ ...withoutLegacyOption, latex }];
     });
     const seenDataFields = new Set<string>();
     const seenLookups = new Set<string>();
