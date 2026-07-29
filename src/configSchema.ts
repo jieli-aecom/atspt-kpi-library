@@ -1,0 +1,1991 @@
+import { z } from 'zod';
+import {
+  enumCategoryKeys,
+  type EnumCategoryKey,
+  type EnumDefinitions,
+  type EnumOption,
+  type DataSource,
+  type DataSourceField,
+  type DataSourceFieldGroup,
+  type LookupDefinition,
+  type LookupInput,
+  type KpiFormulaGroup,
+  type KpiFormulaItem,
+  type KpiMetric,
+  type KpiSourceItem,
+  type KpiPoolConfig,
+  type KpiDefaultFocus,
+  type KpiUseCaseNote,
+  type KpiUseCasePerformanceArea,
+  type KpiUserGroupUseCase,
+  type RepairResult,
+  spatialScaleKeys,
+  type SpatialScaleConfig
+} from './types';
+
+const enumOptionSchema = z.object({
+  id: z.string().min(1),
+  label: z.string(),
+  description: z.string().optional(),
+  userGroup: z.string().optional(),
+  useCase: z.string().optional()
+});
+
+const spatialScaleSchema = z.object({
+  applicable: z.boolean(),
+  isBasicUnit: z.boolean(),
+  aggregationMethod: z.string(),
+  formula: z.string(),
+  leftExpression: z.string(),
+  rightExpression: z.string()
+});
+
+const formulaTermSchema = z.object({
+  term: z.string(),
+  explanation: z.string()
+});
+
+const formulaItemSchema = z.object({
+  tag: z.string(),
+  formula: z.string(),
+  leftExpression: z.string(),
+  rightExpression: z.string(),
+  generalExplanation: z.string(),
+  terms: z.array(formulaTermSchema)
+});
+
+const dataSourceFieldSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  meaning: z.string(),
+  valueUnit: z.string()
+});
+
+const dataSourceSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  spatialUnit: z.string(),
+  fields: z.array(dataSourceFieldSchema),
+  fieldGroups: z.array(z.object({
+    id: z.string().min(1),
+    versionName: z.string(),
+    versions: z.array(z.string()),
+    fieldIds: z.array(z.string()),
+    position: z.number().int().nonnegative()
+  }))
+});
+
+const lookupSchema = z.object({
+  id: z.string().min(1),
+  outputName: z.string(),
+  outputExplanation: z.string(),
+  inputs: z.array(z.object({
+    id: z.string().min(1),
+    representation: z.string(),
+    explanation: z.string()
+  }))
+});
+
+const kpiSourceItemSchema = z.discriminatedUnion('type', [
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('dataField'),
+    dataSourceId: z.string().min(1),
+    fieldId: z.string().min(1),
+    version: z.string().optional(),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('kpi'),
+    kpiId: z.string().min(1),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('lookup'),
+    lookupId: z.string().min(1),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('custom'),
+    name: z.string(),
+    latex: z.string()
+  })
+]);
+
+const formulaGroupSchema = z.object({
+  name: z.string(),
+  items: z.array(formulaItemSchema)
+});
+
+const userGroupUseCaseSchema = z.object({
+  userGroup: z.string(),
+  useCases: z.array(z.string())
+});
+
+const useCasePerformanceAreaSchema = z.object({
+  useCase: z.string(),
+  performanceAreas: z.array(z.string())
+});
+
+const useCaseNoteSchema = z.object({
+  useCase: z.string(),
+  note: z.string()
+});
+
+const defaultFocusSchema = z.object({
+  userGroup: z.string(),
+  useCase: z.string()
+});
+
+const kpiSchema = z.object({
+  id: z.string().min(1),
+  lastModified: z.string().datetime(),
+  name: z.string(),
+  sources: z.array(kpiSourceItemSchema),
+  description: z.object({
+    overview: z.string(),
+    formulaComment: z.string(),
+    formulas: z.array(formulaGroupSchema)
+  }),
+  prerequisite: z.object({
+    modules: z.array(z.string()),
+    kpis: z.array(z.string()),
+    values: z.string()
+  }),
+  spatialScales: z.object({
+    link: spatialScaleSchema,
+    project: spatialScaleSchema,
+    taz: spatialScaleSchema,
+    corridor: spatialScaleSchema,
+    subRegion: spatialScaleSchema,
+    region: spatialScaleSchema
+  }),
+  previousApplication: z.array(z.string()),
+  federalRequirement: z.array(z.string()),
+  performanceArea: z.array(z.string()),
+  performanceAreasByUseCase: z.array(useCasePerformanceAreaSchema),
+  notesByUseCase: z.array(useCaseNoteSchema),
+  userGroupUseCases: z.array(userGroupUseCaseSchema)
+});
+
+export const kpiPoolConfigSchema = z.object({
+  schemaVersion: z.literal(18),
+  title: z.string(),
+  updatedAt: z.string().optional(),
+  defaultFocus: defaultFocusSchema.optional(),
+  enums: z.object({
+    prerequisiteModule: z.array(enumOptionSchema),
+    userGroup: z.array(enumOptionSchema),
+    previousApplication: z.array(enumOptionSchema),
+    federalRequirement: z.array(enumOptionSchema),
+    performanceArea: z.array(enumOptionSchema),
+    useCase: z.array(enumOptionSchema)
+  }),
+  dataSources: z.array(dataSourceSchema),
+  lookups: z.array(lookupSchema),
+  kpis: z.array(kpiSchema)
+});
+
+const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string');
+
+const isCurrentEnumOption = (value: unknown): value is EnumOption =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.label === 'string' &&
+  (value.description === undefined || typeof value.description === 'string') &&
+  (value.userGroup === undefined || typeof value.userGroup === 'string') &&
+  (value.useCase === undefined || typeof value.useCase === 'string');
+
+const isCurrentFormulaGroup = (value: unknown): value is KpiFormulaGroup =>
+  isRecord(value) &&
+  typeof value.name === 'string' &&
+  Array.isArray(value.items) &&
+  value.items.every(
+    (item) =>
+      isRecord(item) &&
+      typeof item.tag === 'string' &&
+      typeof item.formula === 'string' &&
+      typeof item.leftExpression === 'string' &&
+      typeof item.rightExpression === 'string' &&
+      typeof item.generalExplanation === 'string' &&
+      Array.isArray(item.terms) &&
+      item.terms.every(
+        (term) => isRecord(term) && typeof term.term === 'string' && typeof term.explanation === 'string'
+      )
+  );
+
+const isCurrentSpatialScaleConfig = (value: unknown): value is SpatialScaleConfig =>
+  isRecord(value) &&
+  typeof value.applicable === 'boolean' &&
+  typeof value.isBasicUnit === 'boolean' &&
+  typeof value.aggregationMethod === 'string' &&
+  typeof value.formula === 'string' &&
+  typeof value.leftExpression === 'string' &&
+  typeof value.rightExpression === 'string' &&
+  !value.leftExpression &&
+  value.formula === value.rightExpression &&
+  (!value.isBasicUnit || (!value.formula && !value.rightExpression));
+
+const isCurrentSpatialScales = (value: unknown): value is KpiMetric['spatialScales'] =>
+  isRecord(value) && spatialScaleKeys.every((scale) => isCurrentSpatialScaleConfig(value[scale]));
+
+const isCurrentUseCaseGroup = (value: unknown): value is KpiUserGroupUseCase =>
+  isRecord(value) && typeof value.userGroup === 'string' && isStringArray(value.useCases);
+
+const isCurrentUseCasePerformanceArea = (value: unknown): value is KpiUseCasePerformanceArea =>
+  isRecord(value) && typeof value.useCase === 'string' && isStringArray(value.performanceAreas);
+
+const isCurrentUseCaseNote = (value: unknown): value is KpiUseCaseNote =>
+  isRecord(value) && typeof value.useCase === 'string' && typeof value.note === 'string';
+
+const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.lastModified === 'string' &&
+  Number.isFinite(Date.parse(value.lastModified)) &&
+  typeof value.name === 'string' &&
+  Array.isArray(value.sources) &&
+  value.sources.every(
+    (source) =>
+      isRecord(source) &&
+      typeof source.id === 'string' &&
+      typeof source.latex === 'string' &&
+      ((source.type === 'dataField' && typeof source.dataSourceId === 'string' && typeof source.fieldId === 'string' && (source.version === undefined || typeof source.version === 'string')) ||
+        (source.type === 'kpi' && typeof source.kpiId === 'string') ||
+        (source.type === 'lookup' && typeof source.lookupId === 'string') ||
+        (source.type === 'custom' && typeof source.name === 'string'))
+  ) &&
+  isRecord(value.description) &&
+  typeof value.description.overview === 'string' &&
+  typeof value.description.formulaComment === 'string' &&
+  Array.isArray(value.description.formulas) &&
+  value.description.formulas.every(isCurrentFormulaGroup) &&
+  isRecord(value.prerequisite) &&
+  isStringArray(value.prerequisite.modules) &&
+  isStringArray(value.prerequisite.kpis) &&
+  typeof value.prerequisite.values === 'string' &&
+  isCurrentSpatialScales(value.spatialScales) &&
+  isStringArray(value.previousApplication) &&
+  isStringArray(value.federalRequirement) &&
+  isStringArray(value.performanceArea) &&
+  Array.isArray(value.performanceAreasByUseCase) &&
+  value.performanceAreasByUseCase.every(isCurrentUseCasePerformanceArea) &&
+  Array.isArray(value.notesByUseCase) &&
+  value.notesByUseCase.every(isCurrentUseCaseNote) &&
+  Array.isArray(value.userGroupUseCases) &&
+  value.userGroupUseCases.every(isCurrentUseCaseGroup);
+
+const hasDuplicate = (values: string[]) => new Set(values).size !== values.length;
+
+const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
+  if (
+    !isRecord(input) ||
+    input.schemaVersion !== 18 ||
+    typeof input.title !== 'string' ||
+    (input.updatedAt !== undefined && typeof input.updatedAt !== 'string') ||
+    !isRecord(input.enums) ||
+    !Array.isArray(input.dataSources) ||
+    !Array.isArray(input.lookups) ||
+    !Array.isArray(input.kpis)
+  ) {
+    return false;
+  }
+
+  const enums = input.enums as Record<string, unknown>;
+  if (!enumCategoryKeys.every((category) => Array.isArray(enums[category]) && (enums[category] as unknown[]).every(isCurrentEnumOption))) {
+    return false;
+  }
+
+  const typedEnums = enums as EnumDefinitions;
+  const dataSources = input.dataSources as unknown[];
+  if (
+    !dataSources.every(
+      (source) =>
+        isRecord(source) &&
+        typeof source.id === 'string' &&
+        typeof source.name === 'string' &&
+        typeof source.spatialUnit === 'string' &&
+        Array.isArray(source.fields) &&
+        Array.isArray(source.fieldGroups) &&
+        source.fieldGroups.every(
+          (group) =>
+            isRecord(group) &&
+            typeof group.id === 'string' &&
+            typeof group.versionName === 'string' &&
+            isStringArray(group.versions) &&
+            isStringArray(group.fieldIds) &&
+            typeof group.position === 'number' &&
+            Number.isInteger(group.position) &&
+            group.position >= 0 &&
+            group.position <= (source.fields as unknown[]).length
+        ) &&
+        source.fields.every(
+          (field) =>
+            isRecord(field) &&
+            typeof field.id === 'string' &&
+            typeof field.name === 'string' &&
+            typeof field.meaning === 'string' &&
+            typeof field.valueUnit === 'string'
+        )
+    )
+  ) {
+    return false;
+  }
+  const lookups = input.lookups as unknown[];
+  if (
+    !lookups.every((lookup) =>
+      isRecord(lookup) &&
+      typeof lookup.id === 'string' &&
+      typeof lookup.outputName === 'string' &&
+      typeof lookup.outputExplanation === 'string' &&
+      Array.isArray(lookup.inputs) &&
+      lookup.inputs.every((entry) =>
+        isRecord(entry) &&
+        typeof entry.id === 'string' &&
+        typeof entry.representation === 'string' &&
+        typeof entry.explanation === 'string'
+      )
+    )
+  ) {
+    return false;
+  }
+  const enumIdSets = Object.fromEntries(
+    enumCategoryKeys.map((category) => [category, new Set(typedEnums[category].map((option) => option.id))])
+  ) as Record<EnumCategoryKey, Set<string>>;
+  if (enumCategoryKeys.some((category) => hasDuplicate(typedEnums[category].map((option) => option.id)))) {
+    return false;
+  }
+
+  const validUserGroups = enumIdSets.userGroup;
+  const validUseCases = enumIdSets.useCase;
+  const validPerformanceAreas = enumIdSets.performanceArea;
+  const useCaseOwner = new Map(typedEnums.useCase.map((option) => [option.id, option.userGroup]));
+  const performanceAreaOwner = new Map(typedEnums.performanceArea.map((option) => [option.id, option.useCase]));
+  if (typedEnums.useCase.some((option) => !option.userGroup || !validUserGroups.has(option.userGroup))) {
+    return false;
+  }
+  if (typedEnums.performanceArea.some((option) => !option.useCase || !validUseCases.has(option.useCase))) {
+    return false;
+  }
+
+  if (
+    input.defaultFocus !== undefined &&
+    (!isRecord(input.defaultFocus) ||
+      typeof input.defaultFocus.userGroup !== 'string' ||
+      typeof input.defaultFocus.useCase !== 'string' ||
+      useCaseOwner.get(input.defaultFocus.useCase) !== input.defaultFocus.userGroup)
+  ) {
+    return false;
+  }
+
+  if (!input.kpis.every(isCurrentKpiMetricShape)) {
+    return false;
+  }
+
+  const kpiIds = input.kpis.map((kpi) => kpi.id);
+  if (hasDuplicate(kpiIds)) {
+    return false;
+  }
+  const validKpis = new Set(kpiIds);
+  const currentLookups = input.lookups as LookupDefinition[];
+  if (
+    hasDuplicate(currentLookups.map((lookup) => lookup.id)) ||
+    currentLookups.some((lookup) => hasDuplicate(lookup.inputs.map((entry) => entry.id)))
+  ) {
+    return false;
+  }
+  const validLookups = new Set(currentLookups.map((lookup) => lookup.id));
+  const currentDataSources = input.dataSources as DataSource[];
+  const dataSourceById = new Map(currentDataSources.map((source) => [source.id, source]));
+  if (
+    currentDataSources.some((source) => {
+      const fieldIds = new Set(source.fields.map((field) => field.id));
+      const groupedFieldIds = source.fieldGroups.flatMap((group) => group.fieldIds);
+      return hasDuplicate(source.fields.map((field) => field.id)) ||
+        hasDuplicate(source.fieldGroups.map((group) => group.id)) ||
+        hasDuplicate(groupedFieldIds) ||
+        source.fieldGroups.some((group) =>
+          !group.fieldIds.every((fieldId) => fieldIds.has(fieldId)) || hasDuplicate(group.versions)
+        );
+    })
+  ) {
+    return false;
+  }
+
+  return input.kpis.every((kpi) => {
+    const dataFieldKeys = kpi.sources.flatMap((source) => source.type === 'dataField'
+      ? [`${source.dataSourceId}\u0000${source.fieldId}\u0000${source.version ?? ''}`]
+      : []
+    );
+    if (hasDuplicate(dataFieldKeys)) return false;
+    const validReferences =
+      kpi.sources.every((source) =>
+        source.type === 'dataField'
+          ? (() => {
+              const dataSource = dataSourceById.get(source.dataSourceId);
+              if (!dataSource?.fields.some((field) => field.id === source.fieldId)) return false;
+              const group = dataSource.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
+              return group
+                ? source.version === undefined || group.versions.includes(source.version)
+                : source.version === undefined;
+            })()
+          : source.type === 'kpi'
+            ? source.kpiId !== kpi.id && validKpis.has(source.kpiId)
+            : source.type === 'lookup'
+              ? validLookups.has(source.lookupId)
+            : true
+      ) &&
+      kpi.prerequisite.modules.every((id) => enumIdSets.prerequisiteModule.has(id)) &&
+      kpi.prerequisite.kpis.every((id) => id !== kpi.id && validKpis.has(id)) &&
+      kpi.previousApplication.every((id) => enumIdSets.previousApplication.has(id)) &&
+      kpi.federalRequirement.every((id) => enumIdSets.federalRequirement.has(id)) &&
+      kpi.performanceArea.every((id) => validPerformanceAreas.has(id)) &&
+      kpi.userGroupUseCases.every(
+        (entry) =>
+          validUserGroups.has(entry.userGroup) &&
+          entry.useCases.every((id) => validUseCases.has(id) && useCaseOwner.get(id) === entry.userGroup)
+      ) &&
+      kpi.performanceAreasByUseCase.every(
+        (entry) =>
+          validUseCases.has(entry.useCase) &&
+          entry.performanceAreas.every((id) => performanceAreaOwner.get(id) === entry.useCase)
+      ) &&
+      kpi.notesByUseCase.every((entry) => validUseCases.has(entry.useCase));
+
+    if (!validReferences) {
+      return false;
+    }
+
+    const aggregate = new Set(kpi.performanceAreasByUseCase.flatMap((entry) => entry.performanceAreas));
+    return kpi.performanceArea.every((id) => aggregate.has(id));
+  });
+};
+
+const createId = (prefix: string) => {
+  if (globalThis.crypto?.randomUUID) {
+    return `${prefix}-${globalThis.crypto.randomUUID()}`;
+  }
+
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+};
+
+const stringValue = (value: unknown): string => {
+  return typeof value === 'string' ? value : value == null ? '' : String(value);
+};
+
+const booleanValue = (value: unknown): boolean => {
+  return typeof value === 'boolean' ? value : false;
+};
+
+const normalizeKey = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+
+const categoryAliases: Record<EnumCategoryKey, string[]> = {
+  prerequisiteModule: [
+    'prerequisiteModule',
+    'prerequisiteModules',
+    'prerequisite module',
+    'prerequisite modules',
+    'module',
+    'modules'
+  ],
+  userGroup: ['userGroup', 'userGroups', 'user group', 'user groups', 'audience', 'audiences'],
+  previousApplication: ['previousApplication', 'previousApplications', 'previous application', 'previous applications'],
+  federalRequirement: ['federalRequirement', 'federalRequirements', 'federal requirement', 'federal requirements'],
+  performanceArea: ['performanceArea', 'performanceAreas', 'performance area', 'performance areas'],
+  useCase: ['useCase', 'useCases', 'use case', 'use cases']
+};
+
+const readCategory = (source: Record<string, unknown>, category: EnumCategoryKey): unknown => {
+  const normalizedEntries = new Map(Object.entries(source).map(([key, value]) => [normalizeKey(key), value]));
+  for (const alias of categoryAliases[category]) {
+    const found = normalizedEntries.get(normalizeKey(alias));
+    if (found !== undefined) {
+      return found;
+    }
+  }
+
+  return source[category];
+};
+
+const ensureUniqueId = (rawId: unknown, prefix: string, usedIds: Set<string>, warnings: string[], context: string) => {
+  let id = stringValue(rawId).trim();
+  if (!id) {
+    id = createId(prefix);
+    warnings.push(`${context} was missing an id; generated ${id}.`);
+  }
+
+  if (usedIds.has(id)) {
+    const original = id;
+    id = createId(prefix);
+    warnings.push(`${context} reused id ${original}; generated ${id}.`);
+  }
+
+  usedIds.add(id);
+  return id;
+};
+
+const repairEnums = (rawConfig: Record<string, unknown>, warnings: string[]): EnumDefinitions => {
+  const rawEnums = isRecord(rawConfig.enums) ? rawConfig.enums : {};
+  if (!isRecord(rawConfig.enums)) {
+    warnings.push('Missing or invalid enums object; initialized empty enum definitions.');
+  }
+
+  const enums = {} as EnumDefinitions;
+
+  for (const category of enumCategoryKeys) {
+    const rawOptions = readCategory(rawEnums, category);
+    const options = Array.isArray(rawOptions) ? rawOptions : [];
+    if (!Array.isArray(rawOptions)) {
+      warnings.push(`Missing enum category ${category}; initialized it as an empty list.`);
+    }
+
+    const usedIds = new Set<string>();
+    enums[category] = options.map((option, index): EnumOption => {
+      if (typeof option === 'string') {
+        const id = ensureUniqueId('', `enum-${category}`, usedIds, warnings, `${category} option "${option}"`);
+        return { id, label: option };
+      }
+
+      if (isRecord(option)) {
+        const label = stringValue(option.label ?? option.name ?? option.value).trim();
+        const displayLabel = label || `Untitled option ${index + 1}`;
+        if (!label) {
+          warnings.push(`${category} option ${index + 1} was missing a label; named it "${displayLabel}".`);
+        }
+
+        return {
+          id: ensureUniqueId(option.id, `enum-${category}`, usedIds, warnings, `${category} option "${displayLabel}"`),
+          label: displayLabel,
+          description: stringValue(option.description) || undefined,
+          userGroup:
+            category === 'useCase'
+              ? stringValue(option.userGroup ?? option.userGroupId ?? option.group ?? option.groupId ?? option['User Group']).trim() ||
+                undefined
+              : undefined,
+          useCase:
+            category === 'performanceArea'
+              ? stringValue(option.useCase ?? option.useCaseId ?? option.case ?? option.caseId ?? option['Use Case']).trim() ||
+                undefined
+              : undefined
+        };
+      }
+
+      const label = `Untitled option ${index + 1}`;
+      warnings.push(`${category} option ${index + 1} was not readable; initialized it as "${label}".`);
+      return {
+        id: ensureUniqueId('', `enum-${category}`, usedIds, warnings, `${category} option "${label}"`),
+        label
+      };
+    });
+  }
+
+  return enums;
+};
+
+const enumLabelLookup = (enums: EnumDefinitions, category: EnumCategoryKey) => {
+  const lookup = new Map<string, string>();
+  for (const option of enums[category]) {
+    lookup.set(option.id, option.id);
+    lookup.set(normalizeKey(option.label), option.id);
+  }
+  return lookup;
+};
+
+const repairEnumReferences = (
+  rawValue: unknown,
+  category: EnumCategoryKey,
+  enums: EnumDefinitions,
+  warnings: string[],
+  kpiName: string
+) => {
+  const rawList = Array.isArray(rawValue) ? rawValue : [];
+  if (rawValue !== undefined && !Array.isArray(rawValue)) {
+    warnings.push(`${kpiName}: ${category} was not a list; cleared it.`);
+  }
+
+  const lookup = enumLabelLookup(enums, category);
+  const repaired = new Set<string>();
+
+  for (const value of rawList) {
+    const reference = stringValue(value).trim();
+    if (!reference) {
+      continue;
+    }
+
+    const matchedId = lookup.get(reference) ?? lookup.get(normalizeKey(reference));
+    if (matchedId) {
+      repaired.add(matchedId);
+    } else {
+      warnings.push(`${kpiName}: ${category} reference "${reference}" did not match an enum option and was removed.`);
+    }
+  }
+
+  return [...repaired];
+};
+
+const repairPerformanceAreaReferencesForUseCase = (
+  rawValue: unknown,
+  useCase: string,
+  enums: EnumDefinitions,
+  warnings: string[],
+  kpiName: string
+) => {
+  const hasScopedDefinitions = enums.performanceArea.some((option) => option.useCase);
+  if (!hasScopedDefinitions) {
+    return repairEnumReferences(rawValue, 'performanceArea', enums, warnings, kpiName);
+  }
+
+  const rawList = Array.isArray(rawValue) ? rawValue : [];
+  if (rawValue !== undefined && !Array.isArray(rawValue)) {
+    warnings.push(`${kpiName}: performanceArea was not a list; cleared it.`);
+  }
+
+  const scopedOptions = enums.performanceArea.filter((option) => option.useCase === useCase);
+  const repaired = new Set<string>();
+
+  for (const value of rawList) {
+    const reference = stringValue(value).trim();
+    if (!reference) {
+      continue;
+    }
+
+    const normalizedReference = normalizeKey(reference);
+    const matched = scopedOptions.find(
+      (option) => option.id === reference || normalizeKey(option.label) === normalizedReference
+    );
+    if (matched) {
+      repaired.add(matched.id);
+    } else {
+      warnings.push(
+        `${kpiName}: performanceArea reference "${reference}" did not match an enum option for this use case and was removed.`
+      );
+    }
+  }
+
+  return [...repaired];
+};
+
+const splitCommaList = (value: string) =>
+  value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+const ensureEnumOptionByLabel = (
+  enums: EnumDefinitions,
+  category: EnumCategoryKey,
+  label: string,
+  warnings: string[],
+  context: string
+) => {
+  const normalizedLabel = normalizeKey(label);
+  const existing = enums[category].find((option) => option.id === label || normalizeKey(option.label) === normalizedLabel);
+  if (existing) {
+    return existing.id;
+  }
+
+  const usedIds = new Set(enums[category].map((option) => option.id));
+  let id = createId(`enum-${category}`);
+  while (usedIds.has(id)) {
+    id = createId(`enum-${category}`);
+  }
+
+  enums[category] = [...enums[category], { id, label }];
+  warnings.push(`${context}: added ${category} enum option "${label}".`);
+  return id;
+};
+
+const readPrerequisiteModuleValue = (prerequisite: Record<string, unknown>) =>
+  prerequisite.modules ??
+  prerequisite.Modules ??
+  prerequisite.moduleIds ??
+  prerequisite.module ??
+  prerequisite.Module ??
+  prerequisite.prerequisiteModule ??
+  prerequisite.prerequisiteModules ??
+  prerequisite['Prerequisite module'] ??
+  prerequisite['Prerequisite modules'];
+
+const readPrerequisiteKpiValue = (prerequisite: Record<string, unknown>) =>
+  prerequisite.kpis ??
+  prerequisite.KPIs ??
+  prerequisite.kpiIds ??
+  prerequisite.prerequisiteKpis ??
+  prerequisite.prerequisiteKPIs ??
+  prerequisite.prerequisiteKpi ??
+  prerequisite.prerequisiteKPI ??
+  prerequisite['Prerequisite KPI'] ??
+  prerequisite['Prerequisite KPIs'];
+
+const repairPrerequisiteModules = (
+  rawValue: unknown,
+  enums: EnumDefinitions,
+  warnings: string[],
+  kpiName: string
+) => {
+  const rawReferences = Array.isArray(rawValue)
+    ? rawValue.flatMap((entry) => splitCommaList(stringValue(entry)))
+    : typeof rawValue === 'string'
+      ? splitCommaList(rawValue)
+      : rawValue == null
+        ? []
+        : [stringValue(rawValue).trim()].filter(Boolean);
+
+  if (rawValue !== undefined && rawValue !== null && !Array.isArray(rawValue) && typeof rawValue !== 'string') {
+    warnings.push(`${kpiName}: prerequisite module was not a list or string; converted it to text before matching enum options.`);
+  }
+
+  const repaired = new Set<string>();
+  for (const reference of rawReferences) {
+    const id = ensureEnumOptionByLabel(enums, 'prerequisiteModule', reference, warnings, kpiName);
+    repaired.add(id);
+  }
+
+  return [...repaired];
+};
+
+const repairPrerequisiteKpis = (rawValue: unknown, warnings: string[], kpiName: string) => {
+  if (rawValue == null) {
+    return [];
+  }
+
+  if (!Array.isArray(rawValue)) {
+    warnings.push(`${kpiName}: prerequisite KPI references were not a list; cleared them.`);
+    return [];
+  }
+
+  return [...new Set(rawValue.map((value) => stringValue(value).trim()).filter(Boolean))];
+};
+
+const readUserGroupUseCaseValue = (record: Record<string, unknown>) =>
+  record.userGroupUseCases ??
+  record.userGroupsUseCases ??
+  record.useCasesByUserGroup ??
+  record.useCaseByUserGroup ??
+  record['User Group Use Cases'] ??
+  record['Use Cases by User Group'];
+
+const repairUserGroupReferences = (
+  rawValue: unknown,
+  enums: EnumDefinitions,
+  warnings: string[],
+  kpiName: string
+) => {
+  const rawList = Array.isArray(rawValue)
+    ? rawValue
+    : typeof rawValue === 'string'
+      ? splitCommaList(rawValue)
+      : rawValue == null
+        ? []
+        : [rawValue];
+
+  if (rawValue !== undefined && rawValue !== null && !Array.isArray(rawValue) && typeof rawValue !== 'string') {
+    warnings.push(`${kpiName}: userGroup was not a list or string; converted it to text before matching enum options.`);
+  }
+
+  const lookup = enumLabelLookup(enums, 'userGroup');
+  const repaired = new Set<string>();
+  for (const value of rawList) {
+    const reference = stringValue(value).trim();
+    if (!reference) {
+      continue;
+    }
+
+    const matchedId = lookup.get(reference) ?? lookup.get(normalizeKey(reference));
+    if (matchedId) {
+      repaired.add(matchedId);
+    } else {
+      warnings.push(`${kpiName}: userGroup reference "${reference}" did not match an enum option and was removed.`);
+    }
+  }
+
+  return [...repaired];
+};
+
+const normalizeUseCaseGroups = (items: KpiUserGroupUseCase[]) => {
+  const grouped = new Map<string, Set<string>>();
+  for (const item of items) {
+    if (!item.userGroup) {
+      continue;
+    }
+
+    const group = grouped.get(item.userGroup) ?? new Set<string>();
+    for (const useCase of item.useCases) {
+      if (useCase) {
+        group.add(useCase);
+      }
+    }
+    grouped.set(item.userGroup, group);
+  }
+
+  return [...grouped.entries()].map(([userGroup, useCases]) => ({
+    userGroup,
+    useCases: [...useCases]
+  }));
+};
+
+const normalizeUseCasePerformanceAreas = (items: KpiUseCasePerformanceArea[]) => {
+  const grouped = new Map<string, Set<string>>();
+  for (const item of items) {
+    if (!item.useCase) {
+      continue;
+    }
+
+    const areas = grouped.get(item.useCase) ?? new Set<string>();
+    for (const performanceArea of item.performanceAreas) {
+      if (performanceArea) {
+        areas.add(performanceArea);
+      }
+    }
+    grouped.set(item.useCase, areas);
+  }
+
+  return [...grouped.entries()].map(([useCase, performanceAreas]) => ({
+    useCase,
+    performanceAreas: [...performanceAreas]
+  }));
+};
+
+const hasScopedPerformanceAreaDefinitions = (rawConfig: Record<string, unknown>) => {
+  const rawEnums = isRecord(rawConfig.enums) ? rawConfig.enums : {};
+  const rawOptions = readCategory(rawEnums, 'performanceArea');
+  if (!Array.isArray(rawOptions)) {
+    return false;
+  }
+
+  return rawOptions.some(
+    (option) =>
+      isRecord(option) &&
+      stringValue(option.useCase ?? option.useCaseId ?? option.case ?? option.caseId ?? option['Use Case']).trim()
+  );
+};
+
+const isLegacyPerformanceAreaSchema = (rawConfig: Record<string, unknown>) => {
+  const schemaVersion = Number(rawConfig.schemaVersion);
+  return (!Number.isFinite(schemaVersion) || schemaVersion < 8) && !hasScopedPerformanceAreaDefinitions(rawConfig);
+};
+
+const repairUserGroupUseCases = (
+  record: Record<string, unknown>,
+  enums: EnumDefinitions,
+  warnings: string[],
+  kpiName: string
+) => {
+  const rawGrouped = readUserGroupUseCaseValue(record);
+
+  if (Array.isArray(rawGrouped)) {
+    const repaired = rawGrouped.flatMap((item, index): KpiUserGroupUseCase[] => {
+      if (!isRecord(item)) {
+        warnings.push(`${kpiName}: userGroupUseCases item ${index + 1} was not an object and was removed.`);
+        return [];
+      }
+
+      const rawUserGroup =
+        item.userGroup ?? item.userGroupId ?? item.group ?? item.groupId ?? item.label ?? item['User Group'];
+      const userGroups = repairUserGroupReferences(rawUserGroup == null ? [] : [rawUserGroup], enums, warnings, kpiName);
+      if (userGroups.length === 0) {
+        warnings.push(`${kpiName}: userGroupUseCases item ${index + 1} had no valid user group and was removed.`);
+        return [];
+      }
+
+      return userGroups.map((userGroup) => ({
+        userGroup,
+        useCases: repairEnumReferences(item.useCases ?? item.useCase ?? item['Use Cases'], 'useCase', enums, warnings, kpiName)
+      }));
+    });
+
+    return normalizeUseCaseGroups(repaired);
+  }
+
+  if (rawGrouped !== undefined) {
+    warnings.push(`${kpiName}: userGroupUseCases was not a list; migrated legacy userGroup/useCase fields where possible.`);
+  }
+
+  const legacyUseCases = repairEnumReferences(readCategory(record, 'useCase'), 'useCase', enums, warnings, kpiName);
+  const legacyUserGroups = repairUserGroupReferences(readCategory(record, 'userGroup'), enums, warnings, kpiName);
+  if (legacyUseCases.length === 0 && legacyUserGroups.length === 0) {
+    return [];
+  }
+
+  const userGroups =
+    legacyUserGroups.length > 0
+      ? legacyUserGroups
+      : [ensureEnumOptionByLabel(enums, 'userGroup', 'Unspecified User Group', warnings, kpiName)];
+
+  return normalizeUseCaseGroups(
+    userGroups.map((userGroup) => ({
+      userGroup,
+      useCases: legacyUseCases
+    }))
+  );
+};
+
+const readPerformanceAreasByUseCaseValue = (record: Record<string, unknown>) =>
+  record.performanceAreasByUseCase ??
+  record.performanceAreaByUseCase ??
+  record.performanceAreasByUseCases ??
+  record['Performance Areas by Use Case'] ??
+  record['Performance Area by Use Case'];
+
+const repairPerformanceAreasByUseCase = (
+  record: Record<string, unknown>,
+  enums: EnumDefinitions,
+  warnings: string[],
+  kpiName: string
+) => {
+  const rawScoped = readPerformanceAreasByUseCaseValue(record);
+  if (!Array.isArray(rawScoped)) {
+    if (rawScoped !== undefined) {
+      warnings.push(`${kpiName}: performanceAreasByUseCase was not a list; migrated legacy performanceArea where possible.`);
+    }
+    return [];
+  }
+
+  const repaired = rawScoped.flatMap((item, index): KpiUseCasePerformanceArea[] => {
+    if (!isRecord(item)) {
+      warnings.push(`${kpiName}: performanceAreasByUseCase item ${index + 1} was not an object and was removed.`);
+      return [];
+    }
+
+    const rawUseCase = item.useCase ?? item.useCaseId ?? item.useCases ?? item['Use Case'];
+    const useCases = repairEnumReferences(
+      Array.isArray(rawUseCase) ? rawUseCase : rawUseCase == null ? [] : [rawUseCase],
+      'useCase',
+      enums,
+      warnings,
+      kpiName
+    );
+    if (useCases.length === 0) {
+      warnings.push(`${kpiName}: performanceAreasByUseCase item ${index + 1} had no valid use case and was removed.`);
+      return [];
+    }
+
+    const rawPerformanceAreas = item.performanceAreas ?? item.performanceArea ?? item['Performance Areas'];
+
+    return useCases.map((useCase) => ({
+      useCase,
+      performanceAreas: repairPerformanceAreaReferencesForUseCase(rawPerformanceAreas, useCase, enums, warnings, kpiName)
+    }));
+  });
+
+  return normalizeUseCasePerformanceAreas(repaired);
+};
+
+const readNotesByUseCaseValue = (record: Record<string, unknown>) =>
+  record.notesByUseCase ??
+  record.noteByUseCase ??
+  record.useCaseNotes ??
+  record.useCaseNote ??
+  record.notes ??
+  record['Notes by Use Case'] ??
+  record['Use Case Notes'];
+
+const normalizeUseCaseNotes = (items: KpiUseCaseNote[]) => {
+  const grouped = new Map<string, string>();
+  for (const item of items) {
+    if (!item.useCase) {
+      continue;
+    }
+
+    const note = item.note.trim();
+    if (!note) {
+      continue;
+    }
+
+    const existing = grouped.get(item.useCase);
+    grouped.set(item.useCase, existing ? `${existing}\n${note}` : note);
+  }
+
+  return [...grouped.entries()].map(([useCase, note]) => ({
+    useCase,
+    note
+  }));
+};
+
+const repairNotesByUseCase = (
+  record: Record<string, unknown>,
+  enums: EnumDefinitions,
+  warnings: string[],
+  kpiName: string
+) => {
+  const rawScoped = readNotesByUseCaseValue(record);
+  if (rawScoped == null) {
+    return [];
+  }
+
+  if (!Array.isArray(rawScoped)) {
+    warnings.push(`${kpiName}: notesByUseCase was not a list and was cleared.`);
+    return [];
+  }
+
+  const repaired = rawScoped.flatMap((item, index): KpiUseCaseNote[] => {
+    if (!isRecord(item)) {
+      warnings.push(`${kpiName}: notesByUseCase item ${index + 1} was not an object and was removed.`);
+      return [];
+    }
+
+    const rawUseCase = item.useCase ?? item.useCaseId ?? item.useCases ?? item['Use Case'];
+    const useCases = repairEnumReferences(
+      Array.isArray(rawUseCase) ? rawUseCase : rawUseCase == null ? [] : [rawUseCase],
+      'useCase',
+      enums,
+      warnings,
+      kpiName
+    );
+    if (useCases.length === 0) {
+      warnings.push(`${kpiName}: notesByUseCase item ${index + 1} had no valid use case and was removed.`);
+      return [];
+    }
+
+    const note = stringValue(item.note ?? item.notes ?? item.text ?? item.value ?? item['Note']).trim();
+    if (!note) {
+      return [];
+    }
+
+    return useCases.map((useCase) => ({
+      useCase,
+      note
+    }));
+  });
+
+  return normalizeUseCaseNotes(repaired);
+};
+
+const repairUseCaseOwnership = (enums: EnumDefinitions, kpis: KpiMetric[], warnings: string[], legacyPerformanceAreas: boolean) => {
+  const nextEnums: EnumDefinitions = {
+    ...enums,
+    useCase: []
+  };
+  const validUserGroups = new Set(enums.userGroup.map((option) => option.id));
+  const useCaseById = new Map(enums.useCase.map((option) => [option.id, option]));
+  const usedUseCaseIds = new Set<string>();
+  const claimedUnscopedIds = new Set<string>();
+  const scopedByKey = new Map<string, EnumOption>();
+
+  const ensureUnspecifiedUserGroup = () => {
+    const existing = enums.userGroup.find((option) => normalizeKey(option.label) === normalizeKey('Unspecified User Group'));
+    if (existing) {
+      validUserGroups.add(existing.id);
+      return existing.id;
+    }
+
+    const id = ensureEnumOptionByLabel(enums, 'userGroup', 'Unspecified User Group', warnings, 'Use Case migration');
+    validUserGroups.add(id);
+    nextEnums.userGroup = enums.userGroup;
+    return id;
+  };
+
+  const addScopedOption = (option: EnumOption, userGroup: string, preserveId: boolean) => {
+    const key = `${userGroup}\u0000${normalizeKey(option.label)}`;
+    const existing = scopedByKey.get(key);
+    if (existing) {
+      return existing.id;
+    }
+
+    let id = preserveId ? option.id : createId('enum-useCase');
+    while (usedUseCaseIds.has(id)) {
+      id = createId('enum-useCase');
+    }
+
+    const scoped = {
+      ...option,
+      id,
+      userGroup
+    };
+    nextEnums.useCase = [...nextEnums.useCase, scoped];
+    scopedByKey.set(key, scoped);
+    usedUseCaseIds.add(id);
+    return id;
+  };
+
+  for (const option of enums.useCase) {
+    if (option.userGroup && validUserGroups.has(option.userGroup)) {
+      addScopedOption(option, option.userGroup, true);
+    }
+  }
+
+  const resolveUseCaseForGroup = (useCaseId: string, userGroup: string, kpiName: string) => {
+    const option = useCaseById.get(useCaseId);
+    if (!option) {
+      return undefined;
+    }
+
+    if (option.userGroup && validUserGroups.has(option.userGroup)) {
+      if (option.userGroup === userGroup) {
+        return addScopedOption(option, userGroup, true);
+      }
+
+      const clonedId = addScopedOption(option, userGroup, false);
+      warnings.push(`${kpiName}: copied use case "${option.label}" for user group ownership.`);
+      return clonedId;
+    }
+
+    if (!claimedUnscopedIds.has(option.id)) {
+      claimedUnscopedIds.add(option.id);
+      return addScopedOption(option, userGroup, true);
+    }
+
+    const clonedId = addScopedOption(option, userGroup, false);
+    warnings.push(`${kpiName}: copied legacy use case "${option.label}" because it is used by multiple user groups.`);
+    return clonedId;
+  };
+
+  const scopedKpis = kpis.map((kpi) => {
+    const useCaseRetargets = new Map<string, Set<string>>();
+    const userGroupUseCases = kpi.userGroupUseCases.map((entry) => {
+      const useCases = entry.useCases
+        .map((id) => {
+          const scopedId = resolveUseCaseForGroup(id, entry.userGroup, kpi.name);
+          if (scopedId) {
+            const targets = useCaseRetargets.get(id) ?? new Set<string>();
+            targets.add(scopedId);
+            useCaseRetargets.set(id, targets);
+          }
+          return scopedId;
+        })
+        .filter(Boolean) as string[];
+      return {
+        ...entry,
+        useCases: [...new Set(useCases)]
+      };
+    });
+
+    const assignedUseCases = new Set(userGroupUseCases.flatMap((entry) => entry.useCases));
+    const validUseCases = legacyPerformanceAreas ? assignedUseCases : new Set(nextEnums.useCase.map((option) => option.id));
+    const scopedPerformanceAreas = kpi.performanceAreasByUseCase.length
+      ? normalizeUseCasePerformanceAreas(
+          kpi.performanceAreasByUseCase.flatMap((entry) => {
+            const targets = useCaseRetargets.get(entry.useCase) ?? new Set([entry.useCase]);
+            return [...targets]
+              .filter((useCase) => validUseCases.has(useCase))
+              .map((useCase) => ({
+                useCase,
+                performanceAreas: entry.performanceAreas
+              }));
+          })
+        )
+      : legacyPerformanceAreas
+        ? normalizeUseCasePerformanceAreas(
+            [...assignedUseCases].map((useCase) => ({
+              useCase,
+              performanceAreas: kpi.performanceArea
+            }))
+          )
+        : [];
+
+    const notesByUseCase = normalizeUseCaseNotes(
+      kpi.notesByUseCase.flatMap((entry) => {
+        const targets = useCaseRetargets.get(entry.useCase) ?? new Set([entry.useCase]);
+        return [...targets]
+          .filter((useCase) => validUseCases.has(useCase))
+          .map((useCase) => ({
+            useCase,
+            note: entry.note
+          }));
+      })
+    );
+
+    return {
+      ...kpi,
+      userGroupUseCases,
+      performanceAreasByUseCase: scopedPerformanceAreas,
+      performanceArea: scopedPerformanceAreas.length || !legacyPerformanceAreas
+        ? [...new Set(scopedPerformanceAreas.flatMap((entry) => entry.performanceAreas))]
+        : kpi.performanceArea,
+      notesByUseCase
+    };
+  });
+
+  const unspecifiedUserGroup = () => ensureUnspecifiedUserGroup();
+  for (const option of enums.useCase) {
+    if (!usedUseCaseIds.has(option.id) && !claimedUnscopedIds.has(option.id)) {
+      const userGroup = option.userGroup && validUserGroups.has(option.userGroup) ? option.userGroup : unspecifiedUserGroup();
+      addScopedOption(option, userGroup, true);
+    }
+  }
+
+  return {
+    enums: nextEnums,
+    kpis: scopedKpis
+  };
+};
+
+const createOwnedPerformanceAreaId = (optionId: string, useCase: string, usedIds: Set<string>) => {
+  const baseId = `${optionId}-${useCase}`;
+  let id = baseId;
+  let index = 2;
+  while (usedIds.has(id)) {
+    id = `${baseId}-${index}`;
+    index += 1;
+  }
+  usedIds.add(id);
+  return id;
+};
+
+const repairPerformanceAreaOwnership = (
+  enums: EnumDefinitions,
+  kpis: KpiMetric[],
+  warnings: string[],
+  legacyPerformanceAreas: boolean
+) => {
+  const nextEnums: EnumDefinitions = {
+    ...enums,
+    performanceArea: [...enums.performanceArea]
+  };
+
+  const hasPerformanceData =
+    nextEnums.performanceArea.length > 0 ||
+    kpis.some((kpi) => kpi.performanceArea.length > 0 || kpi.performanceAreasByUseCase.some((entry) => entry.performanceAreas.length > 0));
+
+  if (legacyPerformanceAreas && hasPerformanceData && nextEnums.useCase.length === 0) {
+    const userGroup = ensureEnumOptionByLabel(
+      nextEnums,
+      'userGroup',
+      'Unspecified User Group',
+      warnings,
+      'Performance area migration'
+    );
+    const useCaseId = createId('enum-useCase');
+    nextEnums.useCase = [
+      {
+        id: useCaseId,
+        label: 'Unspecified Use Case',
+        description: '',
+        userGroup
+      }
+    ];
+    warnings.push('Performance area migration: added an unspecified use case to own legacy performance area options.');
+  }
+
+  const validUseCases = new Set(nextEnums.useCase.map((option) => option.id));
+  const usedIds = new Set<string>();
+  const scopedOptions: EnumOption[] = [];
+  const labelUseCaseLookup = new Map<string, string>();
+  const optionById = new Map(nextEnums.performanceArea.map((option) => [option.id, option]));
+
+  const keyFor = (label: string, useCase: string) => `${useCase}\u0000${label}`;
+  const addScopedOption = (option: EnumOption, useCase: string, keepId: boolean) => {
+    const key = keyFor(option.label, useCase);
+    const existing = labelUseCaseLookup.get(key);
+    if (existing) {
+      return existing;
+    }
+
+    const id = keepId && !usedIds.has(option.id) ? option.id : createOwnedPerformanceAreaId(option.id || 'enum-performanceArea', useCase, usedIds);
+    if (keepId) {
+      usedIds.add(id);
+    }
+
+    scopedOptions.push({
+      id,
+      label: option.label,
+      description: option.description,
+      useCase
+    });
+    labelUseCaseLookup.set(key, id);
+    return id;
+  };
+
+  for (const option of nextEnums.performanceArea) {
+    if (option.useCase && validUseCases.has(option.useCase)) {
+      addScopedOption(option, option.useCase, true);
+    }
+  }
+
+  const scopedIdFor = (performanceAreaId: string, useCase: string, kpiName: string) => {
+    const option = optionById.get(performanceAreaId);
+    if (!option) {
+      warnings.push(`${kpiName}: performanceArea reference "${performanceAreaId}" did not match an enum option and was removed.`);
+      return undefined;
+    }
+
+    if (option.useCase && validUseCases.has(option.useCase) && option.useCase === useCase) {
+      return labelUseCaseLookup.get(keyFor(option.label, useCase)) ?? addScopedOption(option, useCase, true);
+    }
+
+    if (!legacyPerformanceAreas) {
+      return undefined;
+    }
+
+    return addScopedOption(option, useCase, false);
+  };
+
+  for (const option of nextEnums.performanceArea) {
+    if (legacyPerformanceAreas && (!option.useCase || !validUseCases.has(option.useCase))) {
+      for (const useCase of validUseCases) {
+        addScopedOption(option, useCase, false);
+      }
+    }
+  }
+
+  const scopedKpis = kpis.map((kpi) => {
+    const validPerformanceAreasByUseCase = kpi.performanceAreasByUseCase
+      .filter((entry) => validUseCases.has(entry.useCase))
+      .map((entry) => ({
+        useCase: entry.useCase,
+        performanceAreas: [
+          ...new Set(
+            entry.performanceAreas
+              .map((performanceArea) => scopedIdFor(performanceArea, entry.useCase, kpi.name))
+              .filter(Boolean) as string[]
+          )
+        ]
+      }));
+
+    const performanceAreasByUseCase = validPerformanceAreasByUseCase.length
+      ? validPerformanceAreasByUseCase
+      : legacyPerformanceAreas
+        ? [...validUseCases].map((useCase) => ({
+            useCase,
+            performanceAreas: [
+              ...new Set(
+                kpi.performanceArea
+                  .map((performanceArea) => scopedIdFor(performanceArea, useCase, kpi.name))
+                  .filter(Boolean) as string[]
+              )
+            ]
+          }))
+        : [];
+
+    return {
+      ...kpi,
+      performanceAreasByUseCase,
+      performanceArea: [...new Set(performanceAreasByUseCase.flatMap((entry) => entry.performanceAreas))]
+    };
+  });
+
+  return {
+    enums: {
+      ...nextEnums,
+      performanceArea: scopedOptions
+    },
+    kpis: scopedKpis
+  };
+};
+
+const emptyScale = (): SpatialScaleConfig => ({
+  applicable: false,
+  isBasicUnit: false,
+  aggregationMethod: '',
+  formula: '',
+  leftExpression: '',
+  rightExpression: ''
+});
+
+const repairSpatialScales = (rawValue: unknown, warnings: string[], kpiName: string): KpiMetric['spatialScales'] => {
+  const rawScales = isRecord(rawValue) ? rawValue : {};
+  if (!isRecord(rawValue)) {
+    warnings.push(`${kpiName}: spatialScales was missing or invalid; initialized empty spatial scale settings.`);
+  }
+
+  const repaired = {} as KpiMetric['spatialScales'];
+  for (const scale of spatialScaleKeys) {
+    const rawScale = isRecord(rawScales[scale]) ? rawScales[scale] : {};
+    const importedFormula = stringValue(rawScale.formula ?? rawScale.aggregationFormula ?? rawScale.latex);
+    const parsedFormula = splitFormula(importedFormula);
+    const leftExpression = stringValue(rawScale.leftExpression) || parsedFormula.leftExpression;
+    const rightExpression = stringValue(rawScale.rightExpression) || parsedFormula.rightExpression;
+    const isBasicUnit = booleanValue(rawScale.isBasicUnit);
+    repaired[scale] = {
+      applicable: booleanValue(rawScale.applicable),
+      isBasicUnit,
+      aggregationMethod: stringValue(rawScale.aggregationMethod ?? rawScale.explanation ?? rawScale.generalExplanation),
+      formula: isBasicUnit ? '' : rightExpression,
+      leftExpression: '',
+      rightExpression: isBasicUnit ? '' : rightExpression
+    };
+  }
+
+  return repaired;
+};
+
+const repairFormulaTerms = (rawTerms: unknown, warnings: string[], kpiName: string, formulaLabel: string) => {
+  if (rawTerms == null) {
+    return [];
+  }
+
+  if (!Array.isArray(rawTerms)) {
+    warnings.push(`${kpiName}: ${formulaLabel} term explanations were not a list and were cleared.`);
+    return [];
+  }
+
+  return rawTerms.flatMap((item, index) => {
+    if (typeof item === 'string') {
+      return [{ term: item, explanation: '' }];
+    }
+
+    if (!isRecord(item)) {
+      warnings.push(`${kpiName}: ${formulaLabel} term explanation ${index + 1} was not readable and was removed.`);
+      return [];
+    }
+
+    return [
+      {
+        term: stringValue(item.term ?? item.key ?? item.symbol ?? item.latex ?? item.LaTeX ?? item['Term']),
+        explanation: stringValue(item.explanation ?? item.value ?? item.description ?? item['Explanation'])
+      }
+    ];
+  });
+};
+
+const splitFormula = (formula: string) => {
+  const equalsIndex = formula.indexOf('=');
+  return equalsIndex < 0
+    ? { leftExpression: '', rightExpression: formula }
+    : {
+        leftExpression: formula.slice(0, equalsIndex).trim(),
+        rightExpression: formula.slice(equalsIndex + 1).trim()
+      };
+};
+
+const repairFormulaItem = (item: unknown, index: number, warnings: string[], kpiName: string): KpiFormulaItem => {
+  const label = `formula item ${index + 1}`;
+  if (typeof item === 'string') {
+    const sides = splitFormula(item);
+    return {
+      tag: `Formula ${index + 1}`,
+      formula: item,
+      ...sides,
+      generalExplanation: '',
+      terms: []
+    };
+  }
+
+  if (!isRecord(item)) {
+    warnings.push(`${kpiName}: ${label} was not readable; initialized it as a blank formula item.`);
+    return {
+      tag: `Formula ${index + 1}`,
+      formula: '',
+      leftExpression: '',
+      rightExpression: '',
+      generalExplanation: '',
+      terms: []
+    };
+  }
+
+  const tag = stringValue(item.tag ?? item.Tag ?? item.label ?? item.name).trim() || `Formula ${index + 1}`;
+  const formula = stringValue(item.formula ?? item.Formula ?? item.latex ?? item.LaTeX);
+  const fallbackSides = splitFormula(formula);
+  const leftExpression = stringValue(item.leftExpression ?? item.left ?? item.lhs ?? item['Left Expression']) || fallbackSides.leftExpression;
+  const rightExpression = stringValue(item.rightExpression ?? item.right ?? item.rhs ?? item['Right Expression']) || fallbackSides.rightExpression;
+  return {
+    tag,
+    formula: leftExpression ? `${leftExpression} = ${rightExpression}` : rightExpression,
+    leftExpression,
+    rightExpression,
+    generalExplanation: stringValue(
+      item.generalExplanation ??
+        item.general_expression ??
+        item.expression ??
+        item.Expression ??
+        item.explanation ??
+        item.Explanation ??
+        item.formulaExplanation ??
+        item['Formula explanation'] ??
+        item['General Explanation']
+    ),
+    terms: repairFormulaTerms(
+      item.terms ?? item.termExplanations ?? item.termWiseExplanations ?? item.variables ?? item['Term Explanations'],
+      warnings,
+      kpiName,
+      tag
+    )
+  };
+};
+
+const repairFormulaGroups = (description: Record<string, unknown>, warnings: string[], kpiName: string): KpiFormulaGroup[] => {
+  const rawItems =
+    description.formulas ??
+    description.Formulas ??
+    description.formulaGroups ??
+    description['Formula groups'] ??
+    description.formulaItems ??
+    description['Formula items'];
+
+  if (Array.isArray(rawItems)) {
+    const groups: KpiFormulaGroup[] = [];
+    const looseItems: KpiFormulaItem[] = [];
+
+    rawItems.forEach((item, index) => {
+      if (isRecord(item) && Array.isArray(item.items ?? item.formulas ?? item.Formulas)) {
+        const rawGroupItems = item.items ?? item.formulas ?? item.Formulas;
+        groups.push({
+          name: stringValue(item.name ?? item.groupName ?? item.label ?? item.title ?? item['Group Name']).trim() || `Group ${groups.length + 1}`,
+          items: (rawGroupItems as unknown[]).map((formulaItem, itemIndex) =>
+            repairFormulaItem(formulaItem, itemIndex, warnings, kpiName)
+          )
+        });
+        return;
+      }
+
+      looseItems.push(repairFormulaItem(item, index, warnings, kpiName));
+    });
+
+    if (looseItems.length > 0) {
+      groups.unshift({
+        name: 'Formula',
+        items: looseItems
+      });
+    }
+
+    return groups.filter((group) => group.name.trim() || group.items.length > 0);
+  }
+
+  if (rawItems !== undefined) {
+    warnings.push(`${kpiName}: formulas was not a list; migrated legacy single formula fields where possible.`);
+  }
+
+  const legacyFormula = stringValue(description.formula ?? description.Formula).trim();
+  const legacyExpression = stringValue(
+    description.generalExplanation ??
+      description.expression ??
+      description.Expression ??
+      description.formulaExplanation ??
+      description['Formula explanation'] ??
+      description.formula_explanation
+  ).trim();
+  const legacyTag = stringValue(description.formulaTag ?? description.tag ?? description.Tag).trim() || 'Formula';
+
+  if (!legacyFormula && !legacyExpression) {
+    return [];
+  }
+
+  return [
+    {
+      name: 'Formula',
+      items: [
+        {
+          tag: legacyTag,
+          formula: legacyFormula,
+          ...splitFormula(legacyFormula),
+          generalExplanation: legacyExpression,
+          terms: []
+        }
+      ]
+    }
+  ];
+};
+
+const repairDefaultFocus = (rawConfig: Record<string, unknown>, enums: EnumDefinitions, warnings: string[]): KpiDefaultFocus | undefined => {
+  const rawFocus = rawConfig.defaultFocus ?? rawConfig.focusMode ?? rawConfig.focus ?? rawConfig['Default Focus'];
+  if (rawFocus == null) {
+    return undefined;
+  }
+
+  if (!isRecord(rawFocus)) {
+    warnings.push('Default focus was not an object and was cleared.');
+    return undefined;
+  }
+
+  const userGroupReference = stringValue(rawFocus.userGroup ?? rawFocus.userGroupId ?? rawFocus.group ?? rawFocus['User Group']).trim();
+  const useCaseReference = stringValue(rawFocus.useCase ?? rawFocus.useCaseId ?? rawFocus.case ?? rawFocus['Use Case']).trim();
+  const userGroupLookup = enumLabelLookup(enums, 'userGroup');
+  const useCaseLookup = enumLabelLookup(enums, 'useCase');
+  const userGroup = userGroupLookup.get(userGroupReference) ?? userGroupLookup.get(normalizeKey(userGroupReference));
+  const useCase = useCaseLookup.get(useCaseReference) ?? useCaseLookup.get(normalizeKey(useCaseReference));
+
+  if (!userGroup || !useCase) {
+    warnings.push('Default focus did not match existing user group/use case options and was cleared.');
+    return undefined;
+  }
+
+  const validPair = enums.useCase.some((option) => option.id === useCase && option.userGroup === userGroup);
+  if (!validPair) {
+    warnings.push('Default focus use case does not belong to the selected user group and was cleared.');
+    return undefined;
+  }
+
+  return { userGroup, useCase };
+};
+
+const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] => {
+  if (rawValue == null) {
+    return [];
+  }
+  if (!Array.isArray(rawValue)) {
+    warnings.push('Data sources were not a list and were initialized empty.');
+    return [];
+  }
+
+  const usedSourceIds = new Set<string>();
+  return rawValue.flatMap((rawSource, sourceIndex) => {
+    if (!isRecord(rawSource)) {
+      warnings.push(`Data source ${sourceIndex + 1} was not readable and was removed.`);
+      return [];
+    }
+    const name = stringValue(rawSource.name ?? rawSource.Name).trim() || `Data source ${sourceIndex + 1}`;
+    const id = ensureUniqueId(rawSource.id, 'source', usedSourceIds, warnings, `Data source "${name}"`);
+    const rawFields = Array.isArray(rawSource.fields ?? rawSource.Fields) ? (rawSource.fields ?? rawSource.Fields) as unknown[] : [];
+    const usedFieldIds = new Set<string>();
+    const fields = rawFields.flatMap((rawField, fieldIndex): DataSourceField[] => {
+      if (!isRecord(rawField)) {
+        warnings.push(`${name}: field ${fieldIndex + 1} was not readable and was removed.`);
+        return [];
+      }
+      const fieldName = stringValue(rawField.name ?? rawField.Name).trim() || `Field ${fieldIndex + 1}`;
+      return [{
+        id: ensureUniqueId(rawField.id, 'field', usedFieldIds, warnings, `${name}: field "${fieldName}"`),
+        name: fieldName,
+        meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
+        valueUnit: stringValue(rawField.valueUnit ?? rawField.unit ?? rawField['Value Unit'])
+      }];
+    });
+    const validFieldIds = new Set(fields.map((field) => field.id));
+    const claimedFieldIds = new Set<string>();
+    const usedGroupIds = new Set<string>();
+    const rawGroups = Array.isArray(rawSource.fieldGroups) ? rawSource.fieldGroups : [];
+    const fieldGroups = rawGroups.flatMap((rawGroup, groupIndex): DataSourceFieldGroup[] => {
+      if (!isRecord(rawGroup)) return [];
+      const fieldIds = (Array.isArray(rawGroup.fieldIds) ? rawGroup.fieldIds : [])
+        .map((value) => stringValue(value))
+        .filter((fieldId) => validFieldIds.has(fieldId) && !claimedFieldIds.has(fieldId));
+      fieldIds.forEach((fieldId) => claimedFieldIds.add(fieldId));
+      const versions = [...new Set(
+        (Array.isArray(rawGroup.versions) ? rawGroup.versions : stringValue(rawGroup.versions).split(','))
+          .map((value) => stringValue(value).trim())
+          .filter(Boolean)
+      )];
+      return [{
+        id: ensureUniqueId(rawGroup.id, 'field-group', usedGroupIds, warnings, `${name}: field group ${groupIndex + 1}`),
+        versionName: stringValue(rawGroup.versionName ?? rawGroup.name).trim(),
+        versions,
+        fieldIds,
+        position: Math.max(0, Math.min(Number.isInteger(rawGroup.position) ? Number(rawGroup.position) : 0, fields.length))
+      }];
+    });
+    return [{
+      id,
+      name,
+      spatialUnit: stringValue(rawSource.spatialUnit ?? rawSource.spatialScale ?? rawSource['Spatial Unit']),
+      fields,
+      fieldGroups
+    }];
+  });
+};
+
+const repairLookups = (rawValue: unknown, warnings: string[]): LookupDefinition[] => {
+  if (rawValue == null) return [];
+  if (!Array.isArray(rawValue)) {
+    warnings.push('Lookups were not a list and were initialized empty.');
+    return [];
+  }
+  const usedLookupIds = new Set<string>();
+  return rawValue.flatMap((rawLookup, lookupIndex): LookupDefinition[] => {
+    if (!isRecord(rawLookup)) {
+      warnings.push(`Lookup ${lookupIndex + 1} was not readable and was removed.`);
+      return [];
+    }
+    const outputName = stringValue(rawLookup.outputName ?? rawLookup.name ?? rawLookup.output).trim() || `Lookup ${lookupIndex + 1}`;
+    const id = ensureUniqueId(rawLookup.id, 'lookup', usedLookupIds, warnings, `Lookup "${outputName}"`);
+    const rawInputs = Array.isArray(rawLookup.inputs ?? rawLookup.arguments) ? (rawLookup.inputs ?? rawLookup.arguments) as unknown[] : [];
+    const usedInputIds = new Set<string>();
+    const inputs = rawInputs.flatMap((rawInput, inputIndex): LookupInput[] => {
+      if (!isRecord(rawInput)) return [];
+      return [{
+        id: ensureUniqueId(rawInput.id, 'lookup-input', usedInputIds, warnings, `${outputName}: input ${inputIndex + 1}`),
+        representation: stringValue(rawInput.representation ?? rawInput.name ?? rawInput.variable),
+        explanation: stringValue(rawInput.explanation ?? rawInput.description)
+      }];
+    });
+    return [{
+      id,
+      outputName,
+      outputExplanation: stringValue(rawLookup.outputExplanation ?? rawLookup.explanation ?? rawLookup.description),
+      inputs
+    }];
+  });
+};
+
+const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string): KpiSourceItem[] => {
+  if (rawValue == null) {
+    return [];
+  }
+  if (!Array.isArray(rawValue)) {
+    warnings.push(`${kpiName}: sources were not a list and were initialized empty.`);
+    return [];
+  }
+  const usedIds = new Set<string>();
+  return rawValue.flatMap((rawSource, index): KpiSourceItem[] => {
+    if (!isRecord(rawSource)) {
+      warnings.push(`${kpiName}: source ${index + 1} was not readable and was removed.`);
+      return [];
+    }
+    const type = rawSource.type === 'custom'
+      ? 'custom'
+      : rawSource.type === 'lookup' || rawSource.lookupId || rawSource.lookup
+        ? 'lookup'
+      : rawSource.type === 'kpi' || rawSource.kpiId || rawSource.kpi
+        ? 'kpi'
+        : 'dataField';
+    const id = ensureUniqueId(rawSource.id, 'kpi-source', usedIds, warnings, `${kpiName}: source ${index + 1}`);
+    if (type === 'custom') {
+      return [{
+        id,
+        type,
+        name: stringValue(rawSource.name ?? rawSource.label).trim() || `Custom source ${index + 1}`,
+        latex: stringValue(rawSource.latex ?? rawSource.symbol)
+      }];
+    }
+    if (type === 'kpi') {
+      const kpiId = stringValue(rawSource.kpiId ?? rawSource.kpi).trim();
+      return kpiId ? [{ id, type, kpiId, latex: stringValue(rawSource.latex ?? rawSource.symbol) }] : [];
+    }
+    if (type === 'lookup') {
+      const lookupId = stringValue(rawSource.lookupId ?? rawSource.lookup).trim();
+      return lookupId ? [{ id, type, lookupId, latex: stringValue(rawSource.latex ?? rawSource.symbol) }] : [];
+    }
+    const dataSourceId = stringValue(rawSource.dataSourceId ?? rawSource.sourceId ?? rawSource.dataSource).trim();
+    const fieldId = stringValue(rawSource.fieldId ?? rawSource.field).trim();
+    return dataSourceId && fieldId
+      ? [{
+          id,
+          type,
+          dataSourceId,
+          fieldId,
+          version: stringValue(rawSource.version).trim() || undefined,
+          latex: stringValue(rawSource.latex ?? rawSource.symbol)
+        }]
+      : [];
+  });
+};
+
+export const createBlankConfig = (): KpiPoolConfig => ({
+  schemaVersion: 18,
+  title: 'Untitled KPI Library',
+  updatedAt: new Date().toISOString(),
+  enums: {
+    prerequisiteModule: [],
+    userGroup: [],
+    previousApplication: [],
+    federalRequirement: [],
+    performanceArea: [],
+    useCase: []
+  },
+  dataSources: [],
+  lookups: [],
+  kpis: []
+});
+
+export const createBlankKpi = (): KpiMetric => ({
+  id: createId('kpi'),
+  lastModified: new Date().toISOString(),
+  name: 'Untitled KPI',
+  sources: [],
+  description: {
+    overview: '',
+    formulaComment: '',
+    formulas: []
+  },
+  prerequisite: {
+    modules: [],
+    kpis: [],
+    values: ''
+  },
+  spatialScales: {
+    link: emptyScale(),
+    project: emptyScale(),
+    taz: emptyScale(),
+    corridor: emptyScale(),
+    subRegion: emptyScale(),
+    region: emptyScale()
+  },
+  previousApplication: [],
+  federalRequirement: [],
+  performanceArea: [],
+  performanceAreasByUseCase: [],
+  notesByUseCase: [],
+  userGroupUseCases: []
+});
+
+export const createEnumOption = (label = 'New option', userGroup?: string, useCase?: string): EnumOption => ({
+  id: createId('enum'),
+  label,
+  description: '',
+  userGroup,
+  useCase
+});
+
+export const repairConfig = (input: unknown): RepairResult => {
+  if (isCurrentKpiPoolConfig(input)) {
+    return { config: input, warnings: [] };
+  }
+
+  const warnings: string[] = [];
+  const importTimestamp = new Date().toISOString();
+  const rawConfig = isRecord(input) ? input : {};
+  if (!isRecord(input)) {
+    warnings.push('The embedded configuration root was not an object; initialized a blank config.');
+  }
+  const legacyPerformanceAreas = isLegacyPerformanceAreaSchema(rawConfig);
+
+  const enums = repairEnums(rawConfig, warnings);
+  const dataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, warnings);
+  const lookups = repairLookups(rawConfig.lookups, warnings);
+  const rawKpis = Array.isArray(rawConfig.kpis) ? rawConfig.kpis : [];
+  if (!Array.isArray(rawConfig.kpis)) {
+    warnings.push('Missing or invalid kpis list; initialized it as an empty list.');
+  }
+
+  const usedKpiIds = new Set<string>();
+  const kpis = rawKpis.map((rawKpi, index): KpiMetric => {
+    const record = isRecord(rawKpi) ? rawKpi : {};
+    const name = stringValue(record.name ?? record.Name).trim() || `Untitled KPI ${index + 1}`;
+    if (!isRecord(rawKpi)) {
+      warnings.push(`KPI ${index + 1} was not an object; initialized it as "${name}".`);
+    }
+
+    const description = isRecord(record.description ?? record.Description)
+      ? (record.description ?? record.Description) as Record<string, unknown>
+      : {};
+    const prerequisite = isRecord(record.prerequisite ?? record.Prerequisite)
+      ? (record.prerequisite ?? record.Prerequisite) as Record<string, unknown>
+      : {};
+
+    const kpi: KpiMetric = {
+      id: ensureUniqueId(record.id, 'kpi', usedKpiIds, warnings, `KPI "${name}"`),
+      lastModified: (() => {
+        const value = stringValue(record.lastModified ?? record.lastModifiedAt).trim();
+        return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : importTimestamp;
+      })(),
+      name,
+      sources: repairKpiSources(record.sources ?? record.source ?? record.Source, warnings, name),
+      description: {
+        overview: stringValue(description.overview ?? description.Overview),
+        formulaComment: stringValue(description.formulaComment ?? description.formulaNote ?? description['Formula Comment']),
+        formulas: repairFormulaGroups(description, warnings, name)
+      },
+      prerequisite: {
+        modules: repairPrerequisiteModules(readPrerequisiteModuleValue(prerequisite), enums, warnings, name),
+        kpis: repairPrerequisiteKpis(readPrerequisiteKpiValue(prerequisite), warnings, name),
+        values: stringValue(prerequisite.values ?? prerequisite.prerequisiteValues ?? prerequisite['Prerequisite values'])
+      },
+      spatialScales: repairSpatialScales(record.spatialScales ?? record['Spatial scales'], warnings, name),
+      previousApplication: repairEnumReferences(
+        readCategory(record, 'previousApplication'),
+        'previousApplication',
+        enums,
+        warnings,
+        name
+      ),
+      federalRequirement: repairEnumReferences(
+        readCategory(record, 'federalRequirement'),
+        'federalRequirement',
+        enums,
+        warnings,
+        name
+      ),
+      performanceArea: repairEnumReferences(readCategory(record, 'performanceArea'), 'performanceArea', enums, warnings, name),
+      performanceAreasByUseCase: repairPerformanceAreasByUseCase(record, enums, warnings, name),
+      notesByUseCase: repairNotesByUseCase(record, enums, warnings, name),
+      userGroupUseCases: repairUserGroupUseCases(record, enums, warnings, name)
+    };
+
+    return kpi;
+  });
+
+  const validKpiIds = new Set(kpis.map((kpi) => kpi.id));
+  const dataSourceById = new Map(dataSources.map((source) => [source.id, source]));
+  const validLookupIds = new Set(lookups.map((lookup) => lookup.id));
+  const kpisWithValidDependencies = kpis.map((kpi) => {
+    const nextDependencies = kpi.prerequisite.kpis.filter((id) => id !== kpi.id && validKpiIds.has(id));
+    const removedCount = kpi.prerequisite.kpis.length - nextDependencies.length;
+    if (removedCount > 0) {
+      warnings.push(`${kpi.name}: removed ${removedCount} invalid prerequisite KPI reference${removedCount === 1 ? '' : 's'}.`);
+    }
+
+    const normalizedSources = kpi.sources.flatMap((source): KpiSourceItem[] => {
+      if (source.type === 'kpi') {
+        return source.kpiId !== kpi.id && validKpiIds.has(source.kpiId) ? [source] : [];
+      }
+      if (source.type === 'lookup') return validLookupIds.has(source.lookupId) ? [source] : [];
+      if (source.type !== 'dataField') return [source];
+      const dataSource = dataSourceById.get(source.dataSourceId);
+      if (!dataSource?.fields.some((field) => field.id === source.fieldId)) return [];
+      const group = dataSource.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
+      if (group) {
+        if (source.version === undefined || group.versions.includes(source.version)) return [source];
+        const { version: _obsoleteVersion, ...allVersions } = source;
+        return [allVersions];
+      }
+      if (source.version === undefined) return [source];
+      const { version: _obsoleteVersion, ...withoutVersion } = source;
+      return [withoutVersion];
+    });
+    const seenDataFields = new Set<string>();
+    const seenLookups = new Set<string>();
+    const nextSources = normalizedSources.filter((source) => {
+      if (source.type === 'lookup') {
+        if (seenLookups.has(source.lookupId)) return false;
+        seenLookups.add(source.lookupId);
+        return true;
+      }
+      if (source.type !== 'dataField') return true;
+      const key = `${source.dataSourceId}\u0000${source.fieldId}\u0000${source.version ?? ''}`;
+      if (seenDataFields.has(key)) return false;
+      seenDataFields.add(key);
+      return true;
+    });
+    if (nextSources.length !== kpi.sources.length) {
+      const sourceRemovedCount = kpi.sources.length - nextSources.length;
+      warnings.push(`${kpi.name}: removed ${sourceRemovedCount} invalid source reference${sourceRemovedCount === 1 ? '' : 's'}.`);
+    }
+
+    return {
+      ...kpi,
+      sources: nextSources,
+      prerequisite: {
+        ...kpi.prerequisite,
+        kpis: nextDependencies
+      }
+    };
+  });
+
+  const { enums: useCaseScopedEnums, kpis: useCaseScopedKpis } = repairUseCaseOwnership(
+    enums,
+    kpisWithValidDependencies,
+    warnings,
+    legacyPerformanceAreas
+  );
+  const { enums: scopedEnums, kpis: scopedKpis } = repairPerformanceAreaOwnership(
+    useCaseScopedEnums,
+    useCaseScopedKpis,
+    warnings,
+    legacyPerformanceAreas
+  );
+  const defaultFocus = repairDefaultFocus(rawConfig, scopedEnums, warnings);
+
+  const repaired: KpiPoolConfig = {
+    schemaVersion: 18,
+    title: stringValue(rawConfig.title).trim() || 'Untitled KPI Library',
+    updatedAt: stringValue(rawConfig.updatedAt) || new Date().toISOString(),
+    defaultFocus,
+    enums: scopedEnums,
+    dataSources,
+    lookups,
+    kpis: scopedKpis
+  };
+
+  const parsed = kpiPoolConfigSchema.safeParse(repaired);
+  if (!parsed.success) {
+    warnings.push('The repaired configuration still had validation issues; preserved the repaired data for review.');
+    return { config: repaired, warnings };
+  }
+
+  return { config: parsed.data as KpiPoolConfig, warnings };
+};
+
+export const prepareForExport = (config: KpiPoolConfig): KpiPoolConfig => {
+  const repaired = repairConfig(config).config;
+  return {
+    ...repaired,
+    schemaVersion: 18,
+    updatedAt: new Date().toISOString()
+  };
+};

@@ -1,0 +1,196 @@
+export const spatialScaleKeys = ['link', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
+export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
+
+export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
+export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
+
+export const enumCategoryKeys = ['prerequisiteModule', 'userGroup', ...kpiEnumCategoryKeys, 'useCase'] as const;
+export type EnumCategoryKey = (typeof enumCategoryKeys)[number];
+
+export type EnumOption = {
+  id: string;
+  label: string;
+  description?: string;
+  userGroup?: string;
+  useCase?: string;
+};
+
+export type EnumDefinitions = Record<EnumCategoryKey, EnumOption[]>;
+
+export type KpiFormulaTerm = {
+  term: string;
+  explanation: string;
+};
+
+export type KpiFormulaItem = {
+  tag: string;
+  formula: string;
+  leftExpression: string;
+  rightExpression: string;
+  generalExplanation: string;
+  terms: KpiFormulaTerm[];
+};
+
+export type DataSourceField = {
+  id: string;
+  name: string;
+  meaning: string;
+  valueUnit: string;
+};
+
+export type DataSourceFieldGroup = {
+  id: string;
+  versionName: string;
+  versions: string[];
+  fieldIds: string[];
+  position: number;
+};
+
+export type DataSource = {
+  id: string;
+  name: string;
+  spatialUnit: string;
+  fields: DataSourceField[];
+  fieldGroups: DataSourceFieldGroup[];
+};
+
+export type LookupInput = {
+  id: string;
+  representation: string;
+  explanation: string;
+};
+
+export type LookupDefinition = {
+  id: string;
+  outputName: string;
+  outputExplanation: string;
+  inputs: LookupInput[];
+};
+
+export type KpiDataFieldSource = {
+  id: string;
+  type: 'dataField';
+  dataSourceId: string;
+  fieldId: string;
+  version?: string;
+  latex: string;
+};
+
+export type KpiReferenceSource = {
+  id: string;
+  type: 'kpi';
+  kpiId: string;
+  latex: string;
+};
+
+export type KpiLookupSource = {
+  id: string;
+  type: 'lookup';
+  lookupId: string;
+  latex: string;
+};
+
+export type KpiCustomSource = {
+  id: string;
+  type: 'custom';
+  name: string;
+  latex: string;
+};
+
+export type KpiSourceItem = KpiDataFieldSource | KpiReferenceSource | KpiLookupSource | KpiCustomSource;
+
+export type KpiFormulaGroup = {
+  name: string;
+  items: KpiFormulaItem[];
+};
+
+export type KpiDescription = {
+  overview: string;
+  formulaComment: string;
+  formulas: KpiFormulaGroup[];
+};
+
+export type KpiPrerequisite = {
+  modules: string[];
+  kpis: string[];
+  values: string;
+};
+
+export type SpatialScaleConfig = {
+  applicable: boolean;
+  isBasicUnit: boolean;
+  aggregationMethod: string;
+  formula: string;
+  leftExpression: string;
+  rightExpression: string;
+};
+
+export type KpiUserGroupUseCase = {
+  userGroup: string;
+  useCases: string[];
+};
+
+export type KpiUseCasePerformanceArea = {
+  useCase: string;
+  performanceAreas: string[];
+};
+
+export type KpiUseCaseNote = {
+  useCase: string;
+  note: string;
+};
+
+export type KpiDefaultFocus = {
+  userGroup: string;
+  useCase: string;
+};
+
+export type KpiMetric = {
+  id: string;
+  lastModified: string;
+  name: string;
+  sources: KpiSourceItem[];
+  description: KpiDescription;
+  prerequisite: KpiPrerequisite;
+  spatialScales: Record<SpatialScaleKey, SpatialScaleConfig>;
+  previousApplication: string[];
+  federalRequirement: string[];
+  performanceArea: string[];
+  performanceAreasByUseCase: KpiUseCasePerformanceArea[];
+  notesByUseCase: KpiUseCaseNote[];
+  userGroupUseCases: KpiUserGroupUseCase[];
+};
+
+export type KpiPoolConfig = {
+  schemaVersion: 18;
+  title: string;
+  updatedAt?: string;
+  defaultFocus?: KpiDefaultFocus;
+  enums: EnumDefinitions;
+  dataSources: DataSource[];
+  lookups: LookupDefinition[];
+  kpis: KpiMetric[];
+};
+
+export type RepairResult = {
+  config: KpiPoolConfig;
+  warnings: string[];
+};
+
+export const spatialScaleLabels: Record<SpatialScaleKey, string> = {
+  link: 'Link',
+  project: 'Project',
+  taz: 'TAZ',
+  corridor: 'Corridor',
+  subRegion: 'Sub-Region',
+  region: 'Region'
+};
+
+export const enumCategoryLabels: Record<EnumCategoryKey, string> = {
+  prerequisiteModule: 'Prerequisite Module',
+  userGroup: 'User Group',
+  previousApplication: 'Previous Application',
+  federalRequirement: 'Federal Requirement',
+  performanceArea: 'Performance Area',
+  useCase: 'Use Case'
+};

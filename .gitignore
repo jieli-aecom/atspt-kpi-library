@@ -1,0 +1,8 @@
+node_modules/
+vite-dev.pid
+*.log
+.DS_Store
+dist/
+tmp-schema-check/
+examples/
+.agents/
