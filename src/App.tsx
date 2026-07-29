@@ -2247,9 +2247,12 @@ function DataSourceHeader({
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
   const [expandedFieldGroupIds, setExpandedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
+  const [lookupsExpanded, setLookupsExpanded] = useState(true);
   const [fieldGroupVersionDrafts, setFieldGroupVersionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
+  const [sourceDragOver, setSourceDragOver] = useState<{ sourceIndex: number; position: DropPosition } | null>(null);
   const [fieldDrag, setFieldDrag] = useState<{ sourceIndex: number; fieldIndex: number } | null>(null);
   const [fieldDragOver, setFieldDragOver] = useState<{ sourceIndex: number; fieldIndex: number; position: DropPosition } | null>(null);
   const [fieldGroupDragOver, setFieldGroupDragOver] = useState<{ sourceIndex: number; groupId?: string } | null>(null);
@@ -2320,6 +2323,7 @@ function DataSourceHeader({
     };
     const index = Math.max(0, Math.min(insertionIndex, config.lookups.length));
     patchLookups([...config.lookups.slice(0, index), lookup, ...config.lookups.slice(index)]);
+    setLookupsExpanded(true);
     setExpandedLookupIds((current) => [...new Set([...current, lookup.id])]);
   };
   const updateLookup = (lookupIndex: number, partial: Partial<LookupDefinition>) =>
@@ -2403,6 +2407,16 @@ function DataSourceHeader({
   };
   const updateDataSource = (sourceIndex: number, partial: Partial<DataSource>) =>
     patchDataSources(config.dataSources.map((source, index) => index === sourceIndex ? { ...source, ...partial } : source));
+  const moveDataSource = (targetIndex: number, position: DropPosition) => {
+    if (sourceDragIndex === null) return;
+    const dataSources = [...config.dataSources];
+    const [moved] = dataSources.splice(sourceDragIndex, 1);
+    if (!moved) return;
+    let insertionIndex = targetIndex + (position === 'after' ? 1 : 0);
+    if (sourceDragIndex < insertionIndex) insertionIndex -= 1;
+    dataSources.splice(Math.max(0, Math.min(insertionIndex, dataSources.length)), 0, moved);
+    patchDataSources(dataSources);
+  };
   const deleteDataSource = (sourceIndex: number) => {
     const sourceId = config.dataSources[sourceIndex]?.id;
     if (!sourceId) return;
@@ -2588,10 +2602,21 @@ function DataSourceHeader({
           <div className="data-source-list">
             <section className="lookup-library">
               <div className="lookup-library-heading">
-                <span><BookOpen size={14} aria-hidden="true" /><strong>Lookups</strong><small>{config.lookups.length}</small></span>
+                <button
+                  className="lookup-library-toggle"
+                  type="button"
+                  aria-expanded={lookupsExpanded}
+                  aria-controls="lookup-library-list"
+                  onClick={() => setLookupsExpanded((value) => !value)}
+                >
+                  <ChevronDown className={`lookup-library-chevron ${lookupsExpanded ? 'is-expanded' : ''}`} size={13} aria-hidden="true" />
+                  <BookOpen size={14} aria-hidden="true" />
+                  <strong>Lookups</strong>
+                  <small>{config.lookups.length}</small>
+                </button>
                 <button className="secondary-action tiny" type="button" onClick={() => addLookup()}><Plus size={11} /> Add lookup</button>
               </div>
-              <div className="lookup-library-list">
+              {lookupsExpanded ? <div className="lookup-library-list" id="lookup-library-list">
                 {config.lookups.length === 0 ? <span className="empty-option">No lookups defined.</span> : null}
                 {config.lookups.flatMap((lookup, lookupIndex) => [
                   <button className="list-insert-divider" type="button" key={`insert-lookup-${lookup.id}`} onClick={() => addLookup(lookupIndex)}><Plus size={11} aria-hidden="true" />Add lookup here</button>,
@@ -2631,7 +2656,7 @@ function DataSourceHeader({
                     </div>
                   </details>
                 ])}
-              </div>
+              </div> : null}
             </section>
             {config.dataSources.length === 0 ? <span className="empty-option">No data sources defined.</span> : null}
             {config.dataSources.map((source, sourceIndex) => {
@@ -2708,12 +2733,14 @@ function DataSourceHeader({
                     onDragOver={(event) => {
                       if (fieldDrag?.sourceIndex !== sourceIndex) return;
                       event.preventDefault();
+                      event.stopPropagation();
                       setFieldGroupDragOver({ sourceIndex, groupId: group.id });
                       setExpandedFieldGroupIds((current) => current.includes(group.id) ? current : [...current, group.id]);
                     }}
                     onDrop={(event) => {
                       if (fieldDrag?.sourceIndex !== sourceIndex) return;
                       event.preventDefault();
+                      event.stopPropagation();
                       const draggedField = source.fields[fieldDrag.fieldIndex];
                       if (draggedField) assignFieldToGroup(sourceIndex, draggedField.id, group.id);
                       setFieldDrag(null);
@@ -2782,7 +2809,24 @@ function DataSourceHeader({
               };
               return [
                 <button className="list-insert-divider" type="button" key={`insert-source-${source.id}`} onClick={() => addDataSource(sourceIndex)}><Plus size={11} aria-hidden="true" />Add source here</button>,
-                <section className={`data-source-card ${expanded ? 'is-expanded' : ''}`} key={source.id}>
+                <section
+                  className={`data-source-card ${expanded ? 'is-expanded' : ''} ${sourceDragOver?.sourceIndex === sourceIndex ? `is-drag-over-${sourceDragOver.position}` : ''}`}
+                  key={source.id}
+                  onDragOver={(event) => {
+                    if (sourceDragIndex === null) return;
+                    event.preventDefault();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setSourceDragOver({ sourceIndex, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
+                  }}
+                  onDrop={(event) => {
+                    if (sourceDragIndex === null) return;
+                    event.preventDefault();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    moveDataSource(sourceIndex, event.clientY < rect.top + rect.height / 2 ? 'before' : 'after');
+                    setSourceDragIndex(null);
+                    setSourceDragOver(null);
+                  }}
+                >
                   <div className="data-source-expander-heading">
                     <button
                       className="data-source-expander-toggle"
@@ -2799,6 +2843,22 @@ function DataSourceHeader({
                       </span>
                     </button>
                     <div className="data-source-expander-actions">
+                      <button
+                        className="mini-icon-button drag-handle data-source-drag"
+                        type="button"
+                        draggable
+                        title="Drag to reorder tables"
+                        aria-label={`Drag ${source.name || 'table'} to reorder tables`}
+                        onDragStart={(event) => {
+                          setSourceDragIndex(sourceIndex);
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', source.id);
+                        }}
+                        onDragEnd={() => {
+                          setSourceDragIndex(null);
+                          setSourceDragOver(null);
+                        }}
+                      ><GripVertical size={13} aria-hidden="true" /></button>
                       <button className="mini-icon-button" type="button" title="Copy data source" aria-label={`Copy ${source.name || 'data source'}`} onClick={() => duplicateDataSource(sourceIndex)}><Copy size={12} /></button>
                       <button className="mini-icon-button danger" type="button" title="Delete data source" aria-label={`Delete ${source.name || 'data source'}`} onClick={() => deleteDataSource(sourceIndex)}><Trash2 size={13} /></button>
                     </div>
