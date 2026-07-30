@@ -1989,6 +1989,33 @@ function FormulaDisplay({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric
     };
   }, [comment, formulas, hasFormula]);
 
+  useEffect(() => {
+    const element = displayRef.current;
+    if (!element || !hasVisibleOverflow) return undefined;
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) return;
+      const canScrollInDirection = event.deltaY < 0
+        ? element.scrollTop > 1
+        : element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+      if (canScrollInDirection) return;
+
+      const tableScroller = element.closest<HTMLElement>('.table-scroll');
+      if (!tableScroller) return;
+      const deltaMultiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+        ? 16
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+          ? tableScroller.clientHeight
+          : 1;
+      event.preventDefault();
+      event.stopPropagation();
+      tableScroller.scrollTop += event.deltaY * deltaMultiplier;
+    };
+
+    element.addEventListener('wheel', handleWheel, { passive: false });
+    return () => element.removeEventListener('wheel', handleWheel);
+  }, [hasVisibleOverflow]);
+
   const displayClassName = `formula-display${hasVisibleOverflow ? ' has-visible-overflow' : ''}`;
   if (!hasFormula) {
     return (

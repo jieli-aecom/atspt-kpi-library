@@ -2054,12 +2054,12 @@ h1 {
   overflow-x: hidden;
   padding: 3px 5px;
   color: #1f2931;
-  overscroll-behavior: contain;
   scrollbar-width: thin;
 }
 
 .formula-display.has-visible-overflow {
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .formula-comment-display {
