@@ -44,6 +44,7 @@ import {
   repairConfig
 } from './configSchema';
 import { mergeImportedConfig } from './configMerge';
+import { buildSystematicJsonExport } from './systematicJsonExport';
 import {
   forceRemoteConfig,
   loadRemoteConfig,
@@ -6598,6 +6599,15 @@ function EditorApp({
     downloadFile(`${configFileStem(output.title)}.html`, buildExportHtml(output), 'text/html;charset=utf-8');
   };
 
+  const exportJson = () => {
+    const output = buildSystematicJsonExport(config, visibleKpis);
+    downloadFile(
+      `${configFileStem(config.title)}-filtered-kpis.json`,
+      JSON.stringify(output, null, 2),
+      'application/json;charset=utf-8'
+    );
+  };
+
   const saveBusy = saveState === 'saving' || saveState === 'loading';
   const remoteActionTitle = exportedSnapshot
     ? 'This exported HTML is an offline snapshot and cannot write to the hosted JSON.'
@@ -6671,6 +6681,15 @@ function EditorApp({
               Import HTML
               <input className="hidden-file" type="file" accept="text/html,.html,.htm" onChange={importHtml} />
             </label>
+            <button
+              className="secondary-action small"
+              type="button"
+              onClick={exportJson}
+              title={`Export the ${visibleKpis.length} currently filtered KPI${visibleKpis.length === 1 ? '' : 's'} as JSON`}
+            >
+              <FileJson size={15} aria-hidden="true" />
+              Export as JSON
+            </button>
             <button className="primary-action small" type="button" onClick={exportHtml}>
               <Download size={15} aria-hidden="true" />
               Export HTML

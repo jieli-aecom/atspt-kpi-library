@@ -135,3 +135,7 @@ When introducing a future schema:
 - `kpis`: KPI definitions with stable IDs, `lastModified`, optional dimensions, sources, formulas, prerequisites, spatial scales, use-case assignments, performance areas, and notes
 
 See [`src/types.ts`](src/types.ts) for the complete current model.
+
+## Systematic JSON export
+
+**Export as JSON** downloads the KPIs in the current filtered and sorted view. Each exported KPI contains only Name, Source, Formula, Spatial Scales, Performance Areas, User Group, and Use Case. The file also includes the enum definitions used by those columns and the library's complete data-source definitions.
