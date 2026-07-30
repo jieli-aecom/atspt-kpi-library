@@ -4164,6 +4164,7 @@ type FormulaSemanticToken = {
 
 type IndexedFormulaSemanticToken = FormulaSemanticToken & { index: number };
 type DecoratedFormula = { decorated: string; tokens: IndexedFormulaSemanticToken[] };
+type FormulaTokenMatch = { index: number; latex: string };
 
 const formulaDecorationCache = new Map<string, DecoratedFormula>();
 const formulaHtmlCache = new Map<string, string>();
@@ -4192,16 +4193,60 @@ const hasFormulaTokenBoundaries = (formula: string, token: string, index: number
     !(isFormulaIdentifierCharacter(token[token.length - 1]) && isFormulaIdentifierCharacter(next));
 };
 
-const findFormulaToken = (formula: string, token: FormulaSemanticToken, startIndex: number) => {
+const qualifiedFormulaTokenPrefix = (token: FormulaSemanticToken) => {
+  if ((token.kind !== 'source' && token.kind !== 'collection') || token.requiresFollowingParenthesis) return undefined;
   const matchLatex = token.matchLatex ?? token.latex;
-  let index = formula.indexOf(matchLatex, startIndex);
-  while (index >= 0) {
-    const hasBoundaries = hasFormulaTokenBoundaries(formula, matchLatex, index);
-    const followedByParenthesis = !token.requiresFollowingParenthesis || /^\s*\(/.test(formula.slice(index + matchLatex.length));
-    if (hasBoundaries && followedByParenthesis) return index;
-    index = formula.indexOf(matchLatex, index + 1);
+  if (!matchLatex.endsWith('}')) return undefined;
+  let depth = 0;
+  for (let index = matchLatex.length - 1; index >= 0; index -= 1) {
+    if (matchLatex[index] === '}') depth += 1;
+    if (matchLatex[index] !== '{') continue;
+    depth -= 1;
+    if (depth === 0) {
+      return matchLatex[index - 1] === '_' ? matchLatex.slice(0, -1) : undefined;
+    }
   }
-  return -1;
+  return undefined;
+};
+
+const qualifiedFormulaTokenMatch = (formula: string, prefix: string, index: number) => {
+  if (formula[index + prefix.length] !== '|') return undefined;
+  let depth = 1;
+  for (let cursor = index + prefix.length + 1; cursor < formula.length; cursor += 1) {
+    if (formula[cursor] === '{') depth += 1;
+    if (formula[cursor] !== '}') continue;
+    depth -= 1;
+    if (depth === 0) return formula.slice(index, cursor + 1);
+  }
+  return undefined;
+};
+
+const findFormulaToken = (formula: string, token: FormulaSemanticToken, startIndex: number): FormulaTokenMatch | undefined => {
+  const matchLatex = token.matchLatex ?? token.latex;
+  const qualifiedPrefix = qualifiedFormulaTokenPrefix(token);
+  let index = startIndex;
+  while (index < formula.length) {
+    const exactIndex = formula.indexOf(matchLatex, index);
+    const qualifiedIndex = qualifiedPrefix ? formula.indexOf(`${qualifiedPrefix}|`, index) : -1;
+    const nextIndex = exactIndex < 0
+      ? qualifiedIndex
+      : qualifiedIndex < 0
+        ? exactIndex
+        : Math.min(exactIndex, qualifiedIndex);
+    if (nextIndex < 0) return undefined;
+    const matchedLatex = nextIndex === qualifiedIndex && qualifiedPrefix
+      ? qualifiedFormulaTokenMatch(formula, qualifiedPrefix, nextIndex)
+      : matchLatex;
+    if (!matchedLatex) {
+      index = nextIndex + 1;
+      continue;
+    }
+    const hasBoundaries = hasFormulaTokenBoundaries(formula, matchedLatex, nextIndex);
+    const followedByParenthesis = !token.requiresFollowingParenthesis || /^\s*\(/.test(formula.slice(nextIndex + matchLatex.length));
+    if (hasBoundaries && followedByParenthesis) return { index: nextIndex, latex: matchedLatex };
+    index = nextIndex + 1;
+  }
+  return undefined;
 };
 
 const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]): DecoratedFormula => {
@@ -4215,7 +4260,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
   const uniqueTokens = [...new Map(tokens.filter((token) => tokenMatchLatex(token).trim()).map((token) => [tokenMatchLatex(token), token])).values()]
     .map((token, index) => ({ ...token, index }))
     .sort((left, right) => tokenMatchLatex(right).length - tokenMatchLatex(left).length);
-  const matchingTokens = uniqueTokens.filter((token) => findFormulaToken(formula, token, 0) >= 0);
+  const matchingTokens = uniqueTokens.filter((token) => findFormulaToken(formula, token, 0));
   const cacheKey = JSON.stringify([formula, matchingTokens]);
   const cached = formulaDecorationCache.get(cacheKey);
   if (cached) return cached;
@@ -4224,54 +4269,56 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
       const nestedTokens = activeTokens.filter((token) =>
         token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale')
       );
+      const qualifiedPrefix = qualifiedFormulaTokenPrefix(parentToken);
+      const nestedSearchLatex = qualifiedPrefix && parentLatex[qualifiedPrefix.length] === '|'
+        ? parentLatex.slice(0, qualifiedPrefix.length)
+        : parentLatex;
       let nestedCursor = 0;
       let decoratedParent = '';
-      while (nestedCursor < parentLatex.length) {
+      while (nestedCursor < nestedSearchLatex.length) {
         let nestedMatch: typeof uniqueTokens[number] | undefined;
-        let nestedMatchIndex = -1;
+        let nestedOccurrence: FormulaTokenMatch | undefined;
         for (const token of nestedTokens) {
-          const index = findFormulaToken(parentLatex, token, nestedCursor);
-          const matchLength = tokenMatchLatex(token).length;
-          if (index >= 0 && (nestedMatchIndex < 0 || index < nestedMatchIndex || (index === nestedMatchIndex && matchLength > (nestedMatch ? tokenMatchLatex(nestedMatch).length : 0)))) {
+          const occurrence = findFormulaToken(nestedSearchLatex, token, nestedCursor);
+          if (occurrence && (!nestedOccurrence || occurrence.index < nestedOccurrence.index || (occurrence.index === nestedOccurrence.index && occurrence.latex.length > nestedOccurrence.latex.length))) {
             nestedMatch = token;
-            nestedMatchIndex = index;
+            nestedOccurrence = occurrence;
           }
         }
-        if (!nestedMatch || nestedMatchIndex < 0) {
-          decoratedParent += parentLatex.slice(nestedCursor);
+        if (!nestedMatch || !nestedOccurrence) {
+          decoratedParent += nestedSearchLatex.slice(nestedCursor);
           break;
         }
-        decoratedParent += parentLatex.slice(nestedCursor, nestedMatchIndex);
-        const nestedLatex = tokenMatchLatex(nestedMatch);
+        decoratedParent += nestedSearchLatex.slice(nestedCursor, nestedOccurrence.index);
+        const nestedLatex = nestedOccurrence.latex;
         decoratedParent += `\\htmlClass{${tokenClassNames(nestedMatch)}}{${nestedLatex}}`;
-        nestedCursor = nestedMatchIndex + nestedLatex.length;
+        nestedCursor = nestedOccurrence.index + nestedLatex.length;
       }
-      return decoratedParent || parentLatex;
+      return `${decoratedParent || nestedSearchLatex}${parentLatex.slice(nestedSearchLatex.length)}`;
     };
     let cursor = 0;
     let decorated = '';
     while (cursor < formula.length) {
       let match: (FormulaSemanticToken & { index: number }) | undefined;
-      let matchIndex = -1;
+      let occurrence: FormulaTokenMatch | undefined;
       for (const token of activeTokens) {
-        const index = findFormulaToken(formula, token, cursor);
-        const matchLength = tokenMatchLatex(token).length;
-        if (index >= 0 && (matchIndex < 0 || index < matchIndex || (index === matchIndex && matchLength > (match ? tokenMatchLatex(match).length : 0)))) {
+        const tokenOccurrence = findFormulaToken(formula, token, cursor);
+        if (tokenOccurrence && (!occurrence || tokenOccurrence.index < occurrence.index || (tokenOccurrence.index === occurrence.index && tokenOccurrence.latex.length > occurrence.latex.length))) {
           match = token;
-          matchIndex = index;
+          occurrence = tokenOccurrence;
         }
       }
-      if (!match || matchIndex < 0) {
+      if (!match || !occurrence) {
         decorated += formula.slice(cursor);
         break;
       }
-      decorated += formula.slice(cursor, matchIndex);
-      const matchedLatex = tokenMatchLatex(match);
+      decorated += formula.slice(cursor, occurrence.index);
+      const matchedLatex = occurrence.latex;
       const decoratedMatch = match.kind === 'result' || match.kind === 'source' || match.kind === 'collection'
         ? decorateNestedSemanticTokens(matchedLatex, match)
         : matchedLatex;
       decorated += `\\htmlClass{${tokenClassNames(match)}}{${decoratedMatch}}`;
-      cursor = matchIndex + matchedLatex.length;
+      cursor = occurrence.index + matchedLatex.length;
     }
     return decorated;
   };
