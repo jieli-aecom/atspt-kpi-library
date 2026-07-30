@@ -2332,7 +2332,7 @@ function DataSourceHeader({
 }) {
   const [open, setOpen] = useState(false);
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
-  const [expandedFieldGroupIds, setExpandedFieldGroupIds] = useState<string[]>([]);
+  const [collapsedFieldGroupIds, setCollapsedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [lookupsExpanded, setLookupsExpanded] = useState(false);
   const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
@@ -2557,7 +2557,7 @@ function DataSourceHeader({
         position: Math.max(0, Math.min(position, source.fields.length))
       }]
     });
-    setExpandedFieldGroupIds((current) => [...new Set([...current, groupId])]);
+    setCollapsedFieldGroupIds((current) => current.filter((id) => id !== groupId));
   };
   const updateFieldGroup = (sourceIndex: number, groupId: string, partial: Partial<DataSourceFieldGroup>) => {
     const source = config.dataSources[sourceIndex];
@@ -2630,7 +2630,7 @@ function DataSourceHeader({
   };
   const deleteFieldGroup = (sourceIndex: number, groupId: string) => {
     const source = config.dataSources[sourceIndex];
-    setExpandedFieldGroupIds((current) => current.filter((id) => id !== groupId));
+    setCollapsedFieldGroupIds((current) => current.filter((id) => id !== groupId));
     setFieldGroupDimensionDrafts((current) => {
       const { [groupId]: _removedDraft, ...remaining } = current;
       return remaining;
@@ -2896,14 +2896,14 @@ function DataSourceHeader({
                   <details
                     className={`data-source-field-group ${fieldGroupDragOver?.sourceIndex === sourceIndex && fieldGroupDragOver.groupId === group.id ? 'is-drag-over' : ''}`}
                     key={group.id}
-                    open={expandedFieldGroupIds.includes(group.id)}
+                    open={!collapsedFieldGroupIds.includes(group.id)}
                     onDragOver={(event) => {
                       if (fieldDrag?.sourceIndex !== sourceIndex) return;
                       event.preventDefault();
                       event.stopPropagation();
                       setFieldInsertDragOver(null);
                       setFieldGroupDragOver({ sourceIndex, groupId: group.id });
-                      setExpandedFieldGroupIds((current) => current.includes(group.id) ? current : [...current, group.id]);
+                      setCollapsedFieldGroupIds((current) => current.filter((id) => id !== group.id));
                     }}
                     onDrop={(event) => {
                       if (fieldDrag?.sourceIndex !== sourceIndex) return;
@@ -2918,9 +2918,9 @@ function DataSourceHeader({
                     }}
                     onToggle={(event) => {
                       const groupIsOpen = event.currentTarget.open;
-                      setExpandedFieldGroupIds((current) => groupIsOpen
-                        ? [...new Set([...current, group.id])]
-                        : current.filter((id) => id !== group.id));
+                      setCollapsedFieldGroupIds((current) => groupIsOpen
+                        ? current.filter((id) => id !== group.id)
+                        : [...new Set([...current, group.id])]);
                     }}
                   >
                     <summary>
