@@ -1,7 +1,7 @@
 export const spatialScaleKeys = ['link', 'grid', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
 export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
 
-export const CURRENT_SCHEMA_VERSION = 20 as const;
+export const CURRENT_SCHEMA_VERSION = 21 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -74,6 +74,13 @@ export type LookupDefinition = {
   inputs: LookupInput[];
 };
 
+export type VariableDefinition = {
+  id: string;
+  name: string;
+  explanation: string;
+  unit: string;
+};
+
 export type KpiDataFieldSource = {
   id: string;
   type: 'dataField';
@@ -96,6 +103,13 @@ export type KpiLookupSource = {
   latex: string;
 };
 
+export type KpiVariableSource = {
+  id: string;
+  type: 'variable';
+  variableId: string;
+  latex: string;
+};
+
 export type KpiCustomSource = {
   id: string;
   type: 'custom';
@@ -103,7 +117,7 @@ export type KpiCustomSource = {
   latex: string;
 };
 
-export type KpiSourceItem = KpiDataFieldSource | KpiReferenceSource | KpiLookupSource | KpiCustomSource;
+export type KpiSourceItem = KpiDataFieldSource | KpiReferenceSource | KpiLookupSource | KpiVariableSource | KpiCustomSource;
 
 export type KpiFormulaGroup = {
   name: string;
@@ -175,6 +189,7 @@ export type KpiPoolConfig = {
   enums: EnumDefinitions;
   dataSources: DataSource[];
   lookups: LookupDefinition[];
+  variables: VariableDefinition[];
   kpis: KpiMetric[];
 };
 

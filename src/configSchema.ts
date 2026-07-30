@@ -10,6 +10,7 @@ import {
   type DataSourceFieldGroup,
   type LookupDefinition,
   type LookupInput,
+  type VariableDefinition,
   type KpiFormulaGroup,
   type KpiFormulaItem,
   type KpiMetric,
@@ -92,6 +93,13 @@ const lookupSchema = z.object({
   }))
 });
 
+const variableSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  explanation: z.string(),
+  unit: z.string()
+});
+
 const kpiSourceItemSchema = z.discriminatedUnion('type', [
   z.object({
     id: z.string().min(1),
@@ -110,6 +118,12 @@ const kpiSourceItemSchema = z.discriminatedUnion('type', [
     id: z.string().min(1),
     type: z.literal('lookup'),
     lookupId: z.string().min(1),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('variable'),
+    variableId: z.string().min(1),
     latex: z.string()
   }),
   z.object({
@@ -192,6 +206,7 @@ export const kpiPoolConfigSchema = z.object({
   }),
   dataSources: z.array(dataSourceSchema),
   lookups: z.array(lookupSchema),
+  variables: z.array(variableSchema),
   kpis: z.array(kpiSchema)
 });
 
@@ -262,6 +277,7 @@ const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
       ((source.type === 'dataField' && typeof source.dataSourceId === 'string' && typeof source.fieldId === 'string' && source.version === undefined) ||
         (source.type === 'kpi' && typeof source.kpiId === 'string') ||
         (source.type === 'lookup' && typeof source.lookupId === 'string') ||
+        (source.type === 'variable' && typeof source.variableId === 'string') ||
         (source.type === 'custom' && typeof source.name === 'string'))
   ) &&
   isRecord(value.description) &&
@@ -295,6 +311,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     !isRecord(input.enums) ||
     !Array.isArray(input.dataSources) ||
     !Array.isArray(input.lookups) ||
+    !Array.isArray(input.variables) ||
     !Array.isArray(input.kpis)
   ) {
     return false;
@@ -363,6 +380,18 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   ) {
     return false;
   }
+  const variables = input.variables as unknown[];
+  if (
+    !variables.every((variable) =>
+      isRecord(variable) &&
+      typeof variable.id === 'string' &&
+      typeof variable.name === 'string' &&
+      typeof variable.explanation === 'string' &&
+      typeof variable.unit === 'string'
+    )
+  ) {
+    return false;
+  }
   const enumIdSets = Object.fromEntries(
     enumCategoryKeys.map((category) => [category, new Set(typedEnums[category].map((option) => option.id))])
   ) as Record<EnumCategoryKey, Set<string>>;
@@ -409,6 +438,11 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     return false;
   }
   const validLookups = new Set(currentLookups.map((lookup) => lookup.id));
+  const currentVariables = input.variables as VariableDefinition[];
+  if (hasDuplicate(currentVariables.map((variable) => variable.id))) {
+    return false;
+  }
+  const validVariables = new Set(currentVariables.map((variable) => variable.id));
   const currentDataSources = input.dataSources as DataSource[];
   const dataSourceById = new Map(currentDataSources.map((source) => [source.id, source]));
   if (
@@ -434,7 +468,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       ? [`${source.dataSourceId}\u0000${source.fieldId}`]
       : []
     );
-    if (hasDuplicate(dataFieldKeys)) return false;
+    const variableIds = kpi.sources.flatMap((source) => source.type === 'variable' ? [source.variableId] : []);
+    if (hasDuplicate(dataFieldKeys) || hasDuplicate(variableIds)) return false;
     const validReferences =
       kpi.sources.every((source) =>
         source.type === 'dataField'
@@ -447,6 +482,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
             ? source.kpiId !== kpi.id && validKpis.has(source.kpiId)
             : source.type === 'lookup'
               ? validLookups.has(source.lookupId)
+            : source.type === 'variable'
+              ? validVariables.has(source.variableId)
             : true
       ) &&
       kpi.prerequisite.modules.every((id) => enumIdSets.prerequisiteModule.has(id)) &&
@@ -1763,6 +1800,28 @@ const repairLookups = (rawValue: unknown, warnings: string[]): LookupDefinition[
   });
 };
 
+const repairVariables = (rawValue: unknown, warnings: string[]): VariableDefinition[] => {
+  if (rawValue == null) return [];
+  if (!Array.isArray(rawValue)) {
+    warnings.push('Variables were not a list and were initialized empty.');
+    return [];
+  }
+  const usedVariableIds = new Set<string>();
+  return rawValue.flatMap((rawVariable, variableIndex): VariableDefinition[] => {
+    if (!isRecord(rawVariable)) {
+      warnings.push(`Variable ${variableIndex + 1} was not readable and was removed.`);
+      return [];
+    }
+    const name = stringValue(rawVariable.name ?? rawVariable.Name).trim() || `Variable ${variableIndex + 1}`;
+    return [{
+      id: ensureUniqueId(rawVariable.id, 'variable', usedVariableIds, warnings, `Variable "${name}"`),
+      name,
+      explanation: stringValue(rawVariable.explanation ?? rawVariable.description ?? rawVariable.Explanation),
+      unit: stringValue(rawVariable.unit ?? rawVariable.valueUnit ?? rawVariable.Unit)
+    }];
+  });
+};
+
 const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string): KpiSourceItem[] => {
   if (rawValue == null) {
     return [];
@@ -1779,6 +1838,8 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
     }
     const type = rawSource.type === 'custom'
       ? 'custom'
+      : rawSource.type === 'variable' || rawSource.variableId || rawSource.variable
+        ? 'variable'
       : rawSource.type === 'lookup' || rawSource.lookupId || rawSource.lookup
         ? 'lookup'
       : rawSource.type === 'kpi' || rawSource.kpiId || rawSource.kpi
@@ -1796,6 +1857,10 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
     if (type === 'kpi') {
       const kpiId = stringValue(rawSource.kpiId ?? rawSource.kpi).trim();
       return kpiId ? [{ id, type, kpiId, latex: stringValue(rawSource.latex ?? rawSource.symbol) }] : [];
+    }
+    if (type === 'variable') {
+      const variableId = stringValue(rawSource.variableId ?? rawSource.variable).trim();
+      return variableId ? [{ id, type, variableId, latex: stringValue(rawSource.latex ?? rawSource.symbol) }] : [];
     }
     if (type === 'lookup') {
       const lookupId = stringValue(rawSource.lookupId ?? rawSource.lookup).trim();
@@ -1830,6 +1895,7 @@ export const createBlankConfig = (): KpiPoolConfig => ({
   },
   dataSources: [],
   lookups: [],
+  variables: [],
   kpis: []
 });
 
@@ -1908,6 +1974,7 @@ export const repairConfig = (input: unknown): RepairResult => {
   const enums = repairEnums(rawConfig, warnings);
   const dataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, warnings);
   const lookups = repairLookups(rawConfig.lookups, warnings);
+  const variables = repairVariables(rawConfig.variables, warnings);
   const rawKpis = Array.isArray(rawConfig.kpis) ? rawConfig.kpis : [];
   if (!Array.isArray(rawConfig.kpis)) {
     warnings.push('Missing or invalid kpis list; initialized it as an empty list.');
@@ -1973,6 +2040,7 @@ export const repairConfig = (input: unknown): RepairResult => {
   const validKpiIds = new Set(kpis.map((kpi) => kpi.id));
   const dataSourceById = new Map(dataSources.map((source) => [source.id, source]));
   const validLookupIds = new Set(lookups.map((lookup) => lookup.id));
+  const validVariableIds = new Set(variables.map((variable) => variable.id));
   const kpisWithValidDependencies = kpis.map((kpi) => {
     const nextDependencies = kpi.prerequisite.kpis.filter((id) => id !== kpi.id && validKpiIds.has(id));
     const removedCount = kpi.prerequisite.kpis.length - nextDependencies.length;
@@ -1985,6 +2053,7 @@ export const repairConfig = (input: unknown): RepairResult => {
         return source.kpiId !== kpi.id && validKpiIds.has(source.kpiId) ? [source] : [];
       }
       if (source.type === 'lookup') return validLookupIds.has(source.lookupId) ? [source] : [];
+      if (source.type === 'variable') return validVariableIds.has(source.variableId) ? [source] : [];
       if (source.type !== 'dataField') return [source];
       const dataSource = dataSourceById.get(source.dataSourceId);
       const field = dataSource?.fields.find((entry) => entry.id === source.fieldId);
@@ -2001,10 +2070,16 @@ export const repairConfig = (input: unknown): RepairResult => {
     });
     const seenDataFields = new Set<string>();
     const seenLookups = new Set<string>();
+    const seenVariables = new Set<string>();
     const nextSources = normalizedSources.filter((source) => {
       if (source.type === 'lookup') {
         if (seenLookups.has(source.lookupId)) return false;
         seenLookups.add(source.lookupId);
+        return true;
+      }
+      if (source.type === 'variable') {
+        if (seenVariables.has(source.variableId)) return false;
+        seenVariables.add(source.variableId);
         return true;
       }
       if (source.type !== 'dataField') return true;
@@ -2050,6 +2125,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     enums: scopedEnums,
     dataSources,
     lookups,
+    variables,
     kpis: scopedKpis
   };
 

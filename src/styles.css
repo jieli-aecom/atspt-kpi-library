@@ -353,11 +353,11 @@ h1 {
 }
 
 .title-editor span,
-.field span {
+.field > span {
   color: #68727d;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0;
 }
 
@@ -405,7 +405,7 @@ h1 {
   color: #315a6c;
   font-size: 11px;
   font-weight: 850;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -739,7 +739,7 @@ h1 {
 .popover-title {
   font-size: 11px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0;
 }
 
@@ -805,7 +805,8 @@ h1 {
 .data-source-popover {
   position: fixed;
   z-index: 10000;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid #bfcbd2;
   border-radius: 9px;
   background: #fff;
@@ -862,6 +863,61 @@ h1 {
   border-radius: 8px;
   background: #fafafd;
   padding: 7px;
+}
+
+.variable-library {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #dbcfe5;
+  border-left: 4px solid #9a67ad;
+  border-radius: 8px;
+  background: #fcf9fd;
+  padding: 7px;
+}
+
+.variable-library .lookup-library-toggle {
+  color: #71447f;
+}
+
+.variable-library .lookup-library-heading small {
+  background: #f0e5f4;
+}
+
+.variable-library-list {
+  display: grid;
+  gap: 4px;
+}
+
+.variable-heading,
+.variable-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.65fr) minmax(220px, 1.35fr) minmax(80px, 0.45fr) 56px;
+  align-items: center;
+  gap: 6px;
+}
+
+.variable-heading {
+  color: #75667c;
+  font-size: 9px;
+  font-weight: 800;
+  text-transform: none;
+}
+
+.variable-row {
+  border: 1px solid #e1d7e6;
+  border-radius: 6px;
+  background: #fff;
+  padding: 5px;
+}
+
+.variable-row input {
+  min-height: 29px;
+  padding: 5px 7px;
+  font-size: 11px;
+}
+
+.variable-add {
+  justify-self: start;
 }
 
 .lookup-library-heading {
@@ -998,7 +1054,7 @@ h1 {
   color: #68727d;
   font-size: 9px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .lookup-input-row input {
@@ -1207,7 +1263,7 @@ h1 {
   color: #68727d;
   font-size: 10px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .data-source-field-row input {
@@ -1477,7 +1533,7 @@ h1 {
   font-size: 11px;
   font-weight: 800;
   text-overflow: ellipsis;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -1536,7 +1592,7 @@ h1 {
   color: #5f6a74;
   font-size: 10px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -1565,7 +1621,7 @@ h1 {
   color: #5f6a74;
   font-size: 10px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .use-case-focus-banner strong {
@@ -1687,7 +1743,7 @@ h1 {
   font-weight: 850;
   line-height: 1;
   text-overflow: ellipsis;
-  text-transform: uppercase;
+  text-transform: none;
   white-space: nowrap;
 }
 
@@ -1719,7 +1775,7 @@ h1 {
   color: #68727d;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .enum-edit-row input,
@@ -1911,7 +1967,7 @@ h1 {
   white-space: nowrap;
   font-size: 11px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .assignment-state.is-assigned {
@@ -2080,7 +2136,7 @@ h1 {
   font-size: 10px;
   font-weight: 800;
   line-height: 1.2;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .formula-display-item {
@@ -2306,7 +2362,7 @@ h1 {
   gap: 6px;
   color: #365b69;
   font-size: 11px;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .source-option-list small {
@@ -2363,6 +2419,31 @@ h1 {
   background: #deebee;
   color: #244f5e;
   box-shadow: inset 0 -2px 0 #648b99;
+}
+
+.source-scope-buttons button.source-table-button {
+  max-width: 210px;
+  border-color: #a9c1ca;
+  border-left: 3px solid #527b8b;
+  background: #eef5f6;
+  color: #315a66;
+}
+
+.source-scope-buttons button.source-table-button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-scope-buttons button.source-table-button:hover {
+  background: #e0edef;
+}
+
+.source-scope-buttons button.source-table-button.is-active {
+  border-color: #527b8b;
+  border-left-color: #315a66;
+  background: #d6e8eb;
+  color: #1f4b59;
 }
 
 .source-scope-panel {
@@ -2622,7 +2703,7 @@ h1 {
   color: #68727d;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0;
 }
 
@@ -2760,12 +2841,21 @@ h1 {
 }
 
 .formula-source-palette {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   display: grid;
   gap: 4px;
   border: 1px solid #d4e0e4;
   border-radius: 6px;
   background: #f5f9fa;
   padding: 6px;
+}
+
+.formula-source-palette.has-open-dropdown {
+  z-index: 40;
 }
 
 .formula-source-palette-heading {
@@ -2779,20 +2869,99 @@ h1 {
   color: #65727b;
   font-size: 10px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .formula-source-options {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   display: flex;
-  flex-wrap: wrap;
-  align-content: flex-start;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 4px;
+  max-height: 31px;
   overflow: hidden;
-  transition: max-height 140ms ease;
+}
+
+.formula-source-options-slot {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 31px;
 }
 
 .formula-source-options.is-expanded {
-  overflow: visible;
+  position: absolute;
+  z-index: 41;
+  top: 0;
+  left: 0;
+  width: 100%;
+  max-height: min(380px, 55vh);
+  display: grid;
+  align-items: stretch;
+  gap: 0;
+  overflow: auto;
+  border: 1px solid #d4e0e4;
+  border-radius: 6px;
+  background: #f5f9fa;
+  box-shadow: 0 8px 18px rgba(35, 58, 68, 0.12);
+  padding: 6px;
+}
+
+.formula-shortcut-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: max-content;
+}
+
+.formula-shortcut-group-label {
+  display: none;
+}
+
+.formula-shortcut-group-options {
+  display: flex;
+  min-width: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.formula-source-options.is-expanded .formula-shortcut-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 4px;
+  min-width: 0;
+  border-bottom: 1px solid rgba(111, 135, 145, 0.18);
+  padding: 7px 3px;
+}
+
+.formula-source-options.is-expanded .formula-shortcut-group:last-child {
+  border-bottom: 0;
+}
+
+.formula-source-options.is-expanded .formula-shortcut-group-label {
+  display: block;
+  color: #65727b;
+  padding: 0 2px;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.formula-source-options.is-expanded .formula-shortcut-group-options {
+  flex-wrap: wrap;
+}
+
+.formula-source-options.is-expanded .formula-shortcut-group-options > button {
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .formula-source-palette .formula-palette-toggle {
@@ -2808,7 +2977,7 @@ h1 {
   font-weight: 750;
 }
 
-.formula-source-options > button {
+.formula-shortcut-group-options > button {
   min-height: 27px;
   border: 1px solid #c4d3d9;
   border-radius: 5px;
@@ -2817,7 +2986,7 @@ h1 {
   padding: 3px 7px;
 }
 
-.formula-source-options > button:hover {
+.formula-shortcut-group-options > button:hover {
   background: #e5f0f2;
 }
 
@@ -2848,11 +3017,11 @@ h1 {
   color: #a52a22 !important;
 }
 
-.formula-dimension-insert > span,
-.formula-scale-insert > span {
+.formula-dimension-insert > .formula-shortcut-kind,
+.formula-scale-insert > .formula-shortcut-kind {
   font-size: 9px;
   font-weight: 800;
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .formula-source-insert {
@@ -2861,7 +3030,17 @@ h1 {
   color: #216b43 !important;
 }
 
-.formula-result-insert > span {
+.formula-variable-insert {
+  border-color: #d4ad70 !important;
+  background: #fff7e8 !important;
+  color: #8a570d !important;
+}
+
+.formula-variable-insert .katex {
+  color: #8a570d;
+}
+
+.formula-result-insert > span:not(.katex) {
   font-size: 10px;
   font-weight: 800;
   text-transform: none;
@@ -2878,6 +3057,12 @@ h1 {
   background: rgba(47, 145, 91, 0.12);
   color: #167044;
   box-shadow: inset 0 -2px 0 rgba(32, 128, 75, 0.46);
+}
+
+.formula-variable-token {
+  background: rgba(204, 132, 27, 0.14);
+  color: #8a570d;
+  box-shadow: inset 0 -2px 0 rgba(164, 99, 12, 0.5);
 }
 
 .formula-semantic-token.formula-dimension-token {
@@ -2911,6 +3096,32 @@ h1 {
   background: rgba(52, 113, 184, 0.12) !important;
   color: #245d99 !important;
   box-shadow: inset 0 -2px 0 rgba(52, 113, 184, 0.48);
+}
+
+.formula-semantic-token.formula-final-result-token {
+  background: rgba(33, 91, 161, 0.2) !important;
+  color: #154f91 !important;
+  box-shadow: inset 0 -3px 0 rgba(21, 79, 145, 0.68);
+  font-weight: 800;
+}
+
+.formula-result-token .formula-dimension-token,
+.formula-result-token .formula-scale-token,
+.formula-source-token .formula-dimension-token,
+.formula-source-token .formula-scale-token {
+  background: transparent !important;
+  box-shadow: none;
+  padding: 0;
+}
+
+.formula-result-token .formula-dimension-token,
+.formula-source-token .formula-dimension-token {
+  color: #6b3b87 !important;
+}
+
+.formula-result-token .formula-scale-token,
+.formula-source-token .formula-scale-token {
+  color: #b42318 !important;
 }
 
 .formula-semantic-token:hover,
@@ -2964,7 +3175,7 @@ h1 {
   color: #68727d;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0;
 }
 
@@ -3230,7 +3441,7 @@ h1 {
   color: #68727d;
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: 0;
   padding: 0 4px;
 }
@@ -3317,6 +3528,8 @@ h1 {
   .lookup-output-fields,
   .lookup-input-heading,
   .lookup-input-row,
+  .variable-heading,
+  .variable-row,
   .data-source-field-heading,
   .data-source-field-row,
   .selected-source-row {
@@ -3325,7 +3538,8 @@ h1 {
 
   .formula-equals,
   .data-source-field-heading,
-  .lookup-input-heading {
+  .lookup-input-heading,
+  .variable-heading {
     display: none;
   }
 

@@ -30,6 +30,7 @@ import {
   Trash2,
   Table2,
   Upload,
+  Variable as VariableIcon,
   X
 } from 'lucide-react';
 import {
@@ -59,6 +60,7 @@ import {
   type DataSourceFieldGroup,
   type LookupDefinition,
   type LookupInput,
+  type VariableDefinition,
   kpiEnumCategoryKeys,
   type KpiEnumCategoryKey,
   type KpiFormulaGroup,
@@ -271,7 +273,7 @@ const buildAppIndexes = (config: KpiPoolConfig, previousConfig?: KpiPoolConfig, 
       }
     }
   }
-  const sourceCatalogsStable = previousConfig?.dataSources === config.dataSources && previousConfig.lookups === config.lookups;
+  const sourceCatalogsStable = previousConfig?.dataSources === config.dataSources && previousConfig.lookups === config.lookups && previousConfig.variables === config.variables;
   for (const kpi of config.kpis) {
     const previousKpi = previousKpisById.get(kpi.id);
     const previousSearch = previousIndexes?.searchByKpiId.get(kpi.id);
@@ -2298,6 +2300,9 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   if (item.type === 'lookup') {
     return config.lookups.find((lookup) => lookup.id === item.lookupId)?.outputName ?? 'Missing lookup';
   }
+  if (item.type === 'variable') {
+    return config.variables.find((variable) => variable.id === item.variableId)?.name ?? 'Missing variable';
+  }
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
   const group = source?.fieldGroups.find((entry) => entry.fieldIds.includes(item.fieldId));
@@ -2312,6 +2317,11 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
     const explanation = config.lookups.find((lookup) => lookup.id === item.lookupId)?.outputExplanation.trim();
     return explanation ? `${label}\n${explanation}` : label;
   }
+  if (item.type === 'variable') {
+    const variable = config.variables.find((entry) => entry.id === item.variableId);
+    const details = [variable?.explanation.trim(), variable?.unit.trim() ? `Unit: ${variable.unit.trim()}` : ''].filter(Boolean);
+    return details.length ? `${label}\n${details.join('\n')}` : label;
+  }
   if (item.type !== 'dataField') return label;
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const meaning = source?.fields.find((entry) => entry.id === item.fieldId)?.meaning.trim();
@@ -2322,6 +2332,8 @@ const lookupDefaultLatex = (lookup: LookupDefinition) => {
   const name = lookup.outputName.trim().replace(/\s+/g, '\\ ') || 'Lookup';
   return `${name}(${','.repeat(Math.max(0, lookup.inputs.length - 1))})`;
 };
+
+const variableDefaultLatex = (variable: VariableDefinition) => latexIdentifier(variable.name) || 'variable';
 
 const selectedDataSourceGroups = (config: KpiPoolConfig, kpi: KpiMetric) =>
   config.dataSources.flatMap((dataSource) => {
@@ -2362,6 +2374,7 @@ function DataSourceHeader({
   const [collapsedFieldGroupIds, setCollapsedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [lookupsExpanded, setLookupsExpanded] = useState(false);
+  const [variablesExpanded, setVariablesExpanded] = useState(false);
   const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
   const [dimensionOptionDrafts, setDimensionOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
@@ -2413,6 +2426,7 @@ function DataSourceHeader({
     onConfigChange({ ...config, dataSources });
   };
   const patchLookups = (lookups: LookupDefinition[]) => onConfigChange({ ...config, lookups });
+  const patchVariables = (variables: VariableDefinition[]) => onConfigChange({ ...config, variables });
   const addLookup = (insertionIndex = config.lookups.length) => {
     const lookup: LookupDefinition = {
       id: createLocalId('lookup'),
@@ -2449,6 +2463,42 @@ function DataSourceHeader({
       kpis: config.kpis.map((kpi) => ({
         ...kpi,
         sources: kpi.sources.filter((source) => source.type !== 'lookup' || source.lookupId !== lookupId)
+      }))
+    });
+  };
+  const addVariable = (insertionIndex = config.variables.length) => {
+    const variable: VariableDefinition = {
+      id: createLocalId('variable'),
+      name: 'New variable',
+      explanation: '',
+      unit: ''
+    };
+    const index = Math.max(0, Math.min(insertionIndex, config.variables.length));
+    patchVariables([...config.variables.slice(0, index), variable, ...config.variables.slice(index)]);
+    setVariablesExpanded(true);
+  };
+  const updateVariable = (variableIndex: number, partial: Partial<VariableDefinition>) =>
+    patchVariables(config.variables.map((variable, index) => index === variableIndex ? { ...variable, ...partial } : variable));
+  const duplicateVariable = (variableIndex: number) => {
+    const variable = config.variables[variableIndex];
+    if (!variable) return;
+    const duplicate: VariableDefinition = {
+      ...variable,
+      id: createLocalId('variable'),
+      name: `${variable.name || 'Untitled variable'} copy`
+    };
+    patchVariables([...config.variables.slice(0, variableIndex + 1), duplicate, ...config.variables.slice(variableIndex + 1)]);
+    setVariablesExpanded(true);
+  };
+  const deleteVariable = (variableIndex: number) => {
+    const variableId = config.variables[variableIndex]?.id;
+    if (!variableId) return;
+    onConfigChange({
+      ...config,
+      variables: config.variables.filter((_, index) => index !== variableIndex),
+      kpis: config.kpis.map((kpi) => ({
+        ...kpi,
+        sources: kpi.sources.filter((source) => source.type !== 'variable' || source.variableId !== variableId)
       }))
     });
   };
@@ -2724,7 +2774,7 @@ function DataSourceHeader({
     <div className="source-header-control" ref={controlRef}>
       <div className="header-title">
         <span>Source</span>
-        <strong>{config.dataSources.length + config.lookups.length}</strong>
+        <strong>{config.dataSources.length + config.lookups.length + config.variables.length}</strong>
         <button className="mini-icon-button" type="button" title="Manage data sources" aria-label="Manage data sources" onClick={() => setOpen((value) => !value)}>
           <Database size={13} aria-hidden="true" />
         </button>
@@ -2744,9 +2794,10 @@ function DataSourceHeader({
           <div className="data-source-popover-heading">
             <div>
               <strong>Data source library</strong>
-              <span>Define table sources, fields, and reusable lookups.</span>
+              <span>Define table sources, fields, reusable lookups, and variables.</span>
             </div>
             <div className="data-source-library-actions">
+              <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={12} /> Add variable</button>
               <button className="secondary-action tiny" type="button" onClick={() => addLookup()}><Plus size={12} /> Add lookup</button>
               <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add table source</button>
             </div>
@@ -2808,6 +2859,41 @@ function DataSourceHeader({
                     </div>
                   </details>
                 ])}
+              </div> : null}
+            </section>
+            <section className="variable-library">
+              <div className="lookup-library-heading">
+                <button
+                  className="lookup-library-toggle"
+                  type="button"
+                  aria-expanded={variablesExpanded}
+                  aria-controls="variable-library-list"
+                  onClick={() => setVariablesExpanded((value) => !value)}
+                >
+                  <ChevronDown className={`lookup-library-chevron ${variablesExpanded ? 'is-expanded' : ''}`} size={13} aria-hidden="true" />
+                  <VariableIcon size={14} aria-hidden="true" />
+                  <strong>Variables</strong>
+                  <small>{config.variables.length}</small>
+                </button>
+                <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button>
+              </div>
+              {variablesExpanded ? <div className="variable-library-list" id="variable-library-list">
+                {config.variables.length === 0 ? <span className="empty-option">No variables defined.</span> : (
+                  <div className="variable-heading"><span>Name</span><span>Explanation</span><span>Unit</span><span>Actions</span></div>
+                )}
+                {config.variables.flatMap((variable, variableIndex) => [
+                  <button className="list-insert-divider" type="button" key={`insert-variable-${variable.id}`} onClick={() => addVariable(variableIndex)}><Plus size={11} aria-hidden="true" />Add variable here</button>,
+                  <div className="variable-row" key={variable.id}>
+                    <input value={variable.name} aria-label="Variable name" placeholder="Variable name" onChange={(event) => updateVariable(variableIndex, { name: event.target.value })} />
+                    <input value={variable.explanation} aria-label="Variable explanation" placeholder="What this variable represents" onChange={(event) => updateVariable(variableIndex, { explanation: event.target.value })} />
+                    <input value={variable.unit} aria-label="Variable unit" placeholder="Unit" onChange={(event) => updateVariable(variableIndex, { unit: event.target.value })} />
+                    <div className="lookup-definition-actions">
+                      <button className="mini-icon-button" type="button" title="Copy variable" onClick={() => duplicateVariable(variableIndex)}><Copy size={11} /></button>
+                      <button className="mini-icon-button danger" type="button" title="Delete variable" onClick={() => deleteVariable(variableIndex)}><Trash2 size={11} /></button>
+                    </div>
+                  </div>
+                ])}
+                {config.variables.length ? <button className="secondary-action tiny variable-add" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button> : null}
               </div> : null}
             </section>
             {config.dataSources.length === 0 ? <span className="empty-option">No data sources defined.</span> : null}
@@ -3161,6 +3247,10 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
     ? [{ source, lookup: config.lookups.find((lookup) => lookup.id === source.lookupId) }]
     : []
   );
+  const variableSources = kpi.sources.flatMap((source) => source.type === 'variable'
+    ? [{ source, variable: config.variables.find((variable) => variable.id === source.variableId) }]
+    : []
+  );
 
   return (
     <span className="kpi-source-summary">
@@ -3185,6 +3275,12 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
           <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
         </span>
       ) : null}
+      {variableSources.length ? (
+        <span className="source-summary-group">
+          <span className="source-summary-heading"><VariableIcon size={12} aria-hidden="true" /><span>Variables</span></span>
+          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)}>{variable?.name ?? 'Missing variable'}</span>)}</span>
+        </span>
+      ) : null}
       {customSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><Pencil size={12} aria-hidden="true" /><span>Custom sources</span></span>
@@ -3195,7 +3291,92 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
   );
 }
 
-function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: KpiPoolConfig; kpi: KpiMetric; onChange: (sources: KpiSourceItem[]) => void; compact?: boolean }) {
+const isLatexIdentifierCharacter = (value: string | undefined) => Boolean(value && /[\p{L}\p{N}]/u.test(value));
+
+const hasLatexReplacementBoundaries = (expression: string, token: string, index: number) => {
+  const previous = index > 0 ? expression[index - 1] : undefined;
+  const nextIndex = index + token.length;
+  const next = nextIndex < expression.length ? expression[nextIndex] : undefined;
+  return !(isLatexIdentifierCharacter(token[0]) && isLatexIdentifierCharacter(previous)) &&
+    !(isLatexIdentifierCharacter(token[token.length - 1]) && isLatexIdentifierCharacter(next));
+};
+
+const replaceLatexOccurrences = (
+  expression: string,
+  previousToken: string,
+  nextToken: string,
+  requiresFollowingParenthesis = false
+) => {
+  if (!previousToken.trim() || previousToken === nextToken || !expression.includes(previousToken)) return expression;
+  let searchIndex = 0;
+  let cursor = 0;
+  let updated = '';
+  while (searchIndex < expression.length) {
+    const matchIndex = expression.indexOf(previousToken, searchIndex);
+    if (matchIndex < 0) break;
+    const hasBoundaries = hasLatexReplacementBoundaries(expression, previousToken, matchIndex);
+    const followedByParenthesis = !requiresFollowingParenthesis || /^\s*\(/.test(expression.slice(matchIndex + previousToken.length));
+    if (!hasBoundaries || !followedByParenthesis) {
+      searchIndex = matchIndex + 1;
+      continue;
+    }
+    updated += expression.slice(cursor, matchIndex);
+    updated += nextToken;
+    cursor = matchIndex + previousToken.length;
+    searchIndex = cursor;
+  }
+  return cursor ? `${updated}${expression.slice(cursor)}` : expression;
+};
+
+type KpiSourceFormulaUpdates = Pick<KpiMetric, 'description' | 'spatialScales'>;
+
+const replaceKpiSourceLatex = (
+  kpi: KpiMetric,
+  source: KpiSourceItem,
+  previousLatex: string,
+  nextLatex: string
+): KpiSourceFormulaUpdates => {
+  const previousLookupParenthesis = source.type === 'lookup' ? previousLatex.indexOf('(') : -1;
+  const nextLookupParenthesis = source.type === 'lookup' ? nextLatex.indexOf('(') : -1;
+  const previousToken = previousLookupParenthesis > 0
+    ? previousLatex.slice(0, previousLookupParenthesis).trimEnd()
+    : previousLatex;
+  const nextToken = previousLookupParenthesis > 0
+    ? (nextLookupParenthesis > 0 ? nextLatex.slice(0, nextLookupParenthesis).trimEnd() : nextLatex.trim())
+    : nextLatex;
+  const replaceExpression = (expression: string) =>
+    replaceLatexOccurrences(expression, previousToken, nextToken, previousLookupParenthesis > 0);
+  const description = {
+    ...kpi.description,
+    formulas: kpi.description.formulas.map((group) => ({
+      ...group,
+      items: group.items.map((formulaItem) => {
+        const leftExpression = replaceExpression(formulaItem.leftExpression);
+        const rightExpression = replaceExpression(formulaItem.rightExpression);
+        return {
+          ...formulaItem,
+          leftExpression,
+          rightExpression,
+          formula: leftExpression ? `${leftExpression} = ${rightExpression}` : rightExpression,
+          terms: formulaItem.terms.map((term) => ({ ...term, term: replaceExpression(term.term) }))
+        };
+      })
+    }))
+  };
+  const spatialScales = Object.fromEntries(spatialScaleKeys.map((scale) => {
+    const scaleValue = kpi.spatialScales[scale];
+    const rightExpression = replaceExpression(scaleValue.rightExpression);
+    return [scale, {
+      ...scaleValue,
+      leftExpression: '',
+      rightExpression,
+      formula: rightExpression
+    }];
+  })) as KpiMetric['spatialScales'];
+  return { description, spatialScales };
+};
+
+function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: KpiPoolConfig; kpi: KpiMetric; onChange: (sources: KpiSourceItem[], formulaUpdates?: KpiSourceFormulaUpdates) => void; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const [pickerScope, setPickerScope] = useState('');
   const [query, setQuery] = useState('');
@@ -3235,8 +3416,23 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
       ? kpi.sources.filter((item) => item.id !== existing.id)
       : [...kpi.sources, { id: createLocalId('kpi-source'), type: 'lookup', lookupId, latex: lookupDefaultLatex(lookup) }]);
   };
-  const updateItem = (id: string, partial: Partial<KpiSourceItem>) =>
-    onChange(kpi.sources.map((item) => item.id === id ? { ...item, ...partial } as KpiSourceItem : item));
+  const toggleVariable = (variableId: string) => {
+    const existing = kpi.sources.find((item) => item.type === 'variable' && item.variableId === variableId);
+    const variable = config.variables.find((entry) => entry.id === variableId);
+    if (!variable) return;
+    onChange(existing
+      ? kpi.sources.filter((item) => item.id !== existing.id)
+      : [...kpi.sources, { id: createLocalId('kpi-source'), type: 'variable', variableId, latex: variableDefaultLatex(variable) }]);
+  };
+  const updateItem = (id: string, partial: Partial<KpiSourceItem>) => {
+    const currentItem = kpi.sources.find((item) => item.id === id);
+    const sources = kpi.sources.map((item) => item.id === id ? { ...item, ...partial } as KpiSourceItem : item);
+    if (currentItem && partial.latex !== undefined && partial.latex !== currentItem.latex) {
+      onChange(sources, replaceKpiSourceLatex(kpi, currentItem, currentItem.latex, partial.latex));
+      return;
+    }
+    onChange(sources);
+  };
   const selectedDataSource = pickerScope.startsWith('data:')
     ? config.dataSources.find((source) => source.id === pickerScope.slice(5))
     : undefined;
@@ -3249,6 +3445,9 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   const visibleLookups = config.lookups.filter((lookup) =>
     !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation}`).join(' ')}`).includes(normalizedQuery)
   );
+  const visibleVariables = config.variables.filter((variable) =>
+    !normalizedQuery || normalize(`${variable.name} ${variable.explanation} ${variable.unit}`).includes(normalizedQuery)
+  );
   const addCustomSource = () => {
     if (!customName.trim()) return;
     onChange([...kpi.sources, { id: createLocalId('kpi-source'), type: 'custom', name: customName.trim(), latex: customLatex }]);
@@ -3258,6 +3457,7 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   const selectedDataGroups = selectedDataSourceGroups(config, kpi);
   const selectedKpiSources = kpi.sources.filter((source) => source.type === 'kpi');
   const selectedLookupSources = kpi.sources.filter((source) => source.type === 'lookup');
+  const selectedVariableSources = kpi.sources.filter((source) => source.type === 'variable');
   const selectedCustomSources = kpi.sources.filter((source) => source.type === 'custom');
   const renderSelectedSourceRow = (item: KpiSourceItem, label: string) => (
     <div className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''}`} key={item.id}>
@@ -3281,13 +3481,14 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
           <div className="source-scope-buttons" aria-label="Add source from">
             <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs</button>
             <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups</button>
+            <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Variables</button>
             {config.dataSources.map((source) => (
-              <button className={pickerScope === `data:${source.id}` ? 'is-active' : ''} type="button" key={source.id} onClick={() => { setPickerScope(`data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" />{source.name}</button>
+              <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" key={source.id} onClick={() => { setPickerScope(`data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{source.name}</span></button>
             ))}
             <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source</button>
           </div>
-          {pickerScope === 'kpis' || pickerScope === 'lookups' || selectedDataSource ? (
-            <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
+          {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
+            <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search variables…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
           ) : null}
           {pickerScope === 'kpis' ? (
             <fieldset className="source-scope-panel">
@@ -3309,6 +3510,18 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
                 <label className="source-choice-row" key={lookup.id}>
                   <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'lookup' && item.lookupId === lookup.id)} onChange={() => toggleLookup(lookup.id)} />
                   <span><strong>{lookup.outputName}</strong><small>{lookup.outputExplanation}{lookup.inputs.length ? ` · ${lookup.inputs.length} ${lookup.inputs.length === 1 ? 'input' : 'inputs'}` : ''}</small></span>
+                </label>
+              ))}
+            </fieldset>
+          ) : null}
+          {pickerScope === 'variables' ? (
+            <fieldset className="source-scope-panel">
+              <legend>Variables</legend>
+              {visibleVariables.length === 0 ? <span className="empty-option">No matching variables.</span> : null}
+              {visibleVariables.map((variable) => (
+                <label className="source-choice-row" key={variable.id}>
+                  <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'variable' && item.variableId === variable.id)} onChange={() => toggleVariable(variable.id)} />
+                  <span><strong>{variable.name}</strong><small>{variable.explanation}{variable.unit ? ` · ${variable.unit}` : ''}</small></span>
                 </label>
               ))}
             </fieldset>
@@ -3362,6 +3575,12 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
                     {selectedLookupSources.map((source) => renderSelectedSourceRow(source, config.lookups.find((lookup) => lookup.id === source.lookupId)?.outputName ?? 'Missing lookup'))}
                   </section>
                 ) : null}
+                {selectedVariableSources.length ? (
+                  <section className="selected-source-group is-variable">
+                    <div className="selected-source-group-heading"><VariableIcon size={13} aria-hidden="true" /><span>Variables</span></div>
+                    {selectedVariableSources.map((source) => renderSelectedSourceRow(source, config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing variable'))}
+                  </section>
+                ) : null}
                 {selectedCustomSources.length ? (
                   <section className="selected-source-group">
                     <div className="selected-source-group-heading"><Pencil size={13} aria-hidden="true" /><span>Custom sources</span></div>
@@ -3384,7 +3603,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const [activeSide, setActiveSide] = useState<'left' | 'right'>('right');
   const [paletteExpanded, setPaletteExpanded] = useState(false);
   const [paletteHasMore, setPaletteHasMore] = useState(false);
-  const [paletteRowHeight, setPaletteRowHeight] = useState(31);
+  const paletteRef = useCloseOnOutsideClick<HTMLDivElement>(paletteExpanded, () => setPaletteExpanded(false));
   useEffect(() => {
     const textareas = [leftRef.current, rightRef.current].filter((textarea): textarea is HTMLTextAreaElement => Boolean(textarea));
     const resize = () => textareas.forEach((textarea) => {
@@ -3416,9 +3635,15 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     updateSides(insertionSide === 'left' ? next : item.leftExpression, insertionSide === 'right' ? next : item.rightExpression);
     requestAnimationFrame(() => { target?.focus(); target?.setSelectionRange(start + latex.length, start + latex.length); });
   };
-  const insertableSources = kpi.sources.filter((source) => source.latex.trim());
+  const sourceFieldShortcuts = kpi.sources.filter((source) => source.type !== 'lookup' && source.type !== 'variable');
+  const lookupShortcuts = kpi.sources.filter((source) => source.type === 'lookup');
+  const variableShortcuts = kpi.sources.filter((source) => source.type === 'variable');
   const insertableResults = priorItems.filter((prior) => prior.tag.trim() && prior.leftExpression.trim());
-  const lastFormulaItem = priorItems[priorItems.length - 1];
+  const lastFormulaItem = priorItems.slice().reverse().find((prior) => prior.formula.trim() || prior.leftExpression.trim());
+  const basicUnitScale = spatialScaleKeys.find((scale) => kpi.spatialScales[scale].applicable && kpi.spatialScales[scale].isBasicUnit);
+  const aggregationShortcut = spatialScale
+    ? `\\sum_{${basicUnitScale ? latexIdentifier(spatialScaleLabels[basicUnitScale]) : ''} \\in ${latexIdentifier(spatialScaleLabels[spatialScale])}}`
+    : '';
   const dimensionShortcuts = useMemo(() => {
     const shortcuts = new Map<string, { latex: string; label: string; kind: 'Dimension' | 'Option' | 'Set' }>();
     kpi.sources.forEach((source) => {
@@ -3453,19 +3678,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   }, [config.dataSources, kpi.sources]);
   useLayoutEffect(() => {
     const container = paletteOptionsRef.current;
-    if (!container) return undefined;
+    if (!container || paletteExpanded) return undefined;
     const measure = () => {
-      const children = Array.from(container.children).filter((child): child is HTMLElement => child instanceof HTMLElement);
-      if (!children.length) {
-        setPaletteHasMore(false);
-        setPaletteRowHeight(31);
-        return;
-      }
-      const firstTop = children[0].offsetTop;
-      const firstRow = children.filter((child) => Math.abs(child.offsetTop - firstTop) <= 2);
-      const rowBottom = Math.max(...firstRow.map((child) => child.offsetTop + child.offsetHeight));
-      setPaletteRowHeight(Math.max(27, rowBottom - firstTop));
-      setPaletteHasMore(children.some((child) => child.offsetTop > firstTop + 2));
+      setPaletteHasMore(container.scrollWidth > container.clientWidth + 1);
     };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
@@ -3475,7 +3690,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [config, insertableResults, kpi.sources]);
+  }, [config, dimensionShortcuts, insertableResults, kpi.sources, paletteExpanded, spatialScale]);
   return (
     <div className="formula-expression-workbench">
       <div className={`formula-side-editors ${rightOnly ? 'is-right-only' : ''}`}>
@@ -3485,52 +3700,89 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
         </> : null}
         <label className="field"><textarea ref={rightRef} className="latex-code-editor" rows={1} value={item.rightExpression} placeholder="\frac{\sum_i x_i}{n}" aria-label="Right side calculation LaTeX" onFocus={() => setActiveSide('right')} onChange={(event) => updateSides(item.leftExpression, event.target.value)} /></label>
       </div>
-      <div className="formula-source-palette">
+      <div className={`formula-source-palette ${paletteExpanded ? 'has-open-dropdown' : ''}`} ref={paletteRef}>
         <div className="formula-source-palette-heading">
           <span>{rightOnly ? 'Insert into formula' : `Insert into ${activeSide === 'left' ? 'left' : 'right'} side`}</span>
           {paletteHasMore ? (
             <button className="formula-palette-toggle" type="button" aria-expanded={paletteExpanded} onClick={() => setPaletteExpanded((value) => !value)}>
-              {paletteExpanded ? 'One row' : 'More'}
+              {paletteExpanded ? 'Close' : 'More'}
               <ChevronDown size={12} className={paletteExpanded ? 'rotate' : ''} aria-hidden="true" />
             </button>
           ) : null}
         </div>
-        <div
-          className={`formula-source-options ${paletteExpanded ? 'is-expanded' : ''}`}
-          ref={paletteOptionsRef}
-          style={{ maxHeight: paletteExpanded ? 'none' : paletteRowHeight }}
-        >
-          {spatialScale ? (
-            <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[spatialScale]}`} onClick={() => insertLatex(spatialScaleLabels[spatialScale])}>
-              <span>Scale</span>
-              <InlineMath math={spatialScaleLabels[spatialScale]} errorColor="#b42318" />
-            </button>
-          ) : null}
-          {spatialScale && lastFormulaItem ? (
-            <button className="formula-result-insert" type="button" disabled={!lastFormulaItem.leftExpression.trim()} title={lastFormulaItem.leftExpression.trim() ? `Last formula result: ${lastFormulaItem.tag}` : 'The last formula has no left term'} onClick={() => insertLatex(lastFormulaItem.leftExpression)}>
-              <span>{lastFormulaItem.tag.trim() || 'Last formula'}</span>
-              {lastFormulaItem.leftExpression.trim() ? <InlineMath math={lastFormulaItem.leftExpression} errorColor="#b42318" /> : 'No left term'}
-            </button>
-          ) : null}
-          {insertableResults.map((prior, index) => (
-            spatialScale && prior === lastFormulaItem ? null :
-            <button className="formula-result-insert" type="button" title={`Formula result: ${prior.tag}`} key={`${prior.tag}-${index}`} onClick={() => insertLatex(prior.leftExpression)}>
-              <span>{prior.tag}</span>
-              <InlineMath math={prior.leftExpression} errorColor="#b42318" />
-            </button>
-          ))}
-          {kpi.sources.map((source) => (
-            <button className="formula-source-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
-              {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
-            </button>
-          ))}
-          {dimensionShortcuts.map((shortcut) => (
-            <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
-              <span>{shortcut.kind}</span>
-              <InlineMath math={shortcut.latex} errorColor="#b42318" />
-            </button>
-          ))}
-          {insertableSources.length === 0 && dimensionShortcuts.length === 0 && insertableResults.length === 0 && !spatialScale ? <span className="empty-option">No insertable sources, dimensions, or formula results.</span> : null}
+        <div className="formula-source-options-slot">
+          <div
+            className={`formula-source-options ${paletteExpanded ? 'is-expanded' : ''}`}
+            ref={paletteOptionsRef}
+          >
+          {spatialScale ? <section className="formula-shortcut-group is-priority">
+            <span className="formula-shortcut-group-label">Scale formula</span>
+            <div className="formula-shortcut-group-options">
+              <button className="formula-scale-insert" type="button" title={`Sum from ${basicUnitScale ? spatialScaleLabels[basicUnitScale] : 'an unspecified basic unit'} into ${spatialScaleLabels[spatialScale]}`} onClick={() => insertLatex(aggregationShortcut)}>
+                <span className="formula-shortcut-kind">Sum</span>
+                <InlineMath math={aggregationShortcut} errorColor="#b42318" />
+              </button>
+              {lastFormulaItem ? <button className="formula-result-insert" type="button" disabled={!lastFormulaItem.leftExpression.trim()} title={lastFormulaItem.leftExpression.trim() ? `Last formula result: ${lastFormulaItem.tag}` : 'The last formula has no left term'} onClick={() => insertLatex(lastFormulaItem.leftExpression)}>
+                <span>{lastFormulaItem.tag.trim() || 'Last formula'}</span>
+                {lastFormulaItem.leftExpression.trim() ? <InlineMath math={lastFormulaItem.leftExpression} errorColor="#b42318" /> : 'No left term'}
+              </button> : null}
+              <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[spatialScale]}`} onClick={() => insertLatex(spatialScaleLabels[spatialScale])}>
+                <span className="formula-shortcut-kind">Scale</span>
+                <InlineMath math={spatialScaleLabels[spatialScale]} errorColor="#b42318" />
+              </button>
+            </div>
+          </section> : null}
+          {sourceFieldShortcuts.length ? <section className="formula-shortcut-group">
+            <span className="formula-shortcut-group-label">Source fields</span>
+            <div className="formula-shortcut-group-options">
+              {sourceFieldShortcuts.map((source) => <button className="formula-source-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
+                {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
+              </button>)}
+            </div>
+          </section> : null}
+          {dimensionShortcuts.length ? <section className="formula-shortcut-group">
+            <span className="formula-shortcut-group-label">Source field dimensions</span>
+            <div className="formula-shortcut-group-options">
+              {dimensionShortcuts.map((shortcut) => <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
+                <span className="formula-shortcut-kind">{shortcut.kind}</span>
+                <InlineMath math={shortcut.latex} errorColor="#b42318" />
+              </button>)}
+            </div>
+          </section> : null}
+          {lookupShortcuts.length ? <section className="formula-shortcut-group">
+            <span className="formula-shortcut-group-label">Source lookups</span>
+            <div className="formula-shortcut-group-options">
+              {lookupShortcuts.map((source) => <button className="formula-source-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
+                {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
+              </button>)}
+            </div>
+          </section> : null}
+          {variableShortcuts.length ? <section className="formula-shortcut-group">
+            <span className="formula-shortcut-group-label">Source variables</span>
+            <div className="formula-shortcut-group-options">
+              {variableShortcuts.map((source) => <button className="formula-variable-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
+                {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
+              </button>)}
+            </div>
+          </section> : null}
+          {insertableResults.some((prior) => !spatialScale || prior !== lastFormulaItem) ? <section className="formula-shortcut-group">
+            <span className="formula-shortcut-group-label">Previous items</span>
+            <div className="formula-shortcut-group-options">
+              {insertableResults.map((prior, index) => spatialScale && prior === lastFormulaItem ? null : <button className="formula-result-insert" type="button" title={`Formula result: ${prior.tag}`} key={`${prior.tag}-${index}`} onClick={() => insertLatex(prior.leftExpression)}>
+                <span>{prior.tag}</span>
+                <InlineMath math={prior.leftExpression} errorColor="#b42318" />
+              </button>)}
+            </div>
+          </section> : null}
+            <section className="formula-shortcut-group">
+              <span className="formula-shortcut-group-label">Spatial-scale keywords</span>
+              <div className="formula-shortcut-group-options">
+                {spatialScaleKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[scale]}`} key={scale} onClick={() => insertLatex(spatialScaleLabels[scale])}>
+                  <InlineMath math={spatialScaleLabels[scale]} errorColor="#b42318" />
+                </button>)}
+              </div>
+            </section>
+          </div>
         </div>
       </div>
     </div>
@@ -3541,7 +3793,8 @@ type FormulaSemanticToken = {
   latex: string;
   matchLatex?: string;
   requiresFollowingParenthesis?: boolean;
-  kind: 'source' | 'result' | 'dimension' | 'scale';
+  kind: 'source' | 'variable' | 'result' | 'dimension' | 'scale';
+  prominent?: boolean;
   label: string;
 };
 
@@ -3589,6 +3842,12 @@ const findFormulaToken = (formula: string, token: FormulaSemanticToken, startInd
 
 const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]): DecoratedFormula => {
   const tokenMatchLatex = (token: FormulaSemanticToken) => token.matchLatex ?? token.latex;
+  const tokenClassNames = (token: FormulaSemanticToken & { index: number }) => [
+    'formula-semantic-token',
+    `formula-${token.kind}-token`,
+    token.prominent ? 'formula-final-result-token' : '',
+    `formula-token-${token.index}`
+  ].filter(Boolean).join(' ');
   const uniqueTokens = [...new Map(tokens.filter((token) => tokenMatchLatex(token).trim()).map((token) => [tokenMatchLatex(token), token])).values()]
     .map((token, index) => ({ ...token, index }))
     .sort((left, right) => tokenMatchLatex(right).length - tokenMatchLatex(left).length);
@@ -3597,6 +3856,34 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
   const cached = formulaDecorationCache.get(cacheKey);
   if (cached) return cached;
   const buildDecoratedFormula = (activeTokens: typeof uniqueTokens) => {
+    const decorateNestedSemanticTokens = (parentLatex: string, parentToken: typeof uniqueTokens[number]) => {
+      const nestedTokens = activeTokens.filter((token) =>
+        token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale')
+      );
+      let nestedCursor = 0;
+      let decoratedParent = '';
+      while (nestedCursor < parentLatex.length) {
+        let nestedMatch: typeof uniqueTokens[number] | undefined;
+        let nestedMatchIndex = -1;
+        for (const token of nestedTokens) {
+          const index = findFormulaToken(parentLatex, token, nestedCursor);
+          const matchLength = tokenMatchLatex(token).length;
+          if (index >= 0 && (nestedMatchIndex < 0 || index < nestedMatchIndex || (index === nestedMatchIndex && matchLength > (nestedMatch ? tokenMatchLatex(nestedMatch).length : 0)))) {
+            nestedMatch = token;
+            nestedMatchIndex = index;
+          }
+        }
+        if (!nestedMatch || nestedMatchIndex < 0) {
+          decoratedParent += parentLatex.slice(nestedCursor);
+          break;
+        }
+        decoratedParent += parentLatex.slice(nestedCursor, nestedMatchIndex);
+        const nestedLatex = tokenMatchLatex(nestedMatch);
+        decoratedParent += `\\htmlClass{${tokenClassNames(nestedMatch)}}{${nestedLatex}}`;
+        nestedCursor = nestedMatchIndex + nestedLatex.length;
+      }
+      return decoratedParent || parentLatex;
+    };
     let cursor = 0;
     let decorated = '';
     while (cursor < formula.length) {
@@ -3616,7 +3903,10 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
       }
       decorated += formula.slice(cursor, matchIndex);
       const matchedLatex = tokenMatchLatex(match);
-      decorated += `\\htmlClass{formula-semantic-token formula-${match.kind}-token formula-token-${match.index}}{${matchedLatex}}`;
+      const decoratedMatch = match.kind === 'result' || match.kind === 'source'
+        ? decorateNestedSemanticTokens(matchedLatex, match)
+        : matchedLatex;
+      decorated += `\\htmlClass{${tokenClassNames(match)}}{${decoratedMatch}}`;
       cursor = matchIndex + matchedLatex.length;
     }
     return decorated;
@@ -3636,7 +3926,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
     }
   };
   const individuallyValidTokens = matchingTokens.filter((token) =>
-    rendersSafely(`\\htmlClass{formula-semantic-token formula-${token.kind}-token formula-token-${token.index}}{${tokenMatchLatex(token)}}`)
+    rendersSafely(`\\htmlClass{${tokenClassNames(token)}}{${tokenMatchLatex(token)}}`)
   );
   const fullyDecoratedFormula = buildDecoratedFormula(individuallyValidTokens);
   if (rendersSafely(fullyDecoratedFormula)) {
@@ -3707,29 +3997,32 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
       latex: source.latex,
       matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
       requiresFollowingParenthesis: lookupOpenParenthesis > 0,
-      kind: 'source',
+      kind: source.type === 'variable' ? 'variable' : 'source',
       label: `Source: ${sourceItemTooltip(config, source)}`
     };
-  }), [config.dataSources, config.lookups, kpi.sources, referencedKpiNames]);
+  }), [config.dataSources, config.lookups, config.variables, kpi.sources, referencedKpiNames]);
+  const regularFormulaItems = kpi.description.formulas.flatMap((group) => group.items);
+  const finalFormulaItem = regularFormulaItems.slice().reverse().find((formulaItem) => formulaItem.formula.trim() || formulaItem.leftExpression.trim());
   const priorItemsKey = JSON.stringify(priorItems.map((prior) => [prior.leftExpression, prior.tag]));
   const priorItemTokens = useMemo(() => priorItems.map((prior): FormulaSemanticToken => ({
     latex: prior.leftExpression,
     kind: 'result',
+    prominent: prior === finalFormulaItem,
     label: `Previous formula: ${prior.tag || 'Untitled formula'}`
-  })), [priorItemsKey]);
+  })), [finalFormulaItem, priorItemsKey]);
   const semantic = useMemo(
     () => decorateFormulaTokens(item.formula, [
-      ...dimensionTokens,
-      ...priorItemTokens,
       ...sourceTokens,
+      ...dimensionTokens,
       ...spatialScaleFormulaKeywords.map((keyword) => ({
         latex: keyword,
         kind: 'scale' as const,
         label: `Spatial scale: ${keyword}`
       })),
-      { latex: item.leftExpression, kind: 'result' as const, label: `Formula tag: ${item.tag.trim() || 'Untitled formula'}` }
+      ...priorItemTokens,
+      { latex: item.leftExpression, kind: 'result' as const, prominent: item === finalFormulaItem, label: `Formula tag: ${item.tag.trim() || 'Untitled formula'}` }
     ]),
-    [dimensionTokens, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
+    [dimensionTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
   const renderedHtml = useMemo(
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),
@@ -4471,7 +4764,7 @@ function ExpandedKpiEditor({
       <section className="expanded-section source-and-scale-section scales-expanded-column">
         <div className="field expanded-independent expanded-sources">
           <span>Sources</span>
-          <KpiSourceEditor config={config} kpi={kpi} onChange={(sources) => patch({ sources })} />
+          <KpiSourceEditor config={config} kpi={kpi} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </div>
         <div
           className={`expanded-tab-panel spatial-scales-tab-panel ${activeExpandedPanel === 'scales' ? 'is-active' : 'is-inactive'}`}
@@ -4592,7 +4885,7 @@ function KpiRow({
         </td>
         <td>
           <div onClick={stopRowToggle}>
-            <KpiSourceEditor config={config} kpi={kpi} compact onChange={(sources) => patch({ sources })} />
+            <KpiSourceEditor config={config} kpi={kpi} compact onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
           </div>
         </td>
         <td>
@@ -5736,6 +6029,9 @@ function EditorApp({
           : []),
         ...(merged.lookupConflicts > 0
           ? [`${merged.lookupConflicts} imported lookup${merged.lookupConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
+          : []),
+        ...(merged.variableConflicts > 0
+          ? [`${merged.variableConflicts} imported variable${merged.variableConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : [])
       ]);
     } catch (err) {

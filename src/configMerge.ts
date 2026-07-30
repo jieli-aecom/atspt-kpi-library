@@ -11,6 +11,8 @@ export type ConfigMergeResult = {
   dataSourceConflicts: number;
   addedLookups: number;
   lookupConflicts: number;
+  addedVariables: number;
+  variableConflicts: number;
 };
 
 const sameValue = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
@@ -79,10 +81,24 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     return false;
   });
 
+  let variableConflicts = 0;
+  const currentVariablesById = new Map(current.variables.map((variable) => [variable.id, variable]));
+  const addedVariables = incoming.variables.filter((variable) => {
+    const existing = currentVariablesById.get(variable.id);
+    if (!existing) {
+      return true;
+    }
+    if (!sameValue(existing, variable)) {
+      variableConflicts += 1;
+    }
+    return false;
+  });
+
   const currentIsEmpty =
     current.kpis.length === 0 &&
     current.dataSources.length === 0 &&
     current.lookups.length === 0 &&
+    current.variables.length === 0 &&
     enumCategoryKeys.every((category) => current.enums[category].length === 0);
 
   return {
@@ -94,6 +110,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
       enums,
       dataSources: [...current.dataSources, ...addedDataSources],
       lookups: [...current.lookups, ...addedLookups],
+      variables: [...current.variables, ...addedVariables],
       kpis: [...mergedCurrentKpis, ...addedKpis]
     },
     importedKpiIds,
@@ -104,7 +121,9 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     addedDataSources: addedDataSources.length,
     dataSourceConflicts,
     addedLookups: addedLookups.length,
-    lookupConflicts
+    lookupConflicts,
+    addedVariables: addedVariables.length,
+    variableConflicts
   };
 };
 
@@ -130,6 +149,7 @@ export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: Kpi
   ) as KpiPoolConfig['enums'],
   dataSources: mergeAdditiveCollection(current.dataSources, incoming.dataSources),
   lookups: mergeAdditiveCollection(current.lookups, incoming.lookups),
+  variables: mergeAdditiveCollection(current.variables, incoming.variables),
   kpis: mergeAdditiveCollection(current.kpis, incoming.kpis)
 });
 
