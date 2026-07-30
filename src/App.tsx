@@ -2601,7 +2601,7 @@ function DataSourceHeader({
     const targetId = relationEditor.direction === 'one' ? relatedId : anchorId;
     if (!sourceId || !targetId || sourceId === targetId) return;
     const duplicate = config.tableRelations.some((relation) => relation.cardinality === relationEditor.cardinality && (
-      relationEditor.cardinality === 'oneToOne'
+      relationEditor.cardinality !== 'oneToMany'
         ? (relation.sourceDataSourceId === sourceId && relation.targetDataSourceId === targetId) ||
           (relation.sourceDataSourceId === targetId && relation.targetDataSourceId === sourceId)
         : relation.sourceDataSourceId === sourceId && relation.targetDataSourceId === targetId
@@ -2611,9 +2611,10 @@ function DataSourceHeader({
     const ensurePrimaryKey = (dataSourceId: string) => {
       const current = workingSources.get(dataSourceId);
       if (!current) return undefined;
-      const existing = current.fields.find((field) => field.id === current.primaryKeyFieldId);
+      const dimensionedFieldIds = new Set(current.fieldGroups.flatMap((group) => group.fieldIds));
+      const existing = current.fields.find((field) => field.id === current.primaryKeyFieldId && !dimensionedFieldIds.has(field.id));
       if (existing) return existing;
-      const reusable = current.fields.find((field) => !field.generatedRelationId && field.dataType === 'id');
+      const reusable = current.fields.find((field) => !field.generatedRelationId && field.dataType === 'id' && !dimensionedFieldIds.has(field.id));
       if (reusable) {
         workingSources.set(current.id, { ...current, primaryKeyFieldId: reusable.id });
         return reusable;
@@ -2630,7 +2631,7 @@ function DataSourceHeader({
     };
     const sourcePrimaryKey = ensurePrimaryKey(sourceId);
     if (!sourcePrimaryKey) return;
-    if (relationEditor.cardinality === 'oneToOne' && !ensurePrimaryKey(targetId)) return;
+    if (relationEditor.cardinality !== 'oneToMany' && !ensurePrimaryKey(targetId)) return;
     const source = workingSources.get(sourceId);
     const target = workingSources.get(targetId);
     if (!source || !target) return;
@@ -2662,6 +2663,27 @@ function DataSourceHeader({
         valueUnit: '',
         generatedRelationId: relation.id,
         generatedRelationRole: 'manyForeignKey'
+      }] });
+    }
+    if (relation.cardinality === 'manyToMany') {
+      const targetCollectionFieldName = uniqueFieldName(target, collectionNameFromKey(sourcePrimaryKey.name || fallbackPrimaryKeyName(source)));
+      workingSources.set(source.id, { ...source, fields: [...source.fields, {
+        id: createLocalId('field'),
+        name: collectionFieldName,
+        meaning: `Related ${target.name || 'table'} keys`,
+        dataType: 'collection',
+        valueUnit: '',
+        generatedRelationId: relation.id,
+        generatedRelationRole: 'sourceCollection'
+      }] });
+      workingSources.set(target.id, { ...target, fields: [...target.fields, {
+        id: createLocalId('field'),
+        name: targetCollectionFieldName,
+        meaning: `Related ${source.name || 'table'} keys`,
+        dataType: 'collection',
+        valueUnit: '',
+        generatedRelationId: relation.id,
+        generatedRelationRole: 'targetCollection'
       }] });
     }
     const dataSources = config.dataSources.map((entry) => workingSources.get(entry.id) ?? entry);
@@ -2744,7 +2766,8 @@ function DataSourceHeader({
   const setPrimaryKey = (sourceIndex: number, fieldIndex: number) => {
     const source = config.dataSources[sourceIndex];
     const field = source.fields[fieldIndex];
-    if (!field || field.generatedRelationId) return;
+    const isDimensioned = source.fieldGroups.some((group) => group.fieldIds.includes(field?.id ?? ''));
+    if (!field || field.generatedRelationId || isDimensioned) return;
     const nextPrimaryKeyFieldId = source.primaryKeyFieldId === field.id ? undefined : field.id;
     updateDataSource(sourceIndex, {
       primaryKeyFieldId: nextPrimaryKeyFieldId,
@@ -2860,6 +2883,7 @@ function DataSourceHeader({
   };
   const assignFieldToGroup = (sourceIndex: number, fieldId: string, groupId?: string) => {
     const source = config.dataSources[sourceIndex];
+    if (groupId && source.primaryKeyFieldId === fieldId) return;
     updateDataSource(sourceIndex, {
       fieldGroups: source.fieldGroups.map((group) => ({
         ...group,
@@ -2887,6 +2911,8 @@ function DataSourceHeader({
     const source = config.dataSources[sourceIndex];
     const fields = [...source.fields];
     const sourceFieldIndex = fieldDrag.fieldIndex;
+    const fieldToMove = fields[sourceFieldIndex];
+    if (!fieldToMove || (groupId && source.primaryKeyFieldId === fieldToMove.id)) return;
     const targetBoundary = targetIndex + (position === 'after' ? 1 : 0);
     const [moved] = fields.splice(sourceFieldIndex, 1);
     let insertionIndex = targetBoundary;
@@ -3074,7 +3100,7 @@ function DataSourceHeader({
               const draftRelationSourceId = relationEditor?.direction === 'many' ? relationEditor.targetDataSourceId : relationEditor?.sourceDataSourceId;
               const draftRelationTargetId = relationEditor?.direction === 'many' ? relationEditor.sourceDataSourceId : relationEditor?.targetDataSourceId;
               const relationDraftIsDuplicate = sourceRelationEditorOpen && relationEditor ? config.tableRelations.some((relation) => relation.cardinality === relationEditor.cardinality && (
-                relationEditor.cardinality === 'oneToOne'
+                relationEditor.cardinality !== 'oneToMany'
                   ? (relation.sourceDataSourceId === draftRelationSourceId && relation.targetDataSourceId === draftRelationTargetId) ||
                     (relation.sourceDataSourceId === draftRelationTargetId && relation.targetDataSourceId === draftRelationSourceId)
                   : relation.sourceDataSourceId === draftRelationSourceId && relation.targetDataSourceId === draftRelationTargetId
@@ -3127,7 +3153,7 @@ function DataSourceHeader({
               const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => {
                 const isPrimaryKey = source.primaryKeyFieldId === field.id;
                 const primaryKeyRelations = isPrimaryKey
-                  ? sourceRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.cardinality === 'oneToOne')
+                  ? sourceRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.cardinality !== 'oneToMany')
                   : [];
                 const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
                 const relationIsDuplicate = relationDraftIsDuplicate;
@@ -3174,8 +3200,8 @@ function DataSourceHeader({
                     }}
                   ><GripVertical size={13} aria-hidden="true" /></button>}
                   <div className="primary-key-cell">
-                    <label className="primary-key-check" title={field.generatedRelationId ? 'Relationship fields cannot be primary keys' : isPrimaryKey && primaryKeyRelations.length ? 'Choose another primary key or remove this key’s relations first' : 'Use this field as the table primary key'}>
-                      <input type="checkbox" checked={isPrimaryKey} disabled={Boolean(field.generatedRelationId || (isPrimaryKey && primaryKeyRelations.length))} aria-label={`${field.name || 'Field'} is primary key`} onChange={() => setPrimaryKey(sourceIndex, fieldIndex)} />
+                    <label className="primary-key-check" title={groupId ? 'Dimensioned fields cannot be primary keys' : field.generatedRelationId ? 'Relationship fields cannot be primary keys' : isPrimaryKey && primaryKeyRelations.length ? 'Choose another primary key or remove this key’s relations first' : 'Use this field as the table primary key'}>
+                      <input type="checkbox" checked={isPrimaryKey} disabled={Boolean(groupId || field.generatedRelationId || (isPrimaryKey && primaryKeyRelations.length))} aria-label={`${field.name || 'Field'} is primary key`} onChange={() => setPrimaryKey(sourceIndex, fieldIndex)} />
                       <KeyRound size={11} aria-hidden="true" />
                     </label>
                     {isPrimaryKey ? <button
@@ -3198,7 +3224,7 @@ function DataSourceHeader({
                         {primaryKeyRelations.map((relation) => {
                           const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
                           const other = config.dataSources.find((entry) => entry.id === otherId);
-                          const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
+                          const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
                           return <div key={relation.id}><span><b>{direction}</b>{other?.name ?? 'Missing table'}</span><button className="mini-icon-button danger" type="button" title="Delete relation" onClick={() => deleteTableRelation(relation.id)}><Trash2 size={11} /></button></div>;
                         })}
                       </div> : null}
@@ -3390,7 +3416,7 @@ function DataSourceHeader({
                               const isSource = relation.sourceDataSourceId === source.id;
                               const otherId = isSource ? relation.targetDataSourceId : relation.sourceDataSourceId;
                               const other = config.dataSources.find((entry) => entry.id === otherId);
-                              const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : isSource ? '1:N' : 'N:1';
+                              const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : isSource ? '1:N' : 'N:1';
                               const otherName = other?.name ?? 'Missing table';
                               return <span key={relation.id} title={`${cardinality} relationship with ${otherName}`}><Link2 size={9} aria-hidden="true" /><b>{cardinality}</b><span>{otherName}</span></span>;
                             })}
@@ -3498,19 +3524,20 @@ function DataSourceHeader({
                                 {sourceRelations.map((relation) => {
                                   const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
                                   const other = config.dataSources.find((entry) => entry.id === otherId);
-                                  const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
+                                  const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
                                   return <div key={relation.id}><span><b>{direction}</b>{other?.name ?? 'Missing table'}</span><button className="mini-icon-button danger" type="button" title="Delete relation" onClick={() => deleteTableRelation(relation.id)}><Trash2 size={11} /></button></div>;
                                 })}
                               </div> : null}
                               <label className="field"><span>Related table</span><select value={relationEditor.targetDataSourceId} onChange={(event) => setRelationEditor((current) => current ? { ...current, targetDataSourceId: event.target.value } : current)}>
                                 {config.dataSources.filter((entry) => entry.id !== source.id).map((entry) => <option value={entry.id} key={entry.id}>{entry.name || 'Untitled table'}</option>)}
                               </select></label>
-                              <div className="field-relation-cardinality has-three" aria-label="Relationship cardinality and direction">
+                              <div className="field-relation-cardinality has-four" aria-label="Relationship cardinality and direction">
                                 <button className={relationEditor.cardinality === 'oneToOne' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToOne', direction: 'one' } : current)}><b>1:1</b><span>One to one</span></button>
                                 <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'one' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>This table is one</span></button>
                                 <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'many' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'many' } : current)}><b>N:1</b><span>This table is many</span></button>
+                                <button className={relationEditor.cardinality === 'manyToMany' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'manyToMany', direction: 'one' } : current)}><b>N:N</b><span>Many to many</span></button>
                               </div>
-                              <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID.</small>
+                              <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID. N:N adds a linked collection of the other table's IDs to both tables.</small>
                               <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationDraftIsDuplicate} onClick={addTableRelation}>{relationDraftIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
                             </div> : null}
                           </div>

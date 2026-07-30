@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 25 as const;
+export const CURRENT_SCHEMA_VERSION = 26 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -60,7 +60,7 @@ export type DataSourceField = {
   dataType: DataSourceFieldType;
   valueUnit: string;
   generatedRelationId?: string;
-  generatedRelationRole?: 'oneCollection' | 'manyForeignKey';
+  generatedRelationRole?: 'oneCollection' | 'manyForeignKey' | 'sourceCollection' | 'targetCollection';
 };
 
 export const dataSourceFieldTypes = ['id', 'number', 'boolean', 'text', 'enum', 'collection'] as const;
@@ -92,7 +92,7 @@ export type TableRelation = {
   id: string;
   sourceDataSourceId: string;
   targetDataSourceId: string;
-  cardinality: 'oneToOne' | 'oneToMany';
+  cardinality: 'oneToOne' | 'oneToMany' | 'manyToMany';
 };
 
 export type LookupInput = {

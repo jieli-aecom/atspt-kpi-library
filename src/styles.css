@@ -1493,11 +1493,11 @@ h1 {
   gap: 5px;
 }
 
-.field-relation-cardinality.has-three {
-  grid-template-columns: repeat(3, 1fr);
+.field-relation-cardinality.has-four {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.field-relation-cardinality.has-three button {
+.field-relation-cardinality.has-four button {
   grid-template-columns: 1fr;
   gap: 2px;
   text-align: center;

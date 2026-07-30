@@ -126,7 +126,7 @@ When introducing a future schema:
 
 ## Config shape
 
-- `schemaVersion`: currently `25`
+- `schemaVersion`: currently `26`
 - `title`: library title
 - `updatedAt`: ISO timestamp written by the server or during HTML export
 - `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned use-case definitions
