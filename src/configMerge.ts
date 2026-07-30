@@ -67,6 +67,8 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     }
     return false;
   });
+  const currentRelationsById = new Map(current.tableRelations.map((relation) => [relation.id, relation]));
+  const addedTableRelations = incoming.tableRelations.filter((relation) => !currentRelationsById.has(relation.id));
 
   let lookupConflicts = 0;
   const currentLookupsById = new Map(current.lookups.map((lookup) => [lookup.id, lookup]));
@@ -97,6 +99,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
   const currentIsEmpty =
     current.kpis.length === 0 &&
     current.dataSources.length === 0 &&
+    current.tableRelations.length === 0 &&
     current.lookups.length === 0 &&
     current.variables.length === 0 &&
     enumCategoryKeys.every((category) => current.enums[category].length === 0);
@@ -109,6 +112,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
       defaultFocus: currentIsEmpty ? incoming.defaultFocus : current.defaultFocus,
       enums,
       dataSources: [...current.dataSources, ...addedDataSources],
+      tableRelations: [...current.tableRelations, ...addedTableRelations],
       lookups: [...current.lookups, ...addedLookups],
       variables: [...current.variables, ...addedVariables],
       kpis: [...mergedCurrentKpis, ...addedKpis]
@@ -148,6 +152,7 @@ export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: Kpi
     ])
   ) as KpiPoolConfig['enums'],
   dataSources: mergeAdditiveCollection(current.dataSources, incoming.dataSources),
+  tableRelations: mergeAdditiveCollection(current.tableRelations, incoming.tableRelations),
   lookups: mergeAdditiveCollection(current.lookups, incoming.lookups),
   variables: mergeAdditiveCollection(current.variables, incoming.variables),
   kpis: mergeAdditiveCollection(current.kpis, incoming.kpis)
@@ -171,9 +176,25 @@ export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDel
 
   const deletedKpiIds = new Set(deletions.kpiIds);
   const deletedDataSourceIds = new Set(deletions.dataSourceIds);
+  const deletedRelationIds = new Set(config.tableRelations
+    .filter((relation) => deletedDataSourceIds.has(relation.sourceDataSourceId) || deletedDataSourceIds.has(relation.targetDataSourceId))
+    .map((relation) => relation.id));
+  const removedGeneratedFieldKeys = new Set(config.dataSources.flatMap((source) => source.fields
+    .filter((field) => field.generatedRelationId && deletedRelationIds.has(field.generatedRelationId))
+    .map((field) => `${source.id}\u0000${field.id}`)));
   return {
     ...config,
-    dataSources: config.dataSources.filter((source) => !deletedDataSourceIds.has(source.id)),
+    dataSources: config.dataSources
+      .filter((source) => !deletedDataSourceIds.has(source.id))
+      .map((source) => ({
+        ...source,
+        fields: source.fields.filter((field) => !field.generatedRelationId || !deletedRelationIds.has(field.generatedRelationId)),
+        fieldGroups: source.fieldGroups.map((group) => ({
+          ...group,
+          fieldIds: group.fieldIds.filter((fieldId) => !removedGeneratedFieldKeys.has(`${source.id}\u0000${fieldId}`))
+        }))
+      })),
+    tableRelations: config.tableRelations.filter((relation) => !deletedRelationIds.has(relation.id)),
     kpis: config.kpis
       .filter((kpi) => !deletedKpiIds.has(kpi.id))
       .map((kpi) => ({
@@ -181,7 +202,7 @@ export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDel
         sources: kpi.sources.filter(
           (source) =>
             (source.type !== 'kpi' || !deletedKpiIds.has(source.kpiId)) &&
-            (source.type !== 'dataField' || !deletedDataSourceIds.has(source.dataSourceId))
+            (source.type !== 'dataField' || (!deletedDataSourceIds.has(source.dataSourceId) && !removedGeneratedFieldKeys.has(`${source.dataSourceId}\u0000${source.fieldId}`)))
         ),
         prerequisite: {
           ...kpi.prerequisite,

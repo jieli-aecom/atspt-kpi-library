@@ -7,7 +7,10 @@ import {
   type EnumOption,
   type DataSource,
   type DataSourceField,
+  dataSourceFieldTypes,
+  type DataSourceFieldType,
   type DataSourceFieldGroup,
+  type TableRelation,
   type LookupDefinition,
   type LookupInput,
   type VariableDefinition,
@@ -64,7 +67,10 @@ const dataSourceFieldSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   meaning: z.string(),
-  valueUnit: z.string()
+  dataType: z.enum(dataSourceFieldTypes),
+  valueUnit: z.string(),
+  generatedRelationId: z.string().min(1).optional(),
+  generatedRelationRole: z.enum(['oneCollection', 'manyForeignKey']).optional()
 });
 
 const dataSourceFieldDimensionSchema = z.object({
@@ -79,6 +85,7 @@ const dataSourceSchema = z.object({
   spatialUnit: z.custom<SpatialUnit>(isSpatialUnit, {
     message: `Spatial unit must be blank or one of: ${spatialUnitOptions.join(', ')}`
   }),
+  primaryKeyFieldId: z.string().min(1).optional(),
   fields: z.array(dataSourceFieldSchema),
   fieldGroups: z.array(z.object({
     id: z.string().min(1),
@@ -86,6 +93,13 @@ const dataSourceSchema = z.object({
     fieldIds: z.array(z.string()),
     position: z.number().int().nonnegative()
   }))
+});
+
+const tableRelationSchema = z.object({
+  id: z.string().min(1),
+  sourceDataSourceId: z.string().min(1),
+  targetDataSourceId: z.string().min(1),
+  cardinality: z.enum(['oneToOne', 'oneToMany'])
 });
 
 const lookupSchema = z.object({
@@ -211,6 +225,7 @@ export const kpiPoolConfigSchema = z.object({
     useCase: z.array(enumOptionSchema)
   }),
   dataSources: z.array(dataSourceSchema),
+  tableRelations: z.array(tableRelationSchema),
   lookups: z.array(lookupSchema),
   variables: z.array(variableSchema),
   kpis: z.array(kpiSchema)
@@ -316,6 +331,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     (input.updatedAt !== undefined && typeof input.updatedAt !== 'string') ||
     !isRecord(input.enums) ||
     !Array.isArray(input.dataSources) ||
+    !Array.isArray(input.tableRelations) ||
     !Array.isArray(input.lookups) ||
     !Array.isArray(input.variables) ||
     !Array.isArray(input.kpis)
@@ -337,6 +353,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
         typeof source.id === 'string' &&
         typeof source.name === 'string' &&
         isSpatialUnit(source.spatialUnit) &&
+        (source.primaryKeyFieldId === undefined || typeof source.primaryKeyFieldId === 'string') &&
         Array.isArray(source.fields) &&
         Array.isArray(source.fieldGroups) &&
         source.fieldGroups.every(
@@ -362,7 +379,11 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
             typeof field.id === 'string' &&
             typeof field.name === 'string' &&
             typeof field.meaning === 'string' &&
-            typeof field.valueUnit === 'string'
+            dataSourceFieldTypes.some((type) => type === field.dataType) &&
+            typeof field.valueUnit === 'string' &&
+            (field.dataType === 'number' || !field.valueUnit) &&
+            (field.generatedRelationId === undefined || typeof field.generatedRelationId === 'string') &&
+            (field.generatedRelationRole === undefined || field.generatedRelationRole === 'oneCollection' || field.generatedRelationRole === 'manyForeignKey')
         )
     )
   ) {
@@ -456,6 +477,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       const fieldIds = new Set(source.fields.map((field) => field.id));
       const groupedFieldIds = source.fieldGroups.flatMap((group) => group.fieldIds);
       return hasDuplicate(source.fields.map((field) => field.id)) ||
+        (source.primaryKeyFieldId !== undefined && (!fieldIds.has(source.primaryKeyFieldId) || source.fields.find((field) => field.id === source.primaryKeyFieldId)?.dataType !== 'id')) ||
         hasDuplicate(source.fieldGroups.map((group) => group.id)) ||
         hasDuplicate(groupedFieldIds) ||
         source.fieldGroups.some((group) =>
@@ -465,6 +487,34 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
           group.dimensions.some((dimension) => hasDuplicate(dimension.options.map((option) => option.toLocaleLowerCase())))
         );
     })
+  ) {
+    return false;
+  }
+
+  const currentRelations = input.tableRelations as TableRelation[];
+  const relationById = new Map(currentRelations.map((relation) => [relation.id, relation]));
+  if (
+    hasDuplicate(currentRelations.map((relation) => relation.id)) ||
+    currentRelations.some((relation) => {
+      const source = dataSourceById.get(relation.sourceDataSourceId);
+      const target = dataSourceById.get(relation.targetDataSourceId);
+      return !source || !target || source.id === target.id || !source.primaryKeyFieldId ||
+        (relation.cardinality === 'oneToOne' && !target.primaryKeyFieldId);
+    }) ||
+    currentDataSources.some((source) => source.fields.some((field) => {
+      if (!field.generatedRelationId) return false;
+      const relation = relationById.get(field.generatedRelationId);
+      return !relation || relation.cardinality !== 'oneToMany' ||
+        (field.generatedRelationRole === 'oneCollection'
+          ? relation.sourceDataSourceId !== source.id || field.dataType !== 'collection'
+          : field.generatedRelationRole === 'manyForeignKey'
+            ? relation.targetDataSourceId !== source.id || field.dataType !== 'id'
+            : true);
+    })) ||
+    currentRelations.some((relation) => relation.cardinality === 'oneToMany' && (
+      dataSourceById.get(relation.sourceDataSourceId)?.fields.filter((field) => field.generatedRelationId === relation.id && field.generatedRelationRole === 'oneCollection').length !== 1 ||
+      dataSourceById.get(relation.targetDataSourceId)?.fields.filter((field) => field.generatedRelationId === relation.id && field.generatedRelationRole === 'manyForeignKey').length !== 1
+    ))
   ) {
     return false;
   }
@@ -1697,6 +1747,23 @@ const repairDefaultFocus = (rawConfig: Record<string, unknown>, enums: EnumDefin
   return { userGroup, useCase };
 };
 
+const normalizeDataSourceFieldType = (value: unknown, legacyUnit: string): DataSourceFieldType => {
+  const normalized = normalizeKey(stringValue(value));
+  const aliases: Record<string, DataSourceFieldType> = {
+    id: 'id', identifier: 'id', key: 'id',
+    number: 'number', numeric: 'number', integer: 'number', float: 'number', decimal: 'number',
+    boolean: 'boolean', bool: 'boolean',
+    text: 'text', string: 'text',
+    enum: 'enum', enums: 'enum', enumeration: 'enum',
+    collection: 'collection', array: 'collection', list: 'collection', set: 'collection'
+  };
+  if (aliases[normalized]) return aliases[normalized];
+  const normalizedUnit = normalizeKey(legacyUnit);
+  if (normalizedUnit === 'boolean' || normalizedUnit === 'bool') return 'boolean';
+  if (normalizedUnit === 'id' || normalizedUnit === 'identifier') return 'id';
+  return legacyUnit.trim() ? 'number' : 'text';
+};
+
 const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] => {
   if (rawValue == null) {
     return [];
@@ -1722,11 +1789,20 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
         return [];
       }
       const fieldName = stringValue(rawField.name ?? rawField.Name).trim() || `Field ${fieldIndex + 1}`;
+      const legacyUnit = stringValue(rawField.valueUnit ?? rawField.unit ?? rawField['Value Unit']);
+      const dataType = normalizeDataSourceFieldType(rawField.dataType ?? rawField.fieldType ?? rawField.type, legacyUnit);
+      const generatedRelationId = stringValue(rawField.generatedRelationId).trim();
+      const generatedRelationRole = rawField.generatedRelationRole === 'oneCollection' || rawField.generatedRelationRole === 'manyForeignKey'
+        ? rawField.generatedRelationRole
+        : undefined;
       return [{
         id: ensureUniqueId(rawField.id, 'field', usedFieldIds, warnings, `${name}: field "${fieldName}"`),
         name: fieldName,
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
-        valueUnit: stringValue(rawField.valueUnit ?? rawField.unit ?? rawField['Value Unit'])
+        dataType,
+        valueUnit: dataType === 'number' ? legacyUnit : '',
+        ...(generatedRelationId ? { generatedRelationId } : {}),
+        ...(generatedRelationRole ? { generatedRelationRole } : {})
       }];
     });
     const validFieldIds = new Set(fields.map((field) => field.id));
@@ -1805,9 +1881,115 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
       id,
       name,
       spatialUnit,
+      primaryKeyFieldId: (() => {
+        const candidate = stringValue(rawSource.primaryKeyFieldId).trim();
+        return candidate && fields.some((field) => field.id === candidate && field.dataType === 'id') ? candidate : undefined;
+      })(),
       fields,
       fieldGroups
     }];
+  });
+};
+
+const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
+const fallbackRelationKeyName = (source?: DataSource) => `${relationFieldBaseName(source?.name ?? 'Table')}ID`;
+const collectionRelationFieldName = (keyName: string) => {
+  const normalized = relationFieldBaseName(keyName);
+  return normalized.endsWith('s') ? normalized : `${normalized}s`;
+};
+
+const repairTableRelations = (rawValue: unknown, dataSources: DataSource[], warnings: string[]): TableRelation[] => {
+  if (rawValue == null) return [];
+  if (!Array.isArray(rawValue)) {
+    warnings.push('Table relations were not a list and were initialized empty.');
+    return [];
+  }
+  const sourceById = new Map(dataSources.map((source) => [source.id, source]));
+  const usedIds = new Set<string>();
+  const seenPairs = new Set<string>();
+  return rawValue.flatMap((rawRelation, relationIndex): TableRelation[] => {
+    if (!isRecord(rawRelation)) return [];
+    const sourceDataSourceId = stringValue(rawRelation.sourceDataSourceId ?? rawRelation.sourceTableId ?? rawRelation.oneDataSourceId).trim();
+    const targetDataSourceId = stringValue(rawRelation.targetDataSourceId ?? rawRelation.targetTableId ?? rawRelation.manyDataSourceId).trim();
+    const source = sourceById.get(sourceDataSourceId);
+    const target = sourceById.get(targetDataSourceId);
+    const cardinality = rawRelation.cardinality === 'oneToMany' || rawRelation.type === 'oneToMany'
+      ? 'oneToMany'
+      : 'oneToOne';
+    if (!source || !target || source.id === target.id || !source.primaryKeyFieldId || (cardinality === 'oneToOne' && !target.primaryKeyFieldId)) {
+      warnings.push(`Table relation ${relationIndex + 1} did not connect compatible table keys and was removed.`);
+      return [];
+    }
+    const pairKey = cardinality === 'oneToOne'
+      ? [source.id, target.id].sort().join('\u0000')
+      : `${source.id}\u0000${target.id}`;
+    if (seenPairs.has(`${cardinality}\u0000${pairKey}`)) return [];
+    seenPairs.add(`${cardinality}\u0000${pairKey}`);
+    return [{
+      id: ensureUniqueId(rawRelation.id, 'relation', usedIds, warnings, `Table relation ${relationIndex + 1}`),
+      sourceDataSourceId: source.id,
+      targetDataSourceId: target.id,
+      cardinality
+    }];
+  });
+};
+
+const reconcileRelationFields = (dataSources: DataSource[], relations: TableRelation[]): DataSource[] => {
+  const relationById = new Map(relations.map((relation) => [relation.id, relation]));
+  const sourceById = new Map(dataSources.map((source) => [source.id, source]));
+  return dataSources.map((source) => {
+    const seenGeneratedRoles = new Set<string>();
+    const retainedFields = source.fields.flatMap((field): DataSourceField[] => {
+      if (!field.generatedRelationId) return [field];
+      const relation = relationById.get(field.generatedRelationId);
+      if (!relation || relation.cardinality !== 'oneToMany') return [];
+      const generatedKey = `${field.generatedRelationId}\u0000${field.generatedRelationRole ?? ''}`;
+      if (seenGeneratedRoles.has(generatedKey)) return [];
+      seenGeneratedRoles.add(generatedKey);
+      if (field.generatedRelationRole === 'oneCollection' && relation.sourceDataSourceId === source.id) {
+        return [{ ...field, dataType: 'collection', valueUnit: '' }];
+      }
+      if (field.generatedRelationRole === 'manyForeignKey' && relation.targetDataSourceId === source.id) {
+        return [{ ...field, dataType: 'id', valueUnit: '' }];
+      }
+      return [];
+    });
+    const fields = [...retainedFields];
+    relations.forEach((relation) => {
+      if (relation.cardinality !== 'oneToMany') return;
+      const target = sourceById.get(relation.targetDataSourceId);
+      const one = sourceById.get(relation.sourceDataSourceId);
+      const targetPrimaryKey = target?.fields.find((field) => field.id === target.primaryKeyFieldId);
+      const sourcePrimaryKey = one?.fields.find((field) => field.id === one.primaryKeyFieldId);
+      if (source.id === relation.sourceDataSourceId && !fields.some((field) => field.generatedRelationId === relation.id && field.generatedRelationRole === 'oneCollection')) {
+        fields.push({
+          id: createId('field'),
+          name: collectionRelationFieldName(targetPrimaryKey?.name || fallbackRelationKeyName(target)),
+          meaning: `Related ${target?.name ?? 'table'} record IDs`,
+          dataType: 'collection',
+          valueUnit: '',
+          generatedRelationId: relation.id,
+          generatedRelationRole: 'oneCollection'
+        });
+      }
+      if (source.id === relation.targetDataSourceId && !fields.some((field) => field.generatedRelationId === relation.id && field.generatedRelationRole === 'manyForeignKey')) {
+        fields.push({
+          id: createId('field'),
+          name: sourcePrimaryKey?.name.trim() ? relationFieldBaseName(sourcePrimaryKey.name) : fallbackRelationKeyName(one),
+          meaning: `ID of the related ${one?.name ?? 'table'} record`,
+          dataType: 'id',
+          valueUnit: '',
+          generatedRelationId: relation.id,
+          generatedRelationRole: 'manyForeignKey'
+        });
+      }
+    });
+    const fieldIds = new Set(fields.map((field) => field.id));
+    return {
+      ...source,
+      fields,
+      fieldGroups: source.fieldGroups.map((group) => ({ ...group, fieldIds: group.fieldIds.filter((id) => fieldIds.has(id)) }))
+    };
   });
 };
 
@@ -1938,6 +2120,7 @@ export const createBlankConfig = (): KpiPoolConfig => ({
     useCase: []
   },
   dataSources: [],
+  tableRelations: [],
   lookups: [],
   variables: [],
   kpis: []
@@ -2020,7 +2203,9 @@ export const repairConfig = (input: unknown): RepairResult => {
   const legacyPerformanceAreas = isLegacyPerformanceAreaSchema(rawConfig);
 
   const enums = repairEnums(rawConfig, warnings);
-  const dataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, warnings);
+  const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, warnings);
+  const tableRelations = repairTableRelations(rawConfig.tableRelations ?? rawConfig.relations, repairedDataSources, warnings);
+  const dataSources = reconcileRelationFields(repairedDataSources, tableRelations);
   const lookups = repairLookups(rawConfig.lookups, warnings);
   const variables = repairVariables(rawConfig.variables, warnings);
   const rawKpis = Array.isArray(rawConfig.kpis) ? rawConfig.kpis : [];
@@ -2172,6 +2357,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     defaultFocus,
     enums: scopedEnums,
     dataSources,
+    tableRelations,
     lookups,
     variables,
     kpis: scopedKpis

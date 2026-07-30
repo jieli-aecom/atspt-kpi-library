@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 23 as const;
+export const CURRENT_SCHEMA_VERSION = 24 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -57,8 +57,14 @@ export type DataSourceField = {
   id: string;
   name: string;
   meaning: string;
+  dataType: DataSourceFieldType;
   valueUnit: string;
+  generatedRelationId?: string;
+  generatedRelationRole?: 'oneCollection' | 'manyForeignKey';
 };
+
+export const dataSourceFieldTypes = ['id', 'number', 'boolean', 'text', 'enum', 'collection'] as const;
+export type DataSourceFieldType = (typeof dataSourceFieldTypes)[number];
 
 export type DataSourceFieldDimension = {
   id: string;
@@ -77,8 +83,16 @@ export type DataSource = {
   id: string;
   name: string;
   spatialUnit: SpatialUnit;
+  primaryKeyFieldId?: string;
   fields: DataSourceField[];
   fieldGroups: DataSourceFieldGroup[];
+};
+
+export type TableRelation = {
+  id: string;
+  sourceDataSourceId: string;
+  targetDataSourceId: string;
+  cardinality: 'oneToOne' | 'oneToMany';
 };
 
 export type LookupInput = {
@@ -208,6 +222,7 @@ export type KpiPoolConfig = {
   defaultFocus?: KpiDefaultFocus;
   enums: EnumDefinitions;
   dataSources: DataSource[];
+  tableRelations: TableRelation[];
   lookups: LookupDefinition[];
   variables: VariableDefinition[];
   kpis: KpiMetric[];

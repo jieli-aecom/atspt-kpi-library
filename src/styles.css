@@ -1228,6 +1228,45 @@ h1 {
   font-size: 11px;
 }
 
+.data-source-relation-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
+}
+
+.data-source-relation-summary > span {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 3px;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #dceee7;
+  color: #285f4f;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.data-source-relation-summary b {
+  flex: 0 0 auto;
+  font-size: 8px;
+}
+
+.data-source-relation-summary svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.data-source-relation-summary > span > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
 .data-source-expander-actions,
 .data-source-field-actions {
   display: flex;
@@ -1252,10 +1291,11 @@ h1 {
 
 .data-source-field-heading,
 .data-source-field-row {
-  grid-template-columns: 26px minmax(130px, 0.75fr) minmax(210px, 1.4fr) minmax(100px, 0.65fr) 56px;
+  grid-template-columns: 26px 58px minmax(110px, 0.8fr) minmax(88px, 0.5fr) minmax(150px, 1.25fr) minmax(78px, 0.5fr) 72px;
 }
 
 .data-source-field-row {
+  position: relative;
   gap: 4px;
 }
 
@@ -1266,10 +1306,221 @@ h1 {
   text-transform: none;
 }
 
-.data-source-field-row input {
+.data-source-field-row input,
+.data-source-field-row select {
   min-height: 29px;
   padding: 5px 7px;
   font-size: 12px;
+}
+
+.data-source-field-row.is-collection {
+  border-radius: 5px;
+  background: #e2f0e7;
+}
+
+.data-source-field-row.is-relation-field {
+  box-shadow: inset 3px 0 #347862;
+}
+
+.primary-key-cell {
+  position: static;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.primary-key-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 29px;
+  color: #977019;
+}
+
+.primary-key-check input {
+  min-height: auto;
+}
+
+.primary-key-relation-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  width: 25px;
+  height: 25px;
+  border: 1px solid #b7c9c2;
+  border-radius: 6px;
+  background: #f5faf8;
+  color: #347862;
+}
+
+.primary-key-relation-button:hover,
+.primary-key-relation-button.has-relations {
+  border-color: #6e9f8d;
+  background: #dceee7;
+}
+
+.primary-key-relation-button > span {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  display: grid;
+  place-items: center;
+  min-width: 14px;
+  height: 14px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: #2f725c;
+  color: #fff;
+  padding: 0 3px;
+  font-size: 8px;
+  font-weight: 900;
+}
+
+.field-relation-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 8px;
+  left: 30px;
+  z-index: 30;
+  display: grid;
+  gap: 8px;
+  width: auto;
+  max-width: 310px;
+  border: 1px solid #aebfba;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(27, 54, 45, 0.2);
+  padding: 9px;
+  text-align: left;
+}
+
+.field-relation-popover-heading,
+.field-relation-popover-heading > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.field-relation-popover-heading {
+  justify-content: space-between;
+  color: #285f4f;
+  font-size: 11px;
+}
+
+.field-relation-existing {
+  display: grid;
+  gap: 3px;
+  border-bottom: 1px solid #e1e9e6;
+  padding-bottom: 6px;
+}
+
+.field-relation-existing > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  border-radius: 5px;
+  background: #f1f7f5;
+  padding: 3px 4px 3px 7px;
+}
+
+.field-relation-existing span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  color: #425e55;
+  font-size: 10px;
+}
+
+.field-relation-existing b {
+  border-radius: 999px;
+  background: #d7ebe3;
+  color: #245c49;
+  padding: 1px 4px;
+  font-size: 8px;
+}
+
+.field-relation-cardinality {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.field-relation-cardinality.has-three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.field-relation-cardinality.has-three button {
+  grid-template-columns: 1fr;
+  gap: 2px;
+  text-align: center;
+}
+
+.field-relation-cardinality button {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #cbd8d3;
+  border-radius: 6px;
+  background: #fff;
+  color: #52665f;
+  padding: 6px;
+  text-align: left;
+}
+
+.field-relation-cardinality button.is-active {
+  border-color: #4e8b74;
+  background: #e4f1ec;
+  color: #245c49;
+}
+
+.field-relation-cardinality b {
+  font-size: 10px;
+}
+
+.field-relation-cardinality span,
+.field-relation-note {
+  color: #687b74;
+  font-size: 9px;
+}
+
+.table-relation-add-control {
+  position: static;
+  display: inline-flex;
+}
+
+.table-relation-popover {
+  top: auto;
+  right: 6px;
+  bottom: 38px;
+  left: 6px;
+  width: auto;
+  max-width: none;
+}
+
+.relation-field-marker,
+.data-source-field-unit-na {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #55766b;
+}
+
+.relation-field-badge {
+  border-radius: 999px;
+  background: #d9ebe4;
+  color: #2f6755;
+  padding: 3px 6px;
+  font-size: 8px;
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .data-source-field-drag {
@@ -1502,6 +1753,7 @@ h1 {
 }
 
 .data-source-ungrouped-fields {
+  position: relative;
   display: grid;
   gap: 4px;
   border: 1px dashed transparent;
@@ -2548,6 +2800,16 @@ h1 {
   padding: 5px;
 }
 
+.source-choice-row.is-collection,
+.selected-source-row.is-collection {
+  background: #dcece2;
+  color: #174e35;
+}
+
+.selected-source-row.is-lookup {
+  background: #fff7e8;
+}
+
 .selected-source-row > span:first-child {
   overflow: hidden;
   font-size: 11px;
@@ -3031,13 +3293,21 @@ h1 {
   color: #216b43 !important;
 }
 
-.formula-variable-insert {
+.formula-collection-insert {
+  border-color: #4f8b68 !important;
+  background: #dcece2 !important;
+  color: #174e35 !important;
+}
+
+.formula-variable-insert,
+.formula-lookup-insert {
   border-color: #d4ad70 !important;
   background: #fff7e8 !important;
   color: #8a570d !important;
 }
 
-.formula-variable-insert .katex {
+.formula-variable-insert .katex,
+.formula-lookup-insert .katex {
   color: #8a570d;
 }
 
@@ -3060,7 +3330,14 @@ h1 {
   box-shadow: inset 0 -2px 0 rgba(32, 128, 75, 0.46);
 }
 
-.formula-variable-token {
+.formula-collection-token {
+  background: rgba(26, 102, 61, 0.2);
+  color: #14512f;
+  box-shadow: inset 0 -2px 0 rgba(20, 81, 47, 0.68);
+}
+
+.formula-variable-token,
+.formula-lookup-token {
   background: rgba(204, 132, 27, 0.14);
   color: #8a570d;
   box-shadow: inset 0 -2px 0 rgba(164, 99, 12, 0.5);

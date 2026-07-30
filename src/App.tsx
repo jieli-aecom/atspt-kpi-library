@@ -15,9 +15,12 @@ import {
   Database,
   Download,
   FileJson,
+  GitFork,
   GripVertical,
   Gauge,
   Info,
+  KeyRound,
+  Link2,
   ListFilter,
   Plus,
   Pencil,
@@ -57,8 +60,11 @@ import {
   type EnumCategoryKey,
   type DataSource,
   type DataSourceField,
+  dataSourceFieldTypes,
+  type DataSourceFieldType,
   type DataSourceFieldDimension,
   type DataSourceFieldGroup,
+  type TableRelation,
   type LookupDefinition,
   type LookupInput,
   type VariableDefinition,
@@ -2326,8 +2332,9 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   }
   if (item.type !== 'dataField') return label;
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
-  const meaning = source?.fields.find((entry) => entry.id === item.fieldId)?.meaning.trim();
-  return meaning ? `${label}\n${meaning}` : label;
+  const field = source?.fields.find((entry) => entry.id === item.fieldId);
+  const details = [field ? `Type: ${dataSourceFieldTypeLabels[field.dataType]}` : '', field?.meaning.trim(), field?.valueUnit ? `Unit: ${field.valueUnit}` : ''].filter(Boolean);
+  return details.length ? `${label}\n${details.join('\n')}` : label;
 };
 
 const lookupDefaultLatex = (lookup: LookupDefinition) => {
@@ -2349,12 +2356,22 @@ const selectedDataSourceGroups = (config: KpiPoolConfig, kpi: KpiMetric) =>
 
 const latexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
 
-const sourceFieldDefaultLatex = (fieldName: string, spatialUnit: string, dimensions: DataSourceFieldDimension[] = []) => {
-  const field = latexIdentifier(fieldName);
+const sourceFieldDefaultLatex = (field: Pick<DataSourceField, 'name' | 'dataType'>, spatialUnit: string, dimensions: DataSourceFieldDimension[] = []) => {
+  const fieldName = latexIdentifier(field.name);
+  if (field.dataType === 'collection') return `\\{ ${fieldName} \\}`;
   const spatial = latexIdentifier(spatialUnit);
   const dimensionTags = dimensions.map((dimension) => latexIdentifier(dimension.name)).filter(Boolean);
   const subscript = [...dimensionTags, spatial].filter(Boolean).join(', ');
-  return subscript ? `${field}_{${subscript}}` : field;
+  return subscript ? `${fieldName}_{${subscript}}` : fieldName;
+};
+
+const dataSourceFieldTypeLabels: Record<DataSourceFieldType, string> = {
+  id: 'ID',
+  number: 'Number',
+  boolean: 'Boolean',
+  text: 'Text',
+  enum: 'Enum',
+  collection: 'Collection'
 };
 
 const fieldGroupDimensionLabel = (group?: DataSourceFieldGroup) =>
@@ -2377,6 +2394,13 @@ function DataSourceHeader({
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [lookupsExpanded, setLookupsExpanded] = useState(false);
   const [variablesExpanded, setVariablesExpanded] = useState(false);
+  const [relationEditor, setRelationEditor] = useState<{
+    sourceDataSourceId: string;
+    targetDataSourceId: string;
+    cardinality: TableRelation['cardinality'];
+    direction: 'one' | 'many';
+    anchor: 'primaryKey' | 'table';
+  } | null>(null);
   const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
   const [dimensionOptionDrafts, setDimensionOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
@@ -2413,9 +2437,13 @@ function DataSourceHeader({
       const target = event.target;
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
       setOpen(false);
+      setRelationEditor(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
+      if (event.key === 'Escape') {
+        if (relationEditor) setRelationEditor(null);
+        else setOpen(false);
+      }
     };
     document.addEventListener('pointerdown', handlePointerDown, true);
     document.addEventListener('keydown', handleKeyDown);
@@ -2423,7 +2451,7 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open]);
+  }, [open, relationEditor]);
   const patchDataSources = (dataSources: DataSource[]) => {
     onConfigChange({ ...config, dataSources });
   };
@@ -2525,23 +2553,142 @@ function DataSourceHeader({
     const lookup = config.lookups[lookupIndex];
     updateLookup(lookupIndex, { inputs: lookup.inputs.filter((_, index) => index !== inputIndex) });
   };
+  const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
+  const fallbackPrimaryKeyName = (source: DataSource) => `${relationFieldBaseName(source.name)}ID`;
+  const collectionNameFromKey = (keyName: string) => {
+    const normalized = relationFieldBaseName(keyName);
+    return normalized.endsWith('s') ? normalized : `${normalized}s`;
+  };
+  const uniqueFieldName = (source: DataSource, preferred: string) => {
+    const names = new Set(source.fields.map((field) => field.name.trim().toLocaleLowerCase()));
+    if (!names.has(preferred.toLocaleLowerCase())) return preferred;
+    let suffix = 2;
+    while (names.has(`${preferred}${suffix}`.toLocaleLowerCase())) suffix += 1;
+    return `${preferred}${suffix}`;
+  };
+  const removeRelations = (relationIds: Set<string>, removedDataSourceIds = new Set<string>()) => {
+    const removedFieldKeys = new Set(config.dataSources.flatMap((source) => source.fields
+      .filter((field) => field.generatedRelationId && relationIds.has(field.generatedRelationId))
+      .map((field) => `${source.id}\u0000${field.id}`)));
+    onConfigChange({
+      ...config,
+      tableRelations: config.tableRelations.filter((relation) => !relationIds.has(relation.id)),
+      dataSources: config.dataSources
+        .filter((source) => !removedDataSourceIds.has(source.id))
+        .map((source) => {
+          const fields = source.fields.filter((field) => !field.generatedRelationId || !relationIds.has(field.generatedRelationId));
+          const fieldIds = new Set(fields.map((field) => field.id));
+          return {
+            ...source,
+            fields,
+            fieldGroups: source.fieldGroups.map((group) => ({ ...group, fieldIds: group.fieldIds.filter((id) => fieldIds.has(id)) }))
+          };
+        }),
+      kpis: config.kpis.map((kpi) => ({
+        ...kpi,
+        sources: kpi.sources.filter((source) => source.type !== 'dataField' || (
+          !removedDataSourceIds.has(source.dataSourceId) && !removedFieldKeys.has(`${source.dataSourceId}\u0000${source.fieldId}`)
+        ))
+      }))
+    });
+  };
+  const deleteTableRelation = (relationId: string) => removeRelations(new Set([relationId]));
+  const addTableRelation = () => {
+    if (!relationEditor) return;
+    const anchorId = relationEditor.sourceDataSourceId;
+    const relatedId = relationEditor.targetDataSourceId;
+    const sourceId = relationEditor.direction === 'one' ? anchorId : relatedId;
+    const targetId = relationEditor.direction === 'one' ? relatedId : anchorId;
+    if (!sourceId || !targetId || sourceId === targetId) return;
+    const duplicate = config.tableRelations.some((relation) => relation.cardinality === relationEditor.cardinality && (
+      relationEditor.cardinality === 'oneToOne'
+        ? (relation.sourceDataSourceId === sourceId && relation.targetDataSourceId === targetId) ||
+          (relation.sourceDataSourceId === targetId && relation.targetDataSourceId === sourceId)
+        : relation.sourceDataSourceId === sourceId && relation.targetDataSourceId === targetId
+    ));
+    if (duplicate) return;
+    const workingSources = new Map(config.dataSources.map((source) => [source.id, source]));
+    const ensurePrimaryKey = (dataSourceId: string) => {
+      const current = workingSources.get(dataSourceId);
+      if (!current) return undefined;
+      const existing = current.fields.find((field) => field.id === current.primaryKeyFieldId);
+      if (existing) return existing;
+      const reusable = current.fields.find((field) => !field.generatedRelationId && field.dataType === 'id');
+      if (reusable) {
+        workingSources.set(current.id, { ...current, primaryKeyFieldId: reusable.id });
+        return reusable;
+      }
+      const created: DataSourceField = {
+        id: createLocalId('field'),
+        name: uniqueFieldName(current, fallbackPrimaryKeyName(current)),
+        meaning: `Primary key for ${current.name || 'this table'}`,
+        dataType: 'id',
+        valueUnit: ''
+      };
+      workingSources.set(current.id, { ...current, primaryKeyFieldId: created.id, fields: [...current.fields, created] });
+      return created;
+    };
+    const sourcePrimaryKey = ensurePrimaryKey(sourceId);
+    if (!sourcePrimaryKey) return;
+    if (relationEditor.cardinality === 'oneToOne' && !ensurePrimaryKey(targetId)) return;
+    const source = workingSources.get(sourceId);
+    const target = workingSources.get(targetId);
+    if (!source || !target) return;
+    const relation: TableRelation = {
+      id: createLocalId('relation'),
+      sourceDataSourceId: sourceId,
+      targetDataSourceId: targetId,
+      cardinality: relationEditor.cardinality
+    };
+    const targetPrimaryKey = target.fields.find((field) => field.id === target.primaryKeyFieldId);
+    const collectionFieldName = uniqueFieldName(source, collectionNameFromKey(targetPrimaryKey?.name || fallbackPrimaryKeyName(target)));
+    const sourceKeyName = sourcePrimaryKey.name.trim() ? relationFieldBaseName(sourcePrimaryKey.name) : fallbackPrimaryKeyName(source);
+    const foreignKeyFieldName = uniqueFieldName(target, sourceKeyName);
+    if (relation.cardinality === 'oneToMany') {
+      workingSources.set(source.id, { ...source, fields: [...source.fields, {
+        id: createLocalId('field'),
+        name: collectionFieldName,
+        meaning: `Related ${target.name || 'table'} keys`,
+        dataType: 'collection',
+        valueUnit: '',
+        generatedRelationId: relation.id,
+        generatedRelationRole: 'oneCollection'
+      }] });
+      workingSources.set(target.id, { ...target, fields: [...target.fields, {
+        id: createLocalId('field'),
+        name: foreignKeyFieldName,
+        meaning: `ID of the related ${source.name || 'table'} record`,
+        dataType: 'id',
+        valueUnit: '',
+        generatedRelationId: relation.id,
+        generatedRelationRole: 'manyForeignKey'
+      }] });
+    }
+    const dataSources = config.dataSources.map((entry) => workingSources.get(entry.id) ?? entry);
+    onConfigChange({ ...config, dataSources, tableRelations: [...config.tableRelations, relation] });
+    setRelationEditor(null);
+  };
   const addDataSource = (insertionIndex = config.dataSources.length) => {
     const source: DataSource = { id: createLocalId('source'), name: 'New data source', spatialUnit: '', fields: [], fieldGroups: [] };
     const index = Math.max(0, Math.min(insertionIndex, config.dataSources.length));
     patchDataSources([...config.dataSources.slice(0, index), source, ...config.dataSources.slice(index)]);
     setExpandedSourceIds((current) => [...new Set([...current, source.id])]);
   };
-  const toggleDataSource = (sourceId: string) =>
+  const toggleDataSource = (sourceId: string) => {
+    if (relationEditor?.sourceDataSourceId === sourceId) setRelationEditor(null);
     setExpandedSourceIds((current) => current.includes(sourceId) ? current.filter((id) => id !== sourceId) : [...current, sourceId]);
+  };
   const duplicateDataSource = (sourceIndex: number) => {
     const source = config.dataSources[sourceIndex];
     if (!source) return;
-    const fieldIdMap = new Map(source.fields.map((field) => [field.id, createLocalId('field')]));
+    const copiedFields = source.fields.filter((field) => !field.generatedRelationId);
+    const fieldIdMap = new Map(copiedFields.map((field) => [field.id, createLocalId('field')]));
     const duplicate: DataSource = {
       ...source,
       id: createLocalId('source'),
       name: `${source.name || 'Untitled data source'} copy`,
-      fields: source.fields.map((field) => ({ ...field, id: fieldIdMap.get(field.id)! })),
+      primaryKeyFieldId: source.primaryKeyFieldId ? fieldIdMap.get(source.primaryKeyFieldId) : undefined,
+      fields: copiedFields.map((field) => ({ ...field, id: fieldIdMap.get(field.id)! })),
       fieldGroups: source.fieldGroups.map((group) => ({
         ...group,
         id: createLocalId('field-group'),
@@ -2576,25 +2723,40 @@ function DataSourceHeader({
     const sourceId = config.dataSources[sourceIndex]?.id;
     if (!sourceId) return;
     setExpandedSourceIds((current) => current.filter((id) => id !== sourceId));
-    onConfigChange({
-      ...config,
-      dataSources: config.dataSources.filter((_, index) => index !== sourceIndex),
-      kpis: config.kpis.map((kpi) => ({
-        ...kpi,
-        sources: kpi.sources.filter((source) => source.type !== 'dataField' || source.dataSourceId !== sourceId)
-      }))
-    });
+    const relationIds = new Set(config.tableRelations
+      .filter((relation) => relation.sourceDataSourceId === sourceId || relation.targetDataSourceId === sourceId)
+      .map((relation) => relation.id));
+    removeRelations(relationIds, new Set([sourceId]));
   };
   const updateField = (sourceIndex: number, fieldIndex: number, partial: Partial<DataSourceField>) => {
     const source = config.dataSources[sourceIndex];
+    const current = source.fields[fieldIndex];
+    if (!current) return;
+    const editablePartial = current.generatedRelationId
+      ? { ...(partial.name !== undefined ? { name: partial.name } : {}), ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}) }
+      : partial;
+    const next = { ...current, ...editablePartial };
+    if (partial.dataType && partial.dataType !== 'number') next.valueUnit = '';
     updateDataSource(sourceIndex, {
-      fields: source.fields.map((field, index) => index === fieldIndex ? { ...field, ...partial } : field)
+      fields: source.fields.map((field, index) => index === fieldIndex ? next : field)
+    });
+  };
+  const setPrimaryKey = (sourceIndex: number, fieldIndex: number) => {
+    const source = config.dataSources[sourceIndex];
+    const field = source.fields[fieldIndex];
+    if (!field || field.generatedRelationId) return;
+    const nextPrimaryKeyFieldId = source.primaryKeyFieldId === field.id ? undefined : field.id;
+    updateDataSource(sourceIndex, {
+      primaryKeyFieldId: nextPrimaryKeyFieldId,
+      fields: source.fields.map((entry) => entry.id === nextPrimaryKeyFieldId
+        ? { ...entry, dataType: 'id', valueUnit: '' }
+        : entry)
     });
   };
   const addField = (sourceIndex: number, insertionIndex?: number, groupId?: string, shiftGroupsAtPosition = false) => {
     const source = config.dataSources[sourceIndex];
     const index = Math.max(0, Math.min(insertionIndex ?? source.fields.length, source.fields.length));
-    const field = { id: createLocalId('field'), name: 'New field', meaning: '', valueUnit: '' };
+    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', dataType: 'text', valueUnit: '' };
     updateDataSource(sourceIndex, {
       fields: [...source.fields.slice(0, index), field, ...source.fields.slice(index)],
       fieldGroups: source.fieldGroups.map((group) => ({
@@ -2749,12 +2911,18 @@ function DataSourceHeader({
   };
   const deleteField = (sourceIndex: number, fieldIndex: number) => {
     const source = config.dataSources[sourceIndex];
-    const fieldId = source.fields[fieldIndex]?.id;
+    const field = source.fields[fieldIndex];
+    const fieldId = field?.id;
+    if (field?.generatedRelationId) {
+      deleteTableRelation(field.generatedRelationId);
+      return;
+    }
     onConfigChange({
       ...config,
       dataSources: config.dataSources.map((entry, index) =>
         index === sourceIndex ? {
           ...entry,
+          primaryKeyFieldId: entry.primaryKeyFieldId === fieldId ? undefined : entry.primaryKeyFieldId,
           fields: entry.fields.filter((_, index) => index !== fieldIndex),
           fieldGroups: entry.fieldGroups.map((group) => ({
             ...group,
@@ -2771,7 +2939,6 @@ function DataSourceHeader({
       }))
     });
   };
-
   return (
     <div className="source-header-control" ref={controlRef}>
       <div className="header-title">
@@ -2901,6 +3068,16 @@ function DataSourceHeader({
             {config.dataSources.length === 0 ? <span className="empty-option">No data sources defined.</span> : null}
             {config.dataSources.map((source, sourceIndex) => {
               const expanded = expandedSourceIds.includes(source.id);
+              const sourceRelations = config.tableRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.targetDataSourceId === source.id);
+              const sourceRelationEditorOpen = relationEditor?.sourceDataSourceId === source.id;
+              const draftRelationSourceId = relationEditor?.direction === 'many' ? relationEditor.targetDataSourceId : relationEditor?.sourceDataSourceId;
+              const draftRelationTargetId = relationEditor?.direction === 'many' ? relationEditor.sourceDataSourceId : relationEditor?.targetDataSourceId;
+              const relationDraftIsDuplicate = sourceRelationEditorOpen && relationEditor ? config.tableRelations.some((relation) => relation.cardinality === relationEditor.cardinality && (
+                relationEditor.cardinality === 'oneToOne'
+                  ? (relation.sourceDataSourceId === draftRelationSourceId && relation.targetDataSourceId === draftRelationTargetId) ||
+                    (relation.sourceDataSourceId === draftRelationTargetId && relation.targetDataSourceId === draftRelationSourceId)
+                  : relation.sourceDataSourceId === draftRelationSourceId && relation.targetDataSourceId === draftRelationTargetId
+              )) : false;
               const groupedFieldIds = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
               const fieldGroupPositions = new Set(source.fieldGroups.map((group) => group.position));
               const followsFieldGroup = (fieldIndex: number) => {
@@ -2946,9 +3123,16 @@ function DataSourceHeader({
                   <button className="list-insert-divider field-group-insert-divider" type="button" onClick={() => addFieldGroup(sourceIndex, position)}><Plus size={11} aria-hidden="true" />Add field group</button>
                 </div>
               );
-              const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => (
+              const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => {
+                const isPrimaryKey = source.primaryKeyFieldId === field.id;
+                const primaryKeyRelations = isPrimaryKey
+                  ? sourceRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.cardinality === 'oneToOne')
+                  : [];
+                const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
+                const relationIsDuplicate = relationDraftIsDuplicate;
+                return (
                 <div
-                  className={`data-source-field-row ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''}`}
+                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''}`}
                   key={field.id}
                   onDragOver={(event) => {
                     if (fieldDrag?.sourceIndex !== sourceIndex) return;
@@ -2969,7 +3153,7 @@ function DataSourceHeader({
                     setFieldGroupDragOver(null);
                   }}
                 >
-                  <button
+                  {field.generatedRelationId ? <span className="data-source-field-drag relation-field-marker" title="Generated by a table relation"><GitFork size={12} aria-hidden="true" /></span> : <button
                     className="mini-icon-button drag-handle data-source-field-drag"
                     type="button"
                     draggable
@@ -2987,22 +3171,75 @@ function DataSourceHeader({
                       setFieldInsertDragOver(null);
                       setFieldGroupDragOver(null);
                     }}
-                  ><GripVertical size={13} aria-hidden="true" /></button>
+                  ><GripVertical size={13} aria-hidden="true" /></button>}
+                  <div className="primary-key-cell">
+                    <label className="primary-key-check" title={field.generatedRelationId ? 'Relationship fields cannot be primary keys' : isPrimaryKey && primaryKeyRelations.length ? 'Choose another primary key or remove this key’s relations first' : 'Use this field as the table primary key'}>
+                      <input type="checkbox" checked={isPrimaryKey} disabled={Boolean(field.generatedRelationId || (isPrimaryKey && primaryKeyRelations.length))} aria-label={`${field.name || 'Field'} is primary key`} onChange={() => setPrimaryKey(sourceIndex, fieldIndex)} />
+                      <KeyRound size={11} aria-hidden="true" />
+                    </label>
+                    {isPrimaryKey ? <button
+                      className={`primary-key-relation-button ${primaryKeyRelations.length ? 'has-relations' : ''}`}
+                      type="button"
+                      disabled={config.dataSources.length < 2}
+                      title={config.dataSources.length < 2 ? 'Add another table before creating a relation' : 'Add or manage table relations'}
+                      aria-label={`Manage relations for ${field.name || 'primary key'}`}
+                      onClick={() => setRelationEditor((current) => current?.sourceDataSourceId === source.id ? null : {
+                        sourceDataSourceId: source.id,
+                        targetDataSourceId: config.dataSources.find((entry) => entry.id !== source.id)?.id ?? '',
+                        cardinality: 'oneToMany',
+                        direction: 'one',
+                        anchor: 'primaryKey'
+                      })}
+                    ><Link2 size={12} aria-hidden="true" />{primaryKeyRelations.length ? <span>{primaryKeyRelations.length}</span> : <Plus size={9} aria-hidden="true" />}</button> : null}
+                    {editorOpen && relationEditor ? <div className="field-relation-popover">
+                      <div className="field-relation-popover-heading"><span><Link2 size={13} aria-hidden="true" /><strong>Relate {field.name || 'primary key'}</strong></span><button className="mini-icon-button" type="button" title="Close" onClick={() => setRelationEditor(null)}><X size={12} /></button></div>
+                      {primaryKeyRelations.length ? <div className="field-relation-existing">
+                        {primaryKeyRelations.map((relation) => {
+                          const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
+                          const other = config.dataSources.find((entry) => entry.id === otherId);
+                          const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
+                          return <div key={relation.id}><span><b>{direction}</b>{other?.name ?? 'Missing table'}</span><button className="mini-icon-button danger" type="button" title="Delete relation" onClick={() => deleteTableRelation(relation.id)}><Trash2 size={11} /></button></div>;
+                        })}
+                      </div> : null}
+                      <label className="field"><span>Related table</span><select value={relationEditor.targetDataSourceId} onChange={(event) => setRelationEditor((current) => current ? { ...current, targetDataSourceId: event.target.value } : current)}>
+                        {config.dataSources.filter((entry) => entry.id !== source.id).map((entry) => <option value={entry.id} key={entry.id}>{entry.name || 'Untitled table'}</option>)}
+                      </select></label>
+                      <div className="field-relation-cardinality" aria-label="Relationship cardinality">
+                        <button className={relationEditor.cardinality === 'oneToOne' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToOne', direction: 'one' } : current)}><b>1:1</b><span>One to one</span></button>
+                        <button className={relationEditor.cardinality === 'oneToMany' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>One to many</span></button>
+                      </div>
+                      <small className="field-relation-note">For 1:N, this table is the “one” side. Linked auxiliary fields are created automatically.</small>
+                      <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationIsDuplicate} onClick={addTableRelation}>{relationIsDuplicate ? 'Relation already exists' : 'Add relation'}</button>
+                    </div> : null}
+                  </div>
                   <input value={field.name} aria-label="Field name" onChange={(event) => updateField(sourceIndex, fieldIndex, { name: event.target.value })} />
+                  <select value={field.dataType} disabled={Boolean(field.generatedRelationId || source.primaryKeyFieldId === field.id)} aria-label="Field data type" onChange={(event) => updateField(sourceIndex, fieldIndex, { dataType: event.target.value as DataSourceFieldType })}>
+                    {dataSourceFieldTypes.map((type) => <option value={type} key={type}>{dataSourceFieldTypeLabels[type]}</option>)}
+                  </select>
                   <input value={field.meaning} aria-label="Field meaning" placeholder="What the field represents" onChange={(event) => updateField(sourceIndex, fieldIndex, { meaning: event.target.value })} />
-                  <input value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onChange={(event) => updateField(sourceIndex, fieldIndex, { valueUnit: event.target.value })} />
+                  {field.dataType === 'number'
+                    ? <input value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onChange={(event) => updateField(sourceIndex, fieldIndex, { valueUnit: event.target.value })} />
+                    : <span className="data-source-field-unit-na" title="Units apply only to number fields">—</span>}
                   <div className="data-source-field-actions">
-                    <button
+                    {field.generatedRelationId ? <><span className="relation-field-badge">Linked</span><button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <><button
                       className="mini-icon-button"
                       type="button"
                       title="Copy field"
                       aria-label={`Copy ${field.name || 'field'}`}
                       onClick={() => copyField(sourceIndex, fieldIndex)}
                     ><Copy size={12} /></button>
-                    <button className="mini-icon-button danger" type="button" title="Delete field" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button>
+                    <button
+                      className="mini-icon-button danger"
+                      type="button"
+                      disabled={isPrimaryKey && primaryKeyRelations.length > 0}
+                      title={isPrimaryKey && primaryKeyRelations.length ? 'Delete this key’s relations before deleting its primary key' : 'Delete field'}
+                      onClick={() => deleteField(sourceIndex, fieldIndex)}
+                    ><Trash2 size={12} /></button>
+                    </>}
                   </div>
                 </div>
-              );
+                );
+              };
               const renderFieldGroup = (group: DataSourceFieldGroup) => {
                 const groupFields = source.fields
                   .map((field, fieldIndex) => ({ field, fieldIndex }))
@@ -3145,6 +3382,16 @@ function DataSourceHeader({
                       <span className="data-source-expander-summary">
                         <strong>{source.name.trim() || 'Untitled data source'}</strong>
                         <small>{source.spatialUnit.trim() || 'No spatial unit'} · {source.fields.length} {source.fields.length === 1 ? 'field' : 'fields'}</small>
+                        {sourceRelations.length ? <span className="data-source-relation-summary">
+                          {sourceRelations.map((relation) => {
+                            const isSource = relation.sourceDataSourceId === source.id;
+                            const otherId = isSource ? relation.targetDataSourceId : relation.sourceDataSourceId;
+                            const other = config.dataSources.find((entry) => entry.id === otherId);
+                            const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : isSource ? '1:N' : 'N:1';
+                            const otherName = other?.name ?? 'Missing table';
+                            return <span key={relation.id} title={`${cardinality} relationship with ${otherName}`}><Link2 size={9} aria-hidden="true" /><b>{cardinality}</b><span>{otherName}</span></span>;
+                          })}
+                        </span> : null}
                       </span>
                     </button>
                     <div className="data-source-expander-actions">
@@ -3196,7 +3443,7 @@ function DataSourceHeader({
                           setFieldGroupDragOver(null);
                         }}
                       >
-                        <div className="data-source-field-heading"><span /><span>Fields without dimensions</span><span>Meaning</span><span>Value unit</span><span>Actions</span></div>
+                        <div className="data-source-field-heading"><span /><span>PK</span><span>Fields without dimensions</span><span>Type</span><span>Meaning</span><span>Unit</span><span>Actions</span></div>
                         {source.fields.length === 0 ? <span className="empty-option">No fields in this data source.</span> : null}
                         {source.fields.length > 0 && groupedFieldIds.size === source.fields.length ? <span className="data-source-ungroup-drop-hint">Drag a field here to remove it from a dimensioned set.</span> : null}
                         {source.fields.flatMap((field, fieldIndex) => {
@@ -3227,6 +3474,42 @@ function DataSourceHeader({
                         <div className="field-final-actions">
                           <button className="secondary-action tiny data-source-add-field" type="button" onClick={() => addField(sourceIndex)}><Plus size={12} /> Add field</button>
                           <button className="secondary-action tiny" type="button" onClick={() => addFieldGroup(sourceIndex, source.fields.length)}><Plus size={12} /> Add field group</button>
+                          <div className="table-relation-add-control">
+                            <button
+                              className="secondary-action tiny"
+                              type="button"
+                              disabled={config.dataSources.length < 2}
+                              title={config.dataSources.length < 2 ? 'Add another table before creating a relationship' : 'Add a relationship involving this table'}
+                              onClick={() => setRelationEditor((current) => current?.sourceDataSourceId === source.id && current.anchor === 'table' ? null : {
+                                sourceDataSourceId: source.id,
+                                targetDataSourceId: config.dataSources.find((entry) => entry.id !== source.id)?.id ?? '',
+                                cardinality: 'oneToMany',
+                                direction: 'one',
+                                anchor: 'table'
+                              })}
+                            ><Link2 size={11} /> Add relationship</button>
+                            {sourceRelationEditorOpen && relationEditor?.anchor === 'table' ? <div className="field-relation-popover table-relation-popover">
+                              <div className="field-relation-popover-heading"><span><Link2 size={13} aria-hidden="true" /><strong>Relate {source.name || 'this table'}</strong></span><button className="mini-icon-button" type="button" title="Close" onClick={() => setRelationEditor(null)}><X size={12} /></button></div>
+                              {sourceRelations.length ? <div className="field-relation-existing">
+                                {sourceRelations.map((relation) => {
+                                  const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
+                                  const other = config.dataSources.find((entry) => entry.id === otherId);
+                                  const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
+                                  return <div key={relation.id}><span><b>{direction}</b>{other?.name ?? 'Missing table'}</span><button className="mini-icon-button danger" type="button" title="Delete relation" onClick={() => deleteTableRelation(relation.id)}><Trash2 size={11} /></button></div>;
+                                })}
+                              </div> : null}
+                              <label className="field"><span>Related table</span><select value={relationEditor.targetDataSourceId} onChange={(event) => setRelationEditor((current) => current ? { ...current, targetDataSourceId: event.target.value } : current)}>
+                                {config.dataSources.filter((entry) => entry.id !== source.id).map((entry) => <option value={entry.id} key={entry.id}>{entry.name || 'Untitled table'}</option>)}
+                              </select></label>
+                              <div className="field-relation-cardinality has-three" aria-label="Relationship cardinality and direction">
+                                <button className={relationEditor.cardinality === 'oneToOne' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToOne', direction: 'one' } : current)}><b>1:1</b><span>One to one</span></button>
+                                <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'one' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>This table is one</span></button>
+                                <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'many' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'many' } : current)}><b>N:1</b><span>This table is many</span></button>
+                              </div>
+                              <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID.</small>
+                              <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationDraftIsDuplicate} onClick={addTableRelation}>{relationDraftIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
+                            </div> : null}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -3404,7 +3687,7 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
           type: 'dataField',
           dataSourceId,
           fieldId,
-          latex: sourceFieldDefaultLatex(field?.name ?? '', dataSource?.spatialUnit ?? '', group?.dimensions)
+          latex: sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, dataSource?.spatialUnit ?? '', group?.dimensions)
         }]);
   };
   const toggleKpi = (kpiId: string) => {
@@ -3442,7 +3725,7 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
     ? config.dataSources.find((source) => source.id === pickerScope.slice(5))
     : undefined;
   const visibleFields = selectedDataSource?.fields.filter((field) =>
-    !normalizedQuery || normalize(`${field.name} ${field.meaning} ${field.valueUnit}`).includes(normalizedQuery)
+    !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit}`).includes(normalizedQuery)
   ) ?? [];
   const visibleKpis = config.kpis.filter((entry) =>
     entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview}`).includes(normalizedQuery))
@@ -3464,8 +3747,12 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   const selectedLookupSources = kpi.sources.filter((source) => source.type === 'lookup');
   const selectedVariableSources = kpi.sources.filter((source) => source.type === 'variable');
   const selectedCustomSources = kpi.sources.filter((source) => source.type === 'custom');
-  const renderSelectedSourceRow = (item: KpiSourceItem, label: string) => (
-    <div className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''}`} key={item.id}>
+  const renderSelectedSourceRow = (item: KpiSourceItem, label: string) => {
+    const isCollection = item.type === 'dataField' && config.dataSources
+      .find((source) => source.id === item.dataSourceId)?.fields
+      .find((field) => field.id === item.fieldId)?.dataType === 'collection';
+    return (
+    <div className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''}`} key={item.id}>
       {item.type === 'custom'
         ? <input value={item.name} aria-label="Custom source name" onChange={(event) => updateItem(item.id, { name: event.target.value })} />
         : <span title={sourceItemTooltip(config, item)}>{label}</span>}
@@ -3473,7 +3760,8 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
       <button className="mini-icon-button danger" type="button" title="Remove source" onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
     </div>
-  );
+    );
+  };
   return (
     <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef}>
       <button className="cell-enum-trigger" type="button" onClick={() => setOpen((value) => !value)}>
@@ -3539,9 +3827,9 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
                 const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));
                 const dimensionLabel = fieldGroupDimensionLabel(group);
                 return (
-                  <label className="source-choice-row" key={field.id}>
+                  <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
                     <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{field.name}</strong><small>{field.meaning}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{dimensionLabel ? ` · Dimensions: ${dimensionLabel}` : ''}</small></span>
+                    <span><strong>{field.name}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{dimensionLabel ? ` · Dimensions: ${dimensionLabel}` : ''}</small></span>
                   </label>
                 );
               })}
@@ -3740,9 +4028,12 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
           {sourceFieldShortcuts.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Source fields</span>
             <div className="formula-shortcut-group-options">
-              {sourceFieldShortcuts.map((source) => <button className="formula-source-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
+              {sourceFieldShortcuts.map((source) => {
+                const isCollection = source.type === 'dataField' && config.dataSources.find((dataSource) => dataSource.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId)?.dataType === 'collection';
+                return <button className={isCollection ? 'formula-collection-insert' : 'formula-source-insert'} type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
                 {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
-              </button>)}
+              </button>;
+              })}
             </div>
           </section> : null}
           {dimensionShortcuts.length ? <section className="formula-shortcut-group">
@@ -3757,7 +4048,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
           {lookupShortcuts.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Source lookups</span>
             <div className="formula-shortcut-group-options">
-              {lookupShortcuts.map((source) => <button className="formula-source-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
+              {lookupShortcuts.map((source) => <button className="formula-lookup-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
                 {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
               </button>)}
             </div>
@@ -3801,7 +4092,7 @@ type FormulaSemanticToken = {
   latex: string;
   matchLatex?: string;
   requiresFollowingParenthesis?: boolean;
-  kind: 'source' | 'variable' | 'result' | 'dimension' | 'scale';
+  kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale';
   prominent?: boolean;
   label: string;
 };
@@ -3911,7 +4202,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
       }
       decorated += formula.slice(cursor, matchIndex);
       const matchedLatex = tokenMatchLatex(match);
-      const decoratedMatch = match.kind === 'result' || match.kind === 'source'
+      const decoratedMatch = match.kind === 'result' || match.kind === 'source' || match.kind === 'collection'
         ? decorateNestedSemanticTokens(matchedLatex, match)
         : matchedLatex;
       decorated += `\\htmlClass{${tokenClassNames(match)}}{${decoratedMatch}}`;
@@ -4001,11 +4292,14 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
     .map((source) => [source.kpiId, config.kpis.find((entry) => entry.id === source.kpiId)?.name ?? 'Missing KPI']));
   const sourceTokens = useMemo(() => kpi.sources.map((source): FormulaSemanticToken => {
     const lookupOpenParenthesis = source.type === 'lookup' ? source.latex.indexOf('(') : -1;
+    const fieldType = source.type === 'dataField'
+      ? config.dataSources.find((dataSource) => dataSource.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId)?.dataType
+      : undefined;
     return {
       latex: source.latex,
       matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
       requiresFollowingParenthesis: lookupOpenParenthesis > 0,
-      kind: source.type === 'variable' ? 'variable' : 'source',
+      kind: source.type === 'variable' ? 'variable' : source.type === 'lookup' ? 'lookup' : fieldType === 'collection' ? 'collection' : 'source',
       label: `Source: ${sourceItemTooltip(config, source)}`
     };
   }), [config.dataSources, config.lookups, config.variables, kpi.sources, referencedKpiNames]);
