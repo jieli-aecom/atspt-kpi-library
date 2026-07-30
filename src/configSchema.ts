@@ -594,6 +594,15 @@ const defaultDataFieldLatex = (fieldName: string, spatialUnit: string, dimension
   return subscript ? `${field}_{${subscript}}` : field;
 };
 
+const defaultCollectionDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionNames: string[]) => {
+  const field = latexIdentifier(fieldName);
+  const expression = `\\{${field}\\}`;
+  const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), latexIdentifier(spatialUnit)]
+    .filter(Boolean)
+    .join(', ');
+  return subscript ? `${expression}_{${subscript}}` : expression;
+};
+
 const legacyDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionName: string, option: string) =>
   defaultDataFieldLatex(fieldName, spatialUnit, [
     dimensionName.trim() ? `${dimensionName.trim()}=${option.trim()}` : ''
@@ -2281,6 +2290,7 @@ export const repairConfig = (input: unknown): RepairResult => {
       warnings.push(`${kpi.name}: removed ${removedCount} invalid prerequisite KPI reference${removedCount === 1 ? '' : 's'}.`);
     }
 
+    const sourceLatexReplacements = new Map<string, string | null>();
     const normalizedSources = kpi.sources.flatMap((source): KpiSourceItem[] => {
       if (source.type === 'kpi') {
         return source.kpiId !== kpi.id && validKpiIds.has(source.kpiId) ? [source] : [];
@@ -2292,14 +2302,37 @@ export const repairConfig = (input: unknown): RepairResult => {
       const field = dataSource?.fields.find((entry) => entry.id === source.fieldId);
       if (!dataSource || !field) return [];
       const legacySource = source as typeof source & { version?: string };
-      if (legacySource.version === undefined) return [source];
-      const { version: legacyOption, ...withoutLegacyOption } = legacySource;
       const group = dataSource.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
-      const firstDimension = group?.dimensions[0];
-      const latex = firstDimension && source.latex === legacyDataFieldLatex(field.name, dataSource.spatialUnit, firstDimension.name, legacyOption)
-        ? defaultDataFieldLatex(field.name, dataSource.spatialUnit, group.dimensions.map((dimension) => dimension.name))
-        : source.latex;
-      return [{ ...withoutLegacyOption, latex }];
+      const dimensionNames = group?.dimensions.map((dimension) => dimension.name) ?? [];
+      let normalizedSource: KpiSourceItem = source;
+
+      if (legacySource.version !== undefined) {
+        const { version: legacyOption, ...withoutLegacyOption } = legacySource;
+        const firstDimension = group?.dimensions[0];
+        const latex = firstDimension && source.latex === legacyDataFieldLatex(field.name, dataSource.spatialUnit, firstDimension.name, legacyOption)
+          ? defaultDataFieldLatex(field.name, dataSource.spatialUnit, dimensionNames)
+          : source.latex;
+        normalizedSource = { ...withoutLegacyOption, latex };
+      }
+
+      if (field.dataType === 'collection' && normalizedSource.type === 'dataField') {
+        const identifier = latexIdentifier(field.name);
+        const oldDefaults = new Set([`\\{ ${identifier} \\}`, `\\{${identifier}\\}`]);
+        if (oldDefaults.has(normalizedSource.latex)) {
+          const nextLatex = defaultCollectionDataFieldLatex(field.name, dataSource.spatialUnit, dimensionNames);
+          if (nextLatex !== normalizedSource.latex) {
+            const previousReplacement = sourceLatexReplacements.get(normalizedSource.latex);
+            if (!sourceLatexReplacements.has(normalizedSource.latex)) {
+              sourceLatexReplacements.set(normalizedSource.latex, nextLatex);
+            } else if (previousReplacement !== nextLatex) {
+              sourceLatexReplacements.set(normalizedSource.latex, null);
+            }
+            normalizedSource = { ...normalizedSource, latex: nextLatex };
+          }
+        }
+      }
+
+      return [normalizedSource];
     });
     const seenDataFields = new Set<string>();
     const seenLookups = new Set<string>();
@@ -2326,9 +2359,46 @@ export const repairConfig = (input: unknown): RepairResult => {
       warnings.push(`${kpi.name}: removed ${sourceRemovedCount} invalid source reference${sourceRemovedCount === 1 ? '' : 's'}.`);
     }
 
+    const replaceMigratedLatex = (value: string) => {
+      let nextValue = value;
+      for (const [previousLatex, nextLatex] of sourceLatexReplacements) {
+        if (nextLatex === null) continue;
+        nextValue = nextValue.split(previousLatex).join(nextLatex);
+      }
+      return nextValue;
+    };
+    const description = sourceLatexReplacements.size === 0
+      ? kpi.description
+      : {
+          ...kpi.description,
+          formulas: kpi.description.formulas.map((group) => ({
+            ...group,
+            items: group.items.map((item) => {
+              const leftExpression = replaceMigratedLatex(item.leftExpression);
+              const rightExpression = replaceMigratedLatex(item.rightExpression);
+              return {
+                ...item,
+                formula: leftExpression ? `${leftExpression} = ${rightExpression}` : rightExpression,
+                leftExpression,
+                rightExpression,
+                terms: item.terms.map((term) => ({ ...term, term: replaceMigratedLatex(term.term) }))
+              };
+            })
+          }))
+        };
+    const spatialScales = sourceLatexReplacements.size === 0
+      ? kpi.spatialScales
+      : Object.fromEntries(spatialScaleKeys.map((scale) => {
+          const current = kpi.spatialScales[scale];
+          const rightExpression = replaceMigratedLatex(current.rightExpression);
+          return [scale, { ...current, formula: rightExpression, leftExpression: '', rightExpression }];
+        })) as KpiMetric['spatialScales'];
+
     return {
       ...kpi,
       sources: nextSources,
+      description,
+      spatialScales,
       prerequisite: {
         ...kpi.prerequisite,
         kpis: nextDependencies

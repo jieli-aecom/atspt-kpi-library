@@ -1228,13 +1228,54 @@ h1 {
   font-size: 11px;
 }
 
-.data-source-relation-summary {
+.data-source-header-details {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 3px;
-  width: 100%;
   min-width: 0;
-  margin-top: 2px;
+  width: 100%;
+}
+
+.data-source-header-details > small {
+  flex: 0 0 auto;
+  margin-right: 2px;
+}
+
+.data-source-primary-key-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  width: fit-content;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #e5edf2;
+  color: #315a6c;
+  padding: 2px 6px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.data-source-primary-key-summary svg,
+.data-source-primary-key-summary b {
+  flex: 0 0 auto;
+}
+
+.data-source-primary-key-summary b {
+  font-size: 8px;
+}
+
+.data-source-primary-key-summary > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-source-relation-summary {
+  display: contents;
 }
 
 .data-source-relation-summary > span {

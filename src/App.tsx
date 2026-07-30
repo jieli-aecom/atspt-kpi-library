@@ -2358,11 +2358,11 @@ const latexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
 
 const sourceFieldDefaultLatex = (field: Pick<DataSourceField, 'name' | 'dataType'>, spatialUnit: string, dimensions: DataSourceFieldDimension[] = []) => {
   const fieldName = latexIdentifier(field.name);
-  if (field.dataType === 'collection') return `\\{ ${fieldName} \\}`;
   const spatial = latexIdentifier(spatialUnit);
   const dimensionTags = dimensions.map((dimension) => latexIdentifier(dimension.name)).filter(Boolean);
   const subscript = [...dimensionTags, spatial].filter(Boolean).join(', ');
-  return subscript ? `${fieldName}_{${subscript}}` : fieldName;
+  const expression = field.dataType === 'collection' ? `\\{${fieldName}\\}` : fieldName;
+  return subscript ? `${expression}_{${subscript}}` : expression;
 };
 
 const dataSourceFieldTypeLabels: Record<DataSourceFieldType, string> = {
@@ -3069,6 +3069,7 @@ function DataSourceHeader({
             {config.dataSources.map((source, sourceIndex) => {
               const expanded = expandedSourceIds.includes(source.id);
               const sourceRelations = config.tableRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.targetDataSourceId === source.id);
+              const primaryKeyField = source.fields.find((field) => field.id === source.primaryKeyFieldId);
               const sourceRelationEditorOpen = relationEditor?.sourceDataSourceId === source.id;
               const draftRelationSourceId = relationEditor?.direction === 'many' ? relationEditor.targetDataSourceId : relationEditor?.sourceDataSourceId;
               const draftRelationTargetId = relationEditor?.direction === 'many' ? relationEditor.sourceDataSourceId : relationEditor?.targetDataSourceId;
@@ -3381,17 +3382,20 @@ function DataSourceHeader({
                       <Table2 size={15} aria-hidden="true" />
                       <span className="data-source-expander-summary">
                         <strong>{source.name.trim() || 'Untitled data source'}</strong>
-                        <small>{source.spatialUnit.trim() || 'No spatial unit'} · {source.fields.length} {source.fields.length === 1 ? 'field' : 'fields'}</small>
-                        {sourceRelations.length ? <span className="data-source-relation-summary">
-                          {sourceRelations.map((relation) => {
-                            const isSource = relation.sourceDataSourceId === source.id;
-                            const otherId = isSource ? relation.targetDataSourceId : relation.sourceDataSourceId;
-                            const other = config.dataSources.find((entry) => entry.id === otherId);
-                            const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : isSource ? '1:N' : 'N:1';
-                            const otherName = other?.name ?? 'Missing table';
-                            return <span key={relation.id} title={`${cardinality} relationship with ${otherName}`}><Link2 size={9} aria-hidden="true" /><b>{cardinality}</b><span>{otherName}</span></span>;
-                          })}
-                        </span> : null}
+                        <span className="data-source-header-details">
+                          <small>{source.spatialUnit.trim() || 'No spatial unit'} · {source.fields.length} {source.fields.length === 1 ? 'field' : 'fields'}</small>
+                          {primaryKeyField ? <span className="data-source-primary-key-summary" title={`Primary key: ${primaryKeyField.name || 'Unnamed field'}`}><KeyRound size={9} aria-hidden="true" /><b>PK</b><span>{primaryKeyField.name || 'Unnamed field'}</span></span> : null}
+                          {sourceRelations.length ? <span className="data-source-relation-summary">
+                            {sourceRelations.map((relation) => {
+                              const isSource = relation.sourceDataSourceId === source.id;
+                              const otherId = isSource ? relation.targetDataSourceId : relation.sourceDataSourceId;
+                              const other = config.dataSources.find((entry) => entry.id === otherId);
+                              const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : isSource ? '1:N' : 'N:1';
+                              const otherName = other?.name ?? 'Missing table';
+                              return <span key={relation.id} title={`${cardinality} relationship with ${otherName}`}><Link2 size={9} aria-hidden="true" /><b>{cardinality}</b><span>{otherName}</span></span>;
+                            })}
+                          </span> : null}
+                        </span>
                       </span>
                     </button>
                     <div className="data-source-expander-actions">
