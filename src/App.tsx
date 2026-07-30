@@ -222,29 +222,65 @@ const buildEnumMaps = (config: KpiPoolConfig) => {
   return { enumOptions, enumLabels };
 };
 
-const buildAppIndexes = (config: KpiPoolConfig): AppIndexes => {
-  const { enumOptions, enumLabels } = buildEnumMaps(config);
+const buildAppIndexes = (config: KpiPoolConfig, previousConfig?: KpiPoolConfig, previousIndexes?: AppIndexes): AppIndexes => {
+  const enumMaps = previousConfig?.enums === config.enums && previousIndexes
+    ? { enumOptions: previousIndexes.enumOptions, enumLabels: previousIndexes.enumLabels }
+    : buildEnumMaps(config);
+  const { enumOptions, enumLabels } = enumMaps;
   const kpiNameById = new Map(config.kpis.map((kpi) => [kpi.id, kpi.name]));
-  const useCaseIdsByUserGroup = new Map<string, string[]>();
-  for (const option of config.enums.useCase) {
-    if (!option.userGroup) {
-      continue;
-    }
+  const reuseUseCaseIndexes = previousConfig?.enums.useCase === config.enums.useCase && previousIndexes;
+  const useCaseIdsByUserGroup = reuseUseCaseIndexes
+    ? previousIndexes.useCaseIdsByUserGroup
+    : new Map<string, string[]>();
+  if (!reuseUseCaseIndexes) {
+    for (const option of config.enums.useCase) {
+      if (!option.userGroup) {
+        continue;
+      }
 
-    const current = useCaseIdsByUserGroup.get(option.userGroup) ?? [];
-    current.push(option.id);
-    useCaseIdsByUserGroup.set(option.userGroup, current);
+      const current = useCaseIdsByUserGroup.get(option.userGroup) ?? [];
+      current.push(option.id);
+      useCaseIdsByUserGroup.set(option.userGroup, current);
+    }
   }
 
-  const performanceAreaIdsByLabel = new Map<string, string[]>();
-  for (const option of config.enums.performanceArea) {
-    const current = performanceAreaIdsByLabel.get(option.label) ?? [];
-    current.push(option.id);
-    performanceAreaIdsByLabel.set(option.label, current);
+  const reusePerformanceAreaIndexes = previousConfig?.enums.performanceArea === config.enums.performanceArea && previousIndexes;
+  const performanceAreaIdsByLabel = reusePerformanceAreaIndexes
+    ? previousIndexes.performanceAreaIdsByLabel
+    : new Map<string, string[]>();
+  if (!reusePerformanceAreaIndexes) {
+    for (const option of config.enums.performanceArea) {
+      const current = performanceAreaIdsByLabel.get(option.label) ?? [];
+      current.push(option.id);
+      performanceAreaIdsByLabel.set(option.label, current);
+    }
   }
 
   const searchByKpiId = new Map<string, KpiSearchEntry>();
+  const previousKpisById = new Map(previousConfig?.kpis.map((kpi) => [kpi.id, kpi]) ?? []);
+  const changedKpiNameIds = new Set<string>();
+  if (previousConfig) {
+    for (const previousKpi of previousConfig.kpis) {
+      if (kpiNameById.get(previousKpi.id) !== previousKpi.name) {
+        changedKpiNameIds.add(previousKpi.id);
+      }
+    }
+    for (const kpi of config.kpis) {
+      if (!previousKpisById.has(kpi.id)) {
+        changedKpiNameIds.add(kpi.id);
+      }
+    }
+  }
+  const sourceCatalogsStable = previousConfig?.dataSources === config.dataSources && previousConfig.lookups === config.lookups;
   for (const kpi of config.kpis) {
+    const previousKpi = previousKpisById.get(kpi.id);
+    const previousSearch = previousIndexes?.searchByKpiId.get(kpi.id);
+    const referencedKpiNameChanged = kpi.sources.some((source) => source.type === 'kpi' && changedKpiNameIds.has(source.kpiId));
+    if (previousKpi === kpi && previousSearch && sourceCatalogsStable && !referencedKpiNameChanged) {
+      searchByKpiId.set(kpi.id, previousSearch);
+      continue;
+    }
+
     const sourceText = kpi.sources.map((source) => `${sourceItemLabel(config, source)} ${source.latex}`).join(' ');
     searchByKpiId.set(kpi.id, {
       name: normalize(kpi.name),
@@ -259,7 +295,7 @@ const buildAppIndexes = (config: KpiPoolConfig): AppIndexes => {
     enumLabels,
     kpiNameById,
     useCaseIdsByUserGroup,
-    allUseCaseIds: config.enums.useCase.map((option) => option.id),
+    allUseCaseIds: reuseUseCaseIndexes ? previousIndexes.allUseCaseIds : config.enums.useCase.map((option) => option.id),
     performanceAreaLabelById: enumLabels.performanceArea,
     performanceAreaIdsByLabel,
     searchByKpiId
@@ -2298,7 +2334,7 @@ function DataSourceHeader({
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
   const [expandedFieldGroupIds, setExpandedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
-  const [lookupsExpanded, setLookupsExpanded] = useState(true);
+  const [lookupsExpanded, setLookupsExpanded] = useState(false);
   const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
   const [dimensionOptionDrafts, setDimensionOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
@@ -3482,6 +3518,22 @@ type FormulaSemanticToken = {
   label: string;
 };
 
+type IndexedFormulaSemanticToken = FormulaSemanticToken & { index: number };
+type DecoratedFormula = { decorated: string; tokens: IndexedFormulaSemanticToken[] };
+
+const formulaDecorationCache = new Map<string, DecoratedFormula>();
+const formulaHtmlCache = new Map<string, string>();
+const formulaCacheLimit = 500;
+
+const cacheFormulaResult = <T,>(cache: Map<string, T>, key: string, value: T) => {
+  if (cache.size >= formulaCacheLimit) {
+    const oldestKey = cache.keys().next().value;
+    if (oldestKey !== undefined) cache.delete(oldestKey);
+  }
+  cache.set(key, value);
+  return value;
+};
+
 const spatialScaleFormulaKeywords = [...spatialScaleKeys.map((scale) => spatialScaleLabels[scale]), 'Zone'];
 
 const allowFormulaSemanticClass = (context: TrustContext) => context.command === '\\htmlClass';
@@ -3508,11 +3560,15 @@ const findFormulaToken = (formula: string, token: FormulaSemanticToken, startInd
   return -1;
 };
 
-const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]) => {
+const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]): DecoratedFormula => {
   const tokenMatchLatex = (token: FormulaSemanticToken) => token.matchLatex ?? token.latex;
   const uniqueTokens = [...new Map(tokens.filter((token) => tokenMatchLatex(token).trim()).map((token) => [tokenMatchLatex(token), token])).values()]
     .map((token, index) => ({ ...token, index }))
     .sort((left, right) => tokenMatchLatex(right).length - tokenMatchLatex(left).length);
+  const matchingTokens = uniqueTokens.filter((token) => findFormulaToken(formula, token, 0) >= 0);
+  const cacheKey = JSON.stringify([formula, matchingTokens]);
+  const cached = formulaDecorationCache.get(cacheKey);
+  if (cached) return cached;
   const buildDecoratedFormula = (activeTokens: typeof uniqueTokens) => {
     let cursor = 0;
     let decorated = '';
@@ -3542,6 +3598,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]) 
     try {
       katex.renderToString(candidateFormula, {
         displayMode: true,
+        output: 'html',
         throwOnError: true,
         strict: 'ignore',
         trust: allowFormulaSemanticClass
@@ -3551,12 +3608,12 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]) 
       return false;
     }
   };
-  const individuallyValidTokens = uniqueTokens.filter((token) =>
+  const individuallyValidTokens = matchingTokens.filter((token) =>
     rendersSafely(`\\htmlClass{formula-semantic-token formula-${token.kind}-token formula-token-${token.index}}{${tokenMatchLatex(token)}}`)
   );
   const fullyDecoratedFormula = buildDecoratedFormula(individuallyValidTokens);
   if (rendersSafely(fullyDecoratedFormula)) {
-    return { decorated: fullyDecoratedFormula || formula, tokens: individuallyValidTokens };
+    return cacheFormulaResult(formulaDecorationCache, cacheKey, { decorated: fullyDecoratedFormula || formula, tokens: individuallyValidTokens });
   }
 
   const validTokens: typeof uniqueTokens = [];
@@ -3567,7 +3624,32 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]) 
       validTokens.push(token);
     }
   }
-  return { decorated: buildDecoratedFormula(validTokens) || formula, tokens: validTokens };
+  return cacheFormulaResult(formulaDecorationCache, cacheKey, { decorated: buildDecoratedFormula(validTokens) || formula, tokens: validTokens });
+};
+
+const renderFormulaHtml = (formula: string, decorated: string, inline: boolean) => {
+  const cacheKey = JSON.stringify([formula, decorated, inline]);
+  const cached = formulaHtmlCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  let rendered: string;
+  try {
+    rendered = katex.renderToString(decorated, {
+      displayMode: !inline,
+      errorColor: '#b42318',
+      output: 'html',
+      throwOnError: true,
+      strict: 'ignore',
+      trust: allowFormulaSemanticClass
+    });
+  } catch {
+    rendered = katex.renderToString(formula, {
+      displayMode: !inline,
+      errorColor: '#b42318',
+      output: 'html',
+      throwOnError: false
+    });
+  }
+  return cacheFormulaResult(formulaHtmlCache, cacheKey, rendered);
 };
 
 function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean }) {
@@ -3589,20 +3671,30 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
       }))
     ]) ?? [];
   }), [config.dataSources, kpi.sources]);
+  const referencedKpiNames = JSON.stringify(kpi.sources
+    .filter((source) => source.type === 'kpi')
+    .map((source) => [source.kpiId, config.kpis.find((entry) => entry.id === source.kpiId)?.name ?? 'Missing KPI']));
+  const sourceTokens = useMemo(() => kpi.sources.map((source): FormulaSemanticToken => {
+    const lookupOpenParenthesis = source.type === 'lookup' ? source.latex.indexOf('(') : -1;
+    return {
+      latex: source.latex,
+      matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
+      requiresFollowingParenthesis: lookupOpenParenthesis > 0,
+      kind: 'source',
+      label: `Source: ${sourceItemTooltip(config, source)}`
+    };
+  }), [config.dataSources, config.lookups, kpi.sources, referencedKpiNames]);
+  const priorItemsKey = JSON.stringify(priorItems.map((prior) => [prior.leftExpression, prior.tag]));
+  const priorItemTokens = useMemo(() => priorItems.map((prior): FormulaSemanticToken => ({
+    latex: prior.leftExpression,
+    kind: 'result',
+    label: `Previous formula: ${prior.tag || 'Untitled formula'}`
+  })), [priorItemsKey]);
   const semantic = useMemo(
     () => decorateFormulaTokens(item.formula, [
       ...dimensionTokens,
-      ...priorItems.map((prior) => ({ latex: prior.leftExpression, kind: 'result' as const, label: `Previous formula: ${prior.tag || 'Untitled formula'}` })),
-      ...kpi.sources.map((source) => {
-        const lookupOpenParenthesis = source.type === 'lookup' ? source.latex.indexOf('(') : -1;
-        return {
-          latex: source.latex,
-          matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
-          requiresFollowingParenthesis: lookupOpenParenthesis > 0,
-          kind: 'source' as const,
-          label: `Source: ${sourceItemTooltip(config, source)}`
-        };
-      }),
+      ...priorItemTokens,
+      ...sourceTokens,
       ...spatialScaleFormulaKeywords.map((keyword) => ({
         latex: keyword,
         kind: 'scale' as const,
@@ -3610,25 +3702,12 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
       })),
       { latex: item.leftExpression, kind: 'result' as const, label: `Formula tag: ${item.tag.trim() || 'Untitled formula'}` }
     ]),
-    [config, dimensionTokens, item.formula, item.leftExpression, item.tag, kpi.sources, priorItems]
+    [dimensionTokens, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
-  const renderedHtml = useMemo(() => {
-    try {
-      return katex.renderToString(semantic.decorated, {
-        displayMode: !inline,
-        errorColor: '#b42318',
-        throwOnError: true,
-        strict: 'ignore',
-        trust: allowFormulaSemanticClass
-      });
-    } catch {
-      return katex.renderToString(item.formula, {
-        displayMode: !inline,
-        errorColor: '#b42318',
-        throwOnError: false
-      });
-    }
-  }, [inline, item.formula, semantic.decorated]);
+  const renderedHtml = useMemo(
+    () => renderFormulaHtml(item.formula, semantic.decorated, inline),
+    [inline, item.formula, semantic.decorated]
+  );
 
   useEffect(() => {
     const container = previewRef.current;
@@ -3642,11 +3721,11 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
   }, [semantic]);
 
   if (inline) {
-    return <div className="interactive-inline-formula" ref={previewRef} dangerouslySetInnerHTML={{ __html: renderedHtml }} />;
+    return <div className="interactive-inline-formula" ref={previewRef} role="math" aria-label={item.formula} dangerouslySetInnerHTML={{ __html: renderedHtml }} />;
   }
 
   return (
-    <section className="formula-preview compact interactive-formula-preview" ref={previewRef}>
+    <section className="formula-preview compact interactive-formula-preview" ref={previewRef} role="math" aria-label={item.formula}>
       {item.formula.trim() ? (
         <div className="formula-render-wrap">
           <div className="katex-custom-block" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
@@ -4411,12 +4490,12 @@ function KpiRow({
   tableViewportWidth: number;
   useCaseAssignment?: UseCaseAssignment;
   sortingActive: boolean;
-  onExpand: () => void;
+  onExpand: (id: string) => void;
   onChange: (next: KpiMetric) => void;
-  onDelete: () => void;
-  onDuplicate: () => void;
-  onDragHandleMouseDown: (event: React.MouseEvent<HTMLButtonElement>) => void;
-  onInsertBefore: () => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onDragHandleMouseDown: (id: string, event: React.MouseEvent<HTMLButtonElement>) => void;
+  onInsertBefore: (id: string) => void;
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const stopRowToggle = (event: React.SyntheticEvent) => event.stopPropagation();
@@ -4444,14 +4523,14 @@ function KpiRow({
         <td>
           <div className="name-description-cell">
             <div className="name-cell">
-              <button className="kpi-insert-before" type="button" title="Insert KPI here" aria-label={`Insert KPI before ${kpi.name}`} onClick={(event) => { event.stopPropagation(); onInsertBefore(); }}><Plus size={11} aria-hidden="true" /><span>Add KPI</span></button>
+              <button className="kpi-insert-before" type="button" title="Insert KPI here" aria-label={`Insert KPI before ${kpi.name}`} onClick={(event) => { event.stopPropagation(); onInsertBefore(kpi.id); }}><Plus size={11} aria-hidden="true" /><span>Add KPI</span></button>
               <button
                 className="expand-button"
                 type="button"
                 aria-label={expanded ? 'Collapse row' : 'Expand row'}
                 onClick={(event) => {
                   event.stopPropagation();
-                  onExpand();
+                  onExpand(kpi.id);
                 }}
               >
                 <ChevronDown size={14} aria-hidden="true" className={expanded ? 'rotate' : ''} />
@@ -4563,7 +4642,7 @@ function KpiRow({
                 aria-label={`Drag ${kpi.name} to reorder`}
                 title={sortingActive ? 'Clear sort to reorder' : 'Drag to reorder'}
                 disabled={sortingActive}
-                onMouseDown={onDragHandleMouseDown}
+                onMouseDown={(event) => onDragHandleMouseDown(kpi.id, event)}
               >
                 <GripVertical size={14} aria-hidden="true" />
               </button>
@@ -4572,7 +4651,7 @@ function KpiRow({
                 type="button"
                 aria-label={`Duplicate ${kpi.name}`}
                 title="Duplicate KPI"
-                onClick={onDuplicate}
+                onClick={() => onDuplicate(kpi.id)}
               >
                 <Copy size={13} aria-hidden="true" />
               </button>
@@ -4581,7 +4660,7 @@ function KpiRow({
                 type="button"
                 aria-label={`Delete ${kpi.name}`}
                 title="Delete KPI"
-                onClick={onDelete}
+                onClick={() => onDelete(kpi.id)}
               >
                 <Trash2 size={13} aria-hidden="true" />
               </button>
@@ -4612,6 +4691,12 @@ function MeasuredKpiRow({
 }) {
   const compactRef = useRef<HTMLTableRowElement | null>(null);
   const expandedRef = useRef<HTMLTableRowElement | null>(null);
+  const setCompactRef = useCallback((node: HTMLTableRowElement | null) => {
+    compactRef.current = node;
+  }, []);
+  const setExpandedRef = useCallback((node: HTMLTableRowElement | null) => {
+    expandedRef.current = node;
+  }, []);
   const measure = useCallback(() => {
     const compactHeight = compactRef.current?.getBoundingClientRect().height ?? 0;
     const expandedHeight = expandedRef.current?.getBoundingClientRect().height ?? 0;
@@ -4635,15 +4720,13 @@ function MeasuredKpiRow({
   return (
     <MemoizedKpiRow
       {...props}
-      compactRowRef={(node) => {
-        compactRef.current = node;
-      }}
-      expandedRowRef={(node) => {
-        expandedRef.current = node;
-      }}
+      compactRowRef={setCompactRef}
+      expandedRowRef={setExpandedRef}
     />
   );
 }
+
+const MemoizedMeasuredKpiRow = memo(MeasuredKpiRow);
 
 function KpiTable({
   config,
@@ -4684,6 +4767,7 @@ function KpiTable({
   const [dragState, setDragState] = useState<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
   const dragSessionRef = useRef<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRequestRef = useRef<number | null>(null);
   const [scrollFrame, setScrollFrame] = useState({ top: 0, height: 0, width: 0 });
   const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map());
   const visibleEnumCategories = useMemo(
@@ -4790,6 +4874,14 @@ function KpiTable({
     });
   }, []);
 
+  const scheduleScrollFrameUpdate = useCallback(() => {
+    if (scrollFrameRequestRef.current !== null) return;
+    scrollFrameRequestRef.current = window.requestAnimationFrame(() => {
+      scrollFrameRequestRef.current = null;
+      updateScrollFrame();
+    });
+  }, [updateScrollFrame]);
+
   const handleRowHeightChange = useCallback((id: string, expanded: boolean, height: number) => {
     setRowHeights((current) => {
       const key = rowHeightKey(id, expanded);
@@ -4814,6 +4906,12 @@ function KpiTable({
     observer.observe(element);
     return () => observer.disconnect();
   }, [updateScrollFrame]);
+
+  useEffect(() => () => {
+    if (scrollFrameRequestRef.current !== null) {
+      window.cancelAnimationFrame(scrollFrameRequestRef.current);
+    }
+  }, []);
 
   useLayoutEffect(() => {
     updateScrollFrame();
@@ -4949,7 +5047,7 @@ function KpiTable({
     }
   }, [filters, onFiltersChange, performanceAreaFilterIds]);
 
-  const startRowDrag = (kpiId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+  const startRowDrag = useCallback((kpiId: string, event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
     event.stopPropagation();
 
@@ -5003,14 +5101,14 @@ function KpiTable({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', stopRowDrag);
-  };
+  }, [onReorder]);
 
   return (
     <section className="table-panel">
       <div
         className={`table-scroll ${scrollFrame.width >= minimumTableWidth ? 'columns-fit' : 'columns-overflow'}`}
         ref={scrollRef}
-        onScroll={updateScrollFrame}
+        onScroll={scheduleScrollFrameUpdate}
       >
         <table className="kpi-table" style={{ width: '100%', minWidth: minimumTableWidth }}>
           <colgroup>
@@ -5146,7 +5244,7 @@ function KpiTable({
               </tr>
             ) : null}
             {virtualRows.visible.map((kpi) => (
-              <MeasuredKpiRow
+              <MemoizedMeasuredKpiRow
                 key={kpi.id}
                 config={config}
                 kpi={kpi}
@@ -5158,12 +5256,12 @@ function KpiTable({
                 tableViewportWidth={scrollFrame.width}
                 useCaseAssignment={focusedAssignment}
                 sortingActive={Boolean(performanceAreaSort)}
-                onExpand={() => onToggleExpanded(kpi.id)}
+                onExpand={onToggleExpanded}
                 onChange={onKpiChange}
-                onDelete={() => onDelete(kpi.id)}
-                onDuplicate={() => onDuplicate(kpi.id)}
-                onInsertBefore={() => onAddKpi(kpi.id)}
-                onDragHandleMouseDown={(event) => startRowDrag(kpi.id, event)}
+                onDelete={onDelete}
+                onDuplicate={onDuplicate}
+                onInsertBefore={onAddKpi}
+                onDragHandleMouseDown={startRowDrag}
                 onHeightChange={handleRowHeightChange}
               />
             ))}
@@ -5231,10 +5329,11 @@ function EditorApp({
   const lastSavedConfigRef = useRef(
     initialRemoteExists || exportedSnapshot ? JSON.stringify(initialConfig) : ''
   );
+  const indexesCacheRef = useRef<{ config: KpiPoolConfig; indexes: AppIndexes }>();
   const serializedConfig = useMemo(() => JSON.stringify(config), [config]);
   const hasUnsavedChanges = serializedConfig !== lastSavedConfigRef.current;
 
-  const commitConfig = (action: KpiPoolConfig | ((current: KpiPoolConfig) => KpiPoolConfig)) => {
+  const commitConfig = useCallback((action: KpiPoolConfig | ((current: KpiPoolConfig) => KpiPoolConfig)) => {
     setConfig((current) => {
       const next = typeof action === 'function' ? action(current) : action;
       const currentById = new Map(current.kpis.map((kpi) => [kpi.id, kpi]));
@@ -5247,6 +5346,10 @@ function EditorApp({
             : { ...candidate, lastModified: nextEditTimestamp() };
           baselineKpisRef.current.set(created.id, created);
           return created;
+        }
+
+        if (previous === candidate) {
+          return previous;
         }
 
         if (sameKpiMaterial(previous, candidate)) {
@@ -5271,9 +5374,14 @@ function EditorApp({
 
       return { ...next, kpis };
     });
-  };
+  }, []);
 
-  const indexes = useMemo(() => buildAppIndexes(config), [config]);
+  const indexes = useMemo(() => {
+    const previous = indexesCacheRef.current;
+    const next = buildAppIndexes(config, previous?.config, previous?.indexes);
+    indexesCacheRef.current = { config, indexes: next };
+    return next;
+  }, [config]);
   const deferredFilters = useDeferredValue(filters);
   const compiledFilters = useMemo(() => compileFilters(deferredFilters, indexes), [deferredFilters, indexes]);
   const pinnedNameFilterIdSet = useMemo(() => new Set(pinnedNameFilterIds), [pinnedNameFilterIds]);

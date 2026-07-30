@@ -873,6 +873,8 @@ h1 {
 
 .lookup-library-toggle {
   display: inline-flex;
+  flex: 1;
+  align-self: stretch;
   align-items: center;
   gap: 5px;
   min-width: 0;
