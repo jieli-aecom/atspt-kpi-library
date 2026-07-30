@@ -1032,6 +1032,11 @@ const duplicateKpiMetric = (kpi: KpiMetric): KpiMetric => ({
   id: createBlankKpi().id,
   lastModified: new Date().toISOString(),
   name: `${kpi.name || 'Untitled KPI'} Copy`,
+  dimensions: kpi.dimensions.map((dimension) => ({
+    ...dimension,
+    id: createLocalId('kpi-dimension'),
+    options: [...dimension.options]
+  })),
   sources: kpi.sources.map((source) => ({ ...source, id: createLocalId('kpi-source') })),
   description: {
     overview: kpi.description.overview,
@@ -2303,7 +2308,10 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
     return item.name || 'Untitled custom source';
   }
   if (item.type === 'kpi') {
-    return config.kpis.find((kpi) => kpi.id === item.kpiId)?.name ?? 'Missing KPI';
+    const referencedKpi = config.kpis.find((kpi) => kpi.id === item.kpiId);
+    if (!referencedKpi) return 'Missing KPI';
+    const dimensionLabel = referencedKpi.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ');
+    return `${referencedKpi.name}${dimensionLabel ? ` [${dimensionLabel}]` : ''}`;
   }
   if (item.type === 'lookup') {
     return config.lookups.find((lookup) => lookup.id === item.lookupId)?.outputName ?? 'Missing lookup';
@@ -2376,6 +2384,34 @@ const dataSourceFieldTypeLabels: Record<DataSourceFieldType, string> = {
 
 const fieldGroupDimensionLabel = (group?: DataSourceFieldGroup) =>
   group?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
+
+const sourceDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFieldDimension[] => {
+  const combined = new Map<string, DataSourceFieldDimension>();
+  kpi.sources.flatMap((source) => {
+    if (source.type === 'kpi') {
+      return config.kpis.find((entry) => entry.id === source.kpiId)?.dimensions ?? [];
+    }
+    if (source.type !== 'dataField') return [];
+    const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
+    return dataSource?.fieldGroups.find((group) => group.fieldIds.includes(source.fieldId))?.dimensions ?? [];
+  }).forEach((dimension) => {
+    const key = dimension.name.trim().toLocaleLowerCase();
+    if (!key) return;
+    const existing = combined.get(key);
+    if (!existing) {
+      combined.set(key, { ...dimension, options: [...dimension.options] });
+      return;
+    }
+    const existingOptions = new Set(existing.options.map((option) => option.toLocaleLowerCase()));
+    dimension.options.forEach((option) => {
+      const normalizedOption = option.toLocaleLowerCase();
+      if (existingOptions.has(normalizedOption)) return;
+      existing.options.push(option);
+      existingOptions.add(normalizedOption);
+    });
+  });
+  return [...combined.values()];
+};
 
 function DataSourceHeader({
   config,
@@ -3585,7 +3621,10 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
       {prerequisiteKpis.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
-          <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => <span className="source-summary-item" key={source.id}>{prerequisite?.name ?? 'Missing KPI'}</span>)}</span>
+          <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
+            const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
+            return <span className="source-summary-item" key={source.id}>{prerequisite?.name ?? 'Missing KPI'}{dimensionLabel ? ` [${dimensionLabel}]` : ''}</span>;
+          })}</span>
         </span>
       ) : null}
       {lookupSources.length ? (
@@ -3970,11 +4009,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     : '';
   const dimensionShortcuts = useMemo(() => {
     const shortcuts = new Map<string, { latex: string; label: string; kind: 'Dimension' | 'Option' | 'Set' }>();
-    kpi.sources.forEach((source) => {
-      if (source.type !== 'dataField') return;
-      const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
-      const group = dataSource?.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
-      group?.dimensions.forEach((dimension) => {
+    sourceDimensions(config, kpi).forEach((dimension) => {
         const dimensionLatex = latexIdentifier(dimension.name);
         if (!dimensionLatex) return;
         shortcuts.set(`dimension:${dimensionLatex}`, {
@@ -3996,10 +4031,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             kind: 'Set'
           });
         }
-      });
     });
     return [...shortcuts.values()];
-  }, [config.dataSources, kpi.sources]);
+  }, [config, kpi]);
   useLayoutEffect(() => {
     const container = paletteOptionsRef.current;
     if (!container || paletteExpanded) return undefined;
@@ -4068,7 +4102,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             </div>
           </section> : null}
           {dimensionShortcuts.length ? <section className="formula-shortcut-group">
-            <span className="formula-shortcut-group-label">Source field dimensions</span>
+            <span className="formula-shortcut-group-label">Source dimensions</span>
             <div className="formula-shortcut-group-options">
               {dimensionShortcuts.map((shortcut) => <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
                 <span className="formula-shortcut-kind">{shortcut.kind}</span>
@@ -4301,11 +4335,7 @@ const renderFormulaHtml = (formula: string, decorated: string, inline: boolean) 
 
 function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean }) {
   const previewRef = useRef<HTMLDivElement | null>(null);
-  const dimensionTokens = useMemo(() => kpi.sources.flatMap((source): FormulaSemanticToken[] => {
-    if (source.type !== 'dataField') return [];
-    const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
-    const group = dataSource?.fieldGroups.find((entry) => entry.fieldIds.includes(source.fieldId));
-    return group?.dimensions.flatMap((dimension): FormulaSemanticToken[] => [
+  const dimensionTokens = useMemo(() => sourceDimensions(config, kpi).flatMap((dimension): FormulaSemanticToken[] => [
       {
         latex: latexIdentifier(dimension.name),
         kind: 'dimension',
@@ -4316,11 +4346,13 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
         kind: 'dimension' as const,
         label: `${dimension.name} option: ${option}`
       }))
-    ]) ?? [];
-  }), [config.dataSources, kpi.sources]);
+    ]), [config, kpi]);
   const referencedKpiNames = JSON.stringify(kpi.sources
     .filter((source) => source.type === 'kpi')
-    .map((source) => [source.kpiId, config.kpis.find((entry) => entry.id === source.kpiId)?.name ?? 'Missing KPI']));
+    .map((source) => {
+      const referencedKpi = config.kpis.find((entry) => entry.id === source.kpiId);
+      return [source.kpiId, referencedKpi?.name ?? 'Missing KPI', referencedKpi?.dimensions ?? []];
+    }));
   const sourceTokens = useMemo(() => kpi.sources.map((source): FormulaSemanticToken => {
     const lookupOpenParenthesis = source.type === 'lookup' ? source.latex.indexOf('(') : -1;
     const fieldType = source.type === 'dataField'
@@ -5111,6 +5143,116 @@ function ExpandedKpiEditor({
   );
 }
 
+function KpiDimensionControl({
+  kpi,
+  onChange
+}: {
+  kpi: KpiMetric;
+  onChange: (dimensions: DataSourceFieldDimension[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [dimensionDraft, setDimensionDraft] = useState('');
+  const [optionDrafts, setOptionDrafts] = useState<Record<string, string>>({});
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const addDimension = () => {
+    const name = dimensionDraft.trim();
+    if (!name || kpi.dimensions.some((dimension) => dimension.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) return;
+    onChange([...kpi.dimensions, { id: createLocalId('kpi-dimension'), name, options: [] }]);
+    setDimensionDraft('');
+  };
+  const updateDimension = (id: string, partial: Partial<DataSourceFieldDimension>) => {
+    onChange(kpi.dimensions.map((dimension) => dimension.id === id ? { ...dimension, ...partial } : dimension));
+  };
+  const removeDimension = (id: string) => {
+    onChange(kpi.dimensions.filter((dimension) => dimension.id !== id));
+    setOptionDrafts((current) => {
+      const { [id]: _removed, ...remaining } = current;
+      return remaining;
+    });
+  };
+  const addOption = (dimension: DataSourceFieldDimension) => {
+    const option = (optionDrafts[dimension.id] ?? '').trim();
+    if (!option) return;
+    if (!dimension.options.some((entry) => entry.toLocaleLowerCase() === option.toLocaleLowerCase())) {
+      updateDimension(dimension.id, { options: [...dimension.options, option] });
+    }
+    setOptionDrafts((current) => ({ ...current, [dimension.id]: '' }));
+  };
+
+  return (
+    <div className="kpi-dimension-control" ref={controlRef}>
+      <button
+        className={`mini-icon-button kpi-dimension-trigger ${kpi.dimensions.length ? 'is-active' : ''}`}
+        type="button"
+        aria-label={`Manage dimensions for ${kpi.name}`}
+        title="Manage KPI dimensions"
+        onClick={() => setOpen((value) => !value)}
+      >
+        <Settings2 size={13} aria-hidden="true" />
+        {kpi.dimensions.length ? <span>{kpi.dimensions.length}</span> : null}
+      </button>
+      {open ? (
+        <div className="kpi-dimension-popover" role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
+          <div className="popover-title">KPI dimensions</div>
+          <p>Dimensions and their options become formula shortcuts when this KPI is used as a source.</p>
+          <div className="kpi-dimension-list">
+            {kpi.dimensions.length === 0 ? <span className="empty-option">This KPI has no dimensions.</span> : null}
+            {kpi.dimensions.map((dimension) => (
+              <section className="kpi-dimension-row" key={dimension.id}>
+                <div className="kpi-dimension-heading">
+                  <input
+                    value={dimension.name}
+                    aria-label="Dimension name"
+                    placeholder="Dimension name"
+                    onChange={(event) => updateDimension(dimension.id, { name: event.target.value })}
+                  />
+                  <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeDimension(dimension.id)}><Trash2 size={12} /></button>
+                </div>
+                <div className="kpi-dimension-options">
+                  {dimension.options.map((option) => (
+                    <span className="kpi-dimension-chip" key={option}>
+                      {option}
+                      <button type="button" title={`Remove ${option}`} aria-label={`Remove dimension option ${option}`} onClick={() => updateDimension(dimension.id, { options: dimension.options.filter((entry) => entry !== option) })}><X size={10} /></button>
+                    </span>
+                  ))}
+                  <span className="kpi-dimension-option-adder">
+                    <input
+                      value={optionDrafts[dimension.id] ?? ''}
+                      placeholder="Add option"
+                      aria-label={`New option for ${dimension.name || 'dimension'}`}
+                      onChange={(event) => setOptionDrafts((current) => ({ ...current, [dimension.id]: event.target.value }))}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter') return;
+                        event.preventDefault();
+                        addOption(dimension);
+                      }}
+                    />
+                    <button type="button" title="Add option" aria-label="Add dimension option" disabled={!(optionDrafts[dimension.id] ?? '').trim()} onClick={() => addOption(dimension)}><Plus size={11} /></button>
+                  </span>
+                </div>
+              </section>
+            ))}
+          </div>
+          <div className="kpi-dimension-add">
+            <input
+              value={dimensionDraft}
+              placeholder="New dimension"
+              aria-label="New KPI dimension"
+              onChange={(event) => setDimensionDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key !== 'Enter') return;
+                event.preventDefault();
+                addDimension();
+              }}
+            />
+            <button className="primary-action tiny" type="button" disabled={!dimensionDraft.trim()} onClick={addDimension}><Plus size={11} /> Add</button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function KpiRow({
   config,
   kpi,
@@ -5188,15 +5330,23 @@ function KpiRow({
               >
                 <ChevronDown size={14} aria-hidden="true" className={expanded ? 'rotate' : ''} />
               </button>
-              <AutoGrowTextarea
-                className="inline-textarea strong-input"
-                rows={1}
-                value={kpi.name}
-                aria-label={`${kpi.name} name`}
-                preventLineBreaks
-                onClick={stopRowToggle}
-                onValueChange={(name) => patch({ name })}
-              />
+              <div className="kpi-name-main">
+                <AutoGrowTextarea
+                  className="inline-textarea strong-input"
+                  rows={1}
+                  value={kpi.name}
+                  aria-label={`${kpi.name} name`}
+                  preventLineBreaks
+                  onClick={stopRowToggle}
+                  onValueChange={(name) => patch({ name })}
+                />
+                {kpi.dimensions.length ? (
+                  <span className="kpi-dimension-summary" title={kpi.dimensions.map((dimension) => `${dimension.name}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join('\n')}>
+                    {kpi.dimensions.map((dimension) => <span key={dimension.id}>{dimension.name || 'Untitled'}{dimension.options.length ? ` (${dimension.options.length})` : ''}</span>)}
+                  </span>
+                ) : null}
+              </div>
+              <KpiDimensionControl kpi={kpi} onChange={(dimensions) => patch({ dimensions })} />
             </div>
             <AutoGrowTextarea
               className="inline-textarea description-input"

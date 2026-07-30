@@ -7,6 +7,7 @@ import {
   type EnumOption,
   type DataSource,
   type DataSourceField,
+  type DataSourceFieldDimension,
   dataSourceFieldTypes,
   type DataSourceFieldType,
   type DataSourceFieldGroup,
@@ -183,6 +184,7 @@ const kpiSchema = z.object({
   id: z.string().min(1),
   lastModified: z.string().datetime(),
   name: z.string(),
+  dimensions: z.array(dataSourceFieldDimensionSchema),
   sources: z.array(kpiSourceItemSchema),
   description: z.object({
     overview: z.string(),
@@ -289,6 +291,13 @@ const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
   typeof value.lastModified === 'string' &&
   Number.isFinite(Date.parse(value.lastModified)) &&
   typeof value.name === 'string' &&
+  Array.isArray(value.dimensions) &&
+  value.dimensions.every((dimension) =>
+    isRecord(dimension) &&
+    typeof dimension.id === 'string' &&
+    typeof dimension.name === 'string' &&
+    isStringArray(dimension.options)
+  ) &&
   Array.isArray(value.sources) &&
   value.sources.every(
     (source) =>
@@ -542,6 +551,13 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   }
 
   return input.kpis.every((kpi) => {
+    if (
+      hasDuplicate(kpi.dimensions.map((dimension) => dimension.id)) ||
+      hasDuplicate(kpi.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase())) ||
+      kpi.dimensions.some((dimension) => hasDuplicate(dimension.options.map((option) => option.toLocaleLowerCase())))
+    ) {
+      return false;
+    }
     const dataFieldKeys = kpi.sources.flatMap((source) => source.type === 'dataField'
       ? [`${source.dataSourceId}\u0000${source.fieldId}`]
       : []
@@ -2180,6 +2196,41 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
   });
 };
 
+const repairKpiDimensions = (rawValue: unknown, warnings: string[], kpiName: string): DataSourceFieldDimension[] => {
+  if (rawValue == null) return [];
+  if (!Array.isArray(rawValue)) {
+    warnings.push(`${kpiName}: dimensions were not a list and were initialized empty.`);
+    return [];
+  }
+
+  const usedIds = new Set<string>();
+  const seenNames = new Set<string>();
+  return rawValue.flatMap((rawDimension, index): DataSourceFieldDimension[] => {
+    const record = isRecord(rawDimension) ? rawDimension : undefined;
+    const name = stringValue(record?.name ?? record?.label ?? rawDimension).trim();
+    const normalizedName = name.toLocaleLowerCase();
+    if (!name || seenNames.has(normalizedName)) return [];
+    seenNames.add(normalizedName);
+
+    const rawOptions = record?.options;
+    const seenOptions = new Set<string>();
+    const options = (Array.isArray(rawOptions) ? rawOptions : stringValue(rawOptions).split(','))
+      .map((option) => stringValue(option).trim())
+      .filter((option) => {
+        const normalizedOption = option.toLocaleLowerCase();
+        if (!option || seenOptions.has(normalizedOption)) return false;
+        seenOptions.add(normalizedOption);
+        return true;
+      });
+
+    return [{
+      id: ensureUniqueId(record?.id, 'kpi-dimension', usedIds, warnings, `${kpiName}: dimension ${index + 1}`),
+      name,
+      options
+    }];
+  });
+};
+
 export const createBlankConfig = (): KpiPoolConfig => ({
   schemaVersion: CURRENT_SCHEMA_VERSION,
   title: 'Untitled KPI Library',
@@ -2203,6 +2254,7 @@ export const createBlankKpi = (): KpiMetric => ({
   id: createId('kpi'),
   lastModified: new Date().toISOString(),
   name: 'Untitled KPI',
+  dimensions: [],
   sources: [],
   description: {
     overview: '',
@@ -2308,6 +2360,7 @@ export const repairConfig = (input: unknown): RepairResult => {
         return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : importTimestamp;
       })(),
       name,
+      dimensions: repairKpiDimensions(record.dimensions, warnings, name),
       sources: repairKpiSources(record.sources ?? record.source ?? record.Source, warnings, name),
       description: {
         overview: stringValue(description.overview ?? description.Overview),
