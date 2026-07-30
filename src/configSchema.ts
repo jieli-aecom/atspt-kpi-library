@@ -176,7 +176,7 @@ const kpiSchema = z.object({
   }),
   spatialScales: z.object({
     link: spatialScaleSchema,
-    grid: spatialScaleSchema,
+    cell: spatialScaleSchema,
     project: spatialScaleSchema,
     taz: spatialScaleSchema,
     corridor: spatialScaleSchema,
@@ -1442,6 +1442,29 @@ const emptyScale = (): SpatialScaleConfig => ({
   rightExpression: ''
 });
 
+const replaceLegacyGridTerminology = (value: string) =>
+  value.replace(/\bgrids?\b/gi, (match) => {
+    const replacement = match.toLowerCase() === 'grids' ? 'cells' : 'cell';
+    if (match === match.toUpperCase()) return replacement.toUpperCase();
+    if (match[0] === match[0].toUpperCase()) return `${replacement[0].toUpperCase()}${replacement.slice(1)}`;
+    return replacement;
+  });
+
+const migrateLegacyGridTerminology = (value: unknown): unknown => {
+  if (typeof value === 'string') return replaceLegacyGridTerminology(value);
+  if (Array.isArray(value)) return value.map(migrateLegacyGridTerminology);
+  if (!isRecord(value)) return value;
+
+  return Object.fromEntries(
+    Object.entries(value).map(([key, entry]) => [
+      replaceLegacyGridTerminology(key),
+      migrateLegacyGridTerminology(entry)
+    ])
+  );
+};
+
+const CELL_TERMINOLOGY_SCHEMA_VERSION = 22;
+
 const repairSpatialScales = (rawValue: unknown, warnings: string[], kpiName: string): KpiMetric['spatialScales'] => {
   const rawScales = isRecord(rawValue) ? rawValue : {};
   if (!isRecord(rawValue)) {
@@ -1916,7 +1939,7 @@ export const createBlankKpi = (): KpiMetric => ({
   },
   spatialScales: {
     link: emptyScale(),
-    grid: emptyScale(),
+    cell: emptyScale(),
     project: emptyScale(),
     taz: emptyScale(),
     corridor: emptyScale(),
@@ -1955,13 +1978,17 @@ export const repairConfig = (input: unknown): RepairResult => {
     throw new UnsupportedSchemaVersionError(inputSchemaVersion);
   }
 
-  if (isCurrentKpiPoolConfig(input)) {
-    return { config: input, warnings: [] };
+  const requiresCellTerminologyMigration =
+    !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < CELL_TERMINOLOGY_SCHEMA_VERSION;
+  const migratedInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
+
+  if (isCurrentKpiPoolConfig(migratedInput)) {
+    return { config: migratedInput, warnings: [] };
   }
 
   const warnings: string[] = [];
   const importTimestamp = new Date().toISOString();
-  const rawConfig = isRecord(input) ? input : {};
+  const rawConfig = isRecord(migratedInput) ? migratedInput : {};
   if (!isRecord(input)) {
     warnings.push('The embedded configuration root was not an object; initialized a blank config.');
   } else if (Number.isFinite(inputSchemaVersion) && inputSchemaVersion < CURRENT_SCHEMA_VERSION) {

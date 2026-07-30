@@ -3780,6 +3780,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
                 {spatialScaleKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[scale]}`} key={scale} onClick={() => insertLatex(spatialScaleLabels[scale])}>
                   <InlineMath math={spatialScaleLabels[scale]} errorColor="#b42318" />
                 </button>)}
+                <button className="formula-scale-insert" type="button" title="Generic spatial scale: Zone" onClick={() => insertLatex('Zone')}>
+                  <InlineMath math="Zone" errorColor="#b42318" />
+                </button>
               </div>
             </section>
           </div>
