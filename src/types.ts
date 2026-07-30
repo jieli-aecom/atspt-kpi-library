@@ -1,7 +1,27 @@
 export const spatialScaleKeys = ['link', 'cell', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
 export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
 
-export const CURRENT_SCHEMA_VERSION = 22 as const;
+export const spatialScaleLabels = {
+  link: 'Link',
+  cell: 'Cell',
+  project: 'Project',
+  taz: 'TAZ',
+  corridor: 'Corridor',
+  subRegion: 'Sub-Region',
+  region: 'Region'
+} as const satisfies Record<SpatialScaleKey, string>;
+
+export const genericSpatialUnits = ['Point'] as const;
+export const spatialUnitOptions = [
+  ...spatialScaleKeys.map((scale) => spatialScaleLabels[scale]),
+  ...genericSpatialUnits
+];
+export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
+
+export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
+  value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
+
+export const CURRENT_SCHEMA_VERSION = 23 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -56,7 +76,7 @@ export type DataSourceFieldGroup = {
 export type DataSource = {
   id: string;
   name: string;
-  spatialUnit: string;
+  spatialUnit: SpatialUnit;
   fields: DataSourceField[];
   fieldGroups: DataSourceFieldGroup[];
 };
@@ -196,16 +216,6 @@ export type KpiPoolConfig = {
 export type RepairResult = {
   config: KpiPoolConfig;
   warnings: string[];
-};
-
-export const spatialScaleLabels: Record<SpatialScaleKey, string> = {
-  link: 'Link',
-  cell: 'Cell',
-  project: 'Project',
-  taz: 'TAZ',
-  corridor: 'Corridor',
-  subRegion: 'Sub-Region',
-  region: 'Region'
 };
 
 export const enumCategoryLabels: Record<EnumCategoryKey, string> = {

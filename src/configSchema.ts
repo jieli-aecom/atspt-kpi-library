@@ -21,7 +21,11 @@ import {
   type KpiUseCasePerformanceArea,
   type KpiUserGroupUseCase,
   type RepairResult,
+  isSpatialUnit,
+  spatialScaleLabels,
   spatialScaleKeys,
+  spatialUnitOptions,
+  type SpatialUnit,
   type SpatialScaleConfig
 } from './types.js';
 
@@ -72,7 +76,9 @@ const dataSourceFieldDimensionSchema = z.object({
 const dataSourceSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
-  spatialUnit: z.string(),
+  spatialUnit: z.custom<SpatialUnit>(isSpatialUnit, {
+    message: `Spatial unit must be blank or one of: ${spatialUnitOptions.join(', ')}`
+  }),
   fields: z.array(dataSourceFieldSchema),
   fieldGroups: z.array(z.object({
     id: z.string().min(1),
@@ -330,7 +336,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
         isRecord(source) &&
         typeof source.id === 'string' &&
         typeof source.name === 'string' &&
-        typeof source.spatialUnit === 'string' &&
+        isSpatialUnit(source.spatialUnit) &&
         Array.isArray(source.fields) &&
         Array.isArray(source.fieldGroups) &&
         source.fieldGroups.every(
@@ -1780,10 +1786,25 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
         position: Math.max(0, Math.min(Number.isInteger(rawGroup.position) ? Number(rawGroup.position) : 0, fields.length))
       }];
     });
+    const rawSpatialUnit = stringValue(rawSource.spatialUnit ?? rawSource.spatialScale ?? rawSource['Spatial Unit']).trim();
+    const normalizedSpatialUnit = rawSpatialUnit.toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
+    const matchingScale = spatialScaleKeys.find((scale) =>
+      normalizedSpatialUnit === scale.toLocaleLowerCase() ||
+      normalizedSpatialUnit === spatialScaleLabels[scale].toLocaleLowerCase().replace(/[^a-z0-9]/g, '') ||
+      (scale === 'cell' && normalizedSpatialUnit === 'grid')
+    );
+    const spatialUnit: SpatialUnit = rawSpatialUnit.toLocaleLowerCase() === 'point'
+      ? 'Point'
+      : matchingScale
+        ? spatialScaleLabels[matchingScale]
+        : '';
+    if (rawSpatialUnit && !spatialUnit) {
+      warnings.push(`${name}: unsupported spatial unit "${rawSpatialUnit}" was cleared.`);
+    }
     return [{
       id,
       name,
-      spatialUnit: stringValue(rawSource.spatialUnit ?? rawSource.spatialScale ?? rawSource['Spatial Unit']),
+      spatialUnit,
       fields,
       fieldGroups
     }];

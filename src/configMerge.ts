@@ -153,26 +153,39 @@ export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: Kpi
   kpis: mergeAdditiveCollection(current.kpis, incoming.kpis)
 });
 
+export type ConfigDeletions = {
+  kpiIds: readonly string[];
+  dataSourceIds: readonly string[];
+};
+
 /**
- * Applies explicit KPI deletion tombstones after an additive hosted merge.
- * References to deleted KPIs are removed along with the KPI records.
+ * Applies explicit deletion tombstones after an additive hosted merge.
+ * Applying these last makes the deleting editor's intent win over both the
+ * hosted copy and concurrent edits. References to deleted records are removed
+ * along with those records.
  */
-export const applyKpiDeletions = (config: KpiPoolConfig, deletedKpiIds: readonly string[]): KpiPoolConfig => {
-  if (deletedKpiIds.length === 0) {
+export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDeletions): KpiPoolConfig => {
+  if (deletions.kpiIds.length === 0 && deletions.dataSourceIds.length === 0) {
     return config;
   }
 
-  const deletedIds = new Set(deletedKpiIds);
+  const deletedKpiIds = new Set(deletions.kpiIds);
+  const deletedDataSourceIds = new Set(deletions.dataSourceIds);
   return {
     ...config,
+    dataSources: config.dataSources.filter((source) => !deletedDataSourceIds.has(source.id)),
     kpis: config.kpis
-      .filter((kpi) => !deletedIds.has(kpi.id))
+      .filter((kpi) => !deletedKpiIds.has(kpi.id))
       .map((kpi) => ({
         ...kpi,
-        sources: kpi.sources.filter((source) => source.type !== 'kpi' || !deletedIds.has(source.kpiId)),
+        sources: kpi.sources.filter(
+          (source) =>
+            (source.type !== 'kpi' || !deletedKpiIds.has(source.kpiId)) &&
+            (source.type !== 'dataField' || !deletedDataSourceIds.has(source.dataSourceId))
+        ),
         prerequisite: {
           ...kpi.prerequisite,
-          kpis: kpi.prerequisite.kpis.filter((id) => !deletedIds.has(id))
+          kpis: kpi.prerequisite.kpis.filter((id) => !deletedKpiIds.has(id))
         }
       }))
   };

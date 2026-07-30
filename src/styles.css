@@ -2669,7 +2669,8 @@ h1 {
 }
 
 .field textarea,
-.field input {
+.field input,
+.field select {
   font-size: 13px;
 }
 

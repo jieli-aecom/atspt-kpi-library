@@ -52,6 +52,7 @@ import {
 import {
   enumCategoryLabels,
   enumCategoryKeys,
+  genericSpatialUnits,
   type EnumOption,
   type EnumCategoryKey,
   type DataSource,
@@ -74,6 +75,7 @@ import {
   type KpiUserGroupUseCase,
   spatialScaleKeys,
   spatialScaleLabels,
+  spatialUnitOptions,
   type SpatialScaleKey
 } from './types';
 
@@ -3170,7 +3172,10 @@ function DataSourceHeader({
                     <div className="data-source-expander-body" id={`data-source-body-${source.id}`}>
                       <div className="data-source-main-fields">
                         <label className="field"><span>Name</span><input value={source.name} onChange={(event) => updateDataSource(sourceIndex, { name: event.target.value })} /></label>
-                        <label className="field"><span>Spatial unit</span><input value={source.spatialUnit} placeholder="Link, parcel, station..." onChange={(event) => updateDataSource(sourceIndex, { spatialUnit: event.target.value })} /></label>
+                        <label className="field"><span>Spatial unit</span><select value={source.spatialUnit} onChange={(event) => updateDataSource(sourceIndex, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}>
+                          <option value="">None</option>
+                          {spatialUnitOptions.map((unit) => <option value={unit} key={unit}>{unit}</option>)}
+                        </select></label>
                       </div>
                       <div
                         className={`data-source-ungrouped-fields ${fieldGroupDragOver?.sourceIndex === sourceIndex && fieldGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
@@ -3780,9 +3785,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
                 {spatialScaleKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[scale]}`} key={scale} onClick={() => insertLatex(spatialScaleLabels[scale])}>
                   <InlineMath math={spatialScaleLabels[scale]} errorColor="#b42318" />
                 </button>)}
-                <button className="formula-scale-insert" type="button" title="Generic spatial scale: Zone" onClick={() => insertLatex('Zone')}>
-                  <InlineMath math="Zone" errorColor="#b42318" />
-                </button>
+                {['Zone', ...genericSpatialUnits].map((keyword) => <button className="formula-scale-insert" type="button" title={`Generic spatial unit: ${keyword}`} key={keyword} onClick={() => insertLatex(keyword)}>
+                  <InlineMath math={keyword} errorColor="#b42318" />
+                </button>)}
               </div>
             </section>
           </div>
@@ -3817,7 +3822,7 @@ const cacheFormulaResult = <T,>(cache: Map<string, T>, key: string, value: T) =>
   return value;
 };
 
-const spatialScaleFormulaKeywords = [...spatialScaleKeys.map((scale) => spatialScaleLabels[scale]), 'Zone'];
+const spatialScaleFormulaKeywords = [...spatialScaleKeys.map((scale) => spatialScaleLabels[scale]), 'Zone', ...genericSpatialUnits];
 
 const allowFormulaSemanticClass = (context: TrustContext) => context.command === '\\htmlClass';
 
@@ -5649,6 +5654,9 @@ function EditorApp({
   const lastSyncedKpiIdsRef = useRef(
     new Set(initialRemoteExists ? initialConfig.kpis.map((kpi) => kpi.id) : [])
   );
+  const lastSyncedDataSourceIdsRef = useRef(
+    new Set(initialRemoteExists ? initialConfig.dataSources.map((source) => source.id) : [])
+  );
   const lastSavedConfigRef = useRef(
     initialRemoteExists || exportedSnapshot ? JSON.stringify(initialConfig) : ''
   );
@@ -5896,6 +5904,7 @@ function EditorApp({
     const repaired = repairConfig(result.config);
     baselineKpisRef.current = new Map(repaired.config.kpis.map((kpi) => [kpi.id, kpi]));
     lastSyncedKpiIdsRef.current = new Set(repaired.config.kpis.map((kpi) => kpi.id));
+    lastSyncedDataSourceIdsRef.current = new Set(repaired.config.dataSources.map((source) => source.id));
     lastSavedConfigRef.current = JSON.stringify(repaired.config);
     setConfig(repaired.config);
     setEtag(result.etag);
@@ -5928,7 +5937,17 @@ function EditorApp({
     try {
       const currentKpiIds = new Set(config.kpis.map((kpi) => kpi.id));
       const deletedKpiIds = [...lastSyncedKpiIdsRef.current].filter((id) => !currentKpiIds.has(id));
-      const result = await syncRemoteConfig(hostedSecret, config, etag, deletedKpiIds);
+      const currentDataSourceIds = new Set(config.dataSources.map((source) => source.id));
+      const deletedDataSourceIds = [...lastSyncedDataSourceIdsRef.current].filter(
+        (id) => !currentDataSourceIds.has(id)
+      );
+      const result = await syncRemoteConfig(
+        hostedSecret,
+        config,
+        etag,
+        deletedKpiIds,
+        deletedDataSourceIds
+      );
       replaceWithRemoteConfig(
         result,
         result.mergedAfterRemoteChange
@@ -6102,7 +6121,7 @@ function EditorApp({
               type="button"
               onClick={saveToHostedJson}
               disabled={exportedSnapshot || saveBusy || !hasUnsavedChanges}
-              title={remoteActionTitle ?? 'Add or update records and apply your KPI deletions'}
+              title={remoteActionTitle ?? 'Add or update records and apply your KPI and data-source deletions'}
             >
               <Save size={15} aria-hidden="true" />
               Save to JSON
