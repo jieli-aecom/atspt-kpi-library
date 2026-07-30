@@ -27,6 +27,7 @@ type WriteRequest = {
   override?: unknown;
   deletedKpiIds?: unknown;
   deletedDataSourceIds?: unknown;
+  deletedRelationIds?: unknown;
 };
 
 // Private Blob downloads expose the object ETag as a weak HTTP validator
@@ -158,6 +159,16 @@ const readWriteRequest = async (request: Request) => {
     });
   }
 
+  if (
+    body.deletedRelationIds !== undefined &&
+    (!Array.isArray(body.deletedRelationIds) || body.deletedRelationIds.some((id) => typeof id !== 'string' || !id.trim()))
+  ) {
+    throw new Response(JSON.stringify({ error: 'Deleted relation IDs must be non-empty strings.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const repaired = repairConfig(body.config);
   const serialized = JSON.stringify(repaired.config);
   if (Buffer.byteLength(serialized, 'utf8') > MAX_CONFIG_BYTES) {
@@ -173,7 +184,8 @@ const readWriteRequest = async (request: Request) => {
     baseEtag: typeof body.baseEtag === 'string' ? body.baseEtag : null,
     override: body.override === true,
     deletedKpiIds: [...new Set((body.deletedKpiIds as string[] | undefined) ?? [])],
-    deletedDataSourceIds: [...new Set((body.deletedDataSourceIds as string[] | undefined) ?? [])]
+    deletedDataSourceIds: [...new Set((body.deletedDataSourceIds as string[] | undefined) ?? [])],
+    deletedRelationIds: [...new Set((body.deletedRelationIds as string[] | undefined) ?? [])]
   };
 };
 
@@ -203,7 +215,8 @@ const normalSync = async (request: Request) => {
     // every hosted record that is absent locally as a deletion.
     const mergedConfig = applyConfigDeletions(additiveConfig, {
       kpiIds: incoming.deletedKpiIds,
-      dataSourceIds: incoming.deletedDataSourceIds
+      dataSourceIds: incoming.deletedDataSourceIds,
+      relationIds: incoming.deletedRelationIds
     });
 
     try {

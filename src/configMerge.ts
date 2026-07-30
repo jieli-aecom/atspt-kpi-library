@@ -161,6 +161,7 @@ export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: Kpi
 export type ConfigDeletions = {
   kpiIds: readonly string[];
   dataSourceIds: readonly string[];
+  relationIds: readonly string[];
 };
 
 /**
@@ -170,15 +171,18 @@ export type ConfigDeletions = {
  * along with those records.
  */
 export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDeletions): KpiPoolConfig => {
-  if (deletions.kpiIds.length === 0 && deletions.dataSourceIds.length === 0) {
+  if (deletions.kpiIds.length === 0 && deletions.dataSourceIds.length === 0 && deletions.relationIds.length === 0) {
     return config;
   }
 
   const deletedKpiIds = new Set(deletions.kpiIds);
   const deletedDataSourceIds = new Set(deletions.dataSourceIds);
-  const deletedRelationIds = new Set(config.tableRelations
-    .filter((relation) => deletedDataSourceIds.has(relation.sourceDataSourceId) || deletedDataSourceIds.has(relation.targetDataSourceId))
-    .map((relation) => relation.id));
+  const deletedRelationIds = new Set([
+    ...deletions.relationIds,
+    ...config.tableRelations
+      .filter((relation) => deletedDataSourceIds.has(relation.sourceDataSourceId) || deletedDataSourceIds.has(relation.targetDataSourceId))
+      .map((relation) => relation.id)
+  ]);
   const removedGeneratedFieldKeys = new Set(config.dataSources.flatMap((source) => source.fields
     .filter((field) => field.generatedRelationId && deletedRelationIds.has(field.generatedRelationId))
     .map((field) => `${source.id}\u0000${field.id}`)));

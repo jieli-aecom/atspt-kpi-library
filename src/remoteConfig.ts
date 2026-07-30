@@ -77,11 +77,12 @@ export const syncRemoteConfig = (
   config: KpiPoolConfig,
   baseEtag: string | null,
   deletedKpiIds: string[],
-  deletedDataSourceIds: string[]
+  deletedDataSourceIds: string[],
+  deletedRelationIds: string[]
 ) =>
   request(secret, {
     method: 'POST',
-    body: JSON.stringify({ config, baseEtag, deletedKpiIds, deletedDataSourceIds })
+    body: JSON.stringify({ config, baseEtag, deletedKpiIds, deletedDataSourceIds, deletedRelationIds })
   });
 
 export const forceRemoteConfig = (

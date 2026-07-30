@@ -5982,6 +5982,9 @@ function EditorApp({
   const lastSyncedDataSourceIdsRef = useRef(
     new Set(initialRemoteExists ? initialConfig.dataSources.map((source) => source.id) : [])
   );
+  const lastSyncedRelationIdsRef = useRef(
+    new Set(initialRemoteExists ? initialConfig.tableRelations.map((relation) => relation.id) : [])
+  );
   const lastSavedConfigRef = useRef(
     initialRemoteExists || exportedSnapshot ? JSON.stringify(initialConfig) : ''
   );
@@ -6230,6 +6233,7 @@ function EditorApp({
     baselineKpisRef.current = new Map(repaired.config.kpis.map((kpi) => [kpi.id, kpi]));
     lastSyncedKpiIdsRef.current = new Set(repaired.config.kpis.map((kpi) => kpi.id));
     lastSyncedDataSourceIdsRef.current = new Set(repaired.config.dataSources.map((source) => source.id));
+    lastSyncedRelationIdsRef.current = new Set(repaired.config.tableRelations.map((relation) => relation.id));
     lastSavedConfigRef.current = JSON.stringify(repaired.config);
     setConfig(repaired.config);
     setEtag(result.etag);
@@ -6266,12 +6270,17 @@ function EditorApp({
       const deletedDataSourceIds = [...lastSyncedDataSourceIdsRef.current].filter(
         (id) => !currentDataSourceIds.has(id)
       );
+      const currentRelationIds = new Set(config.tableRelations.map((relation) => relation.id));
+      const deletedRelationIds = [...lastSyncedRelationIdsRef.current].filter(
+        (id) => !currentRelationIds.has(id)
+      );
       const result = await syncRemoteConfig(
         hostedSecret,
         config,
         etag,
         deletedKpiIds,
-        deletedDataSourceIds
+        deletedDataSourceIds,
+        deletedRelationIds
       );
       replaceWithRemoteConfig(
         result,
