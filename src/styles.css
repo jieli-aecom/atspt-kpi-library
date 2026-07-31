@@ -684,6 +684,7 @@ h1 {
 
 .expanded-row-viewport {
   position: sticky;
+  z-index: 7;
   left: 0;
   max-width: 100vw;
   background: #f7fafb;
@@ -2622,7 +2623,7 @@ h1 {
 
 .formula-display {
   min-height: 27px;
-  max-height: 190px;
+  max-height: max(190px, var(--formula-display-row-available-height, 0px));
   display: grid;
   gap: 4px;
   align-items: start;

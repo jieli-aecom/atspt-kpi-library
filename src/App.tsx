@@ -1980,10 +1980,22 @@ function FormulaDisplay({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric
   useLayoutEffect(() => {
     const element = displayRef.current;
     if (!element) return undefined;
+    const cell = element.closest<HTMLTableCellElement>('td');
     let active = true;
 
     const measure = () => {
       if (!active) return;
+      if (cell) {
+        const cellStyle = getComputedStyle(cell);
+        const availableCellHeight = cell.clientHeight
+          - (Number.parseFloat(cellStyle.paddingTop) || 0)
+          - (Number.parseFloat(cellStyle.paddingBottom) || 0);
+        const rowAvailableHeight = `${Math.max(0, Math.floor(availableCellHeight))}px`;
+        if (element.style.getPropertyValue('--formula-display-row-available-height') !== rowAvailableHeight) {
+          element.style.setProperty('--formula-display-row-available-height', rowAvailableHeight);
+        }
+      }
+
       const containerRect = element.getBoundingClientRect();
       const paddingBottom = Number.parseFloat(getComputedStyle(element).paddingBottom) || 0;
       const visibleContentBottom = Array.from(element.children).reduce(
@@ -1997,6 +2009,9 @@ function FormulaDisplay({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     observer?.observe(element);
+    if (cell) {
+      observer?.observe(cell);
+    }
     Array.from(element.children).forEach((child) => observer?.observe(child));
     void document.fonts?.ready.then(measure);
 
