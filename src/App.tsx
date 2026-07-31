@@ -4265,6 +4265,7 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   const [query, setQuery] = useState('');
   const [customName, setCustomName] = useState('');
   const [customLatex, setCustomLatex] = useState('');
+  const [expandedPickerGroupKeys, setExpandedPickerGroupKeys] = useState<string[]>([]);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
   const normalizedQuery = normalize(query);
   const toggleDataField = (dataSourceId: string, fieldId: string) => {
@@ -4325,12 +4326,24 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   const visibleKpis = config.kpis.filter((entry) =>
     entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview}`).includes(normalizedQuery))
   );
-  const visibleLookups = config.lookups.filter((lookup) =>
-    !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation}`).join(' ')}`).includes(normalizedQuery)
-  );
-  const visibleVariables = config.variables.filter((variable) =>
-    !normalizedQuery || normalize(`${variable.name} ${variable.explanation} ${variable.unit}`).includes(normalizedQuery)
-  );
+  const lookupMatchesQuery = (lookup: LookupDefinition) =>
+    !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation}`).join(' ')}`).includes(normalizedQuery);
+  const variableMatchesQuery = (variable: VariableDefinition) =>
+    !normalizedQuery || normalize(`${variable.name} ${variable.explanation} ${variable.unit}`).includes(normalizedQuery);
+  const visibleLookups = config.lookups.filter(lookupMatchesQuery);
+  const visibleVariables = config.variables.filter(variableMatchesQuery);
+  const visibleLookupIds = new Set(visibleLookups.map((lookup) => lookup.id));
+  const visibleVariableIds = new Set(visibleVariables.map((variable) => variable.id));
+  const groupedPickerLookupIds = new Set(config.lookupGroups.flatMap((group) => group.itemIds));
+  const groupedPickerVariableIds = new Set(config.variableGroups.flatMap((group) => group.itemIds));
+  const hasVisibleLookupChoices = config.lookups.some((lookup) => {
+    const group = config.lookupGroups.find((entry) => entry.itemIds.includes(lookup.id));
+    return lookupMatchesQuery(lookup) || Boolean(normalizedQuery && group && normalize(group.name).includes(normalizedQuery));
+  });
+  const hasVisibleVariableChoices = config.variables.some((variable) => {
+    const group = config.variableGroups.find((entry) => entry.itemIds.includes(variable.id));
+    return variableMatchesQuery(variable) || Boolean(normalizedQuery && group && normalize(group.name).includes(normalizedQuery));
+  });
   const addCustomSource = () => {
     if (!customName.trim()) return;
     onChange([...kpi.sources, { id: createLocalId('kpi-source'), type: 'custom', name: customName.trim(), latex: customLatex }]);
@@ -4355,6 +4368,67 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
       <button className="mini-icon-button danger" type="button" title="Remove source" onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
     </div>
+    );
+  };
+  const togglePickerGroup = (groupKey: string) => {
+    setExpandedPickerGroupKeys((current) => current.includes(groupKey)
+      ? current.filter((key) => key !== groupKey)
+      : [...current, groupKey]);
+  };
+  const renderLookupChoice = (lookup: LookupDefinition) => (
+    <label className="source-choice-row" key={lookup.id}>
+      <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'lookup' && item.lookupId === lookup.id)} onChange={() => toggleLookup(lookup.id)} />
+      <span><strong>{lookup.outputName}</strong><small>{lookup.outputExplanation}{lookup.inputs.length ? ` · ${lookup.inputs.length} ${lookup.inputs.length === 1 ? 'input' : 'inputs'}` : ''}</small></span>
+    </label>
+  );
+  const renderVariableChoice = (variable: VariableDefinition) => (
+    <label className="source-choice-row" key={variable.id}>
+      <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'variable' && item.variableId === variable.id)} onChange={() => toggleVariable(variable.id)} />
+      <span><strong>{variable.name}</strong><small>{variable.explanation}{variable.unit ? ` · ${variable.unit}` : ''}</small></span>
+    </label>
+  );
+  const renderLookupPickerGroup = (group: DataLibraryGroup) => {
+    const groupKey = `lookup:${group.id}`;
+    const groupNameMatches = Boolean(normalizedQuery && normalize(group.name).includes(normalizedQuery));
+    const groupItems = config.lookups.filter((lookup) =>
+      group.itemIds.includes(lookup.id) && (groupNameMatches || visibleLookupIds.has(lookup.id))
+    );
+    if (normalizedQuery && !groupNameMatches && groupItems.length === 0) return null;
+    const expanded = Boolean(normalizedQuery) || expandedPickerGroupKeys.includes(groupKey);
+    return (
+      <section className="source-choice-library-group is-lookup" key={groupKey}>
+        <button className="source-choice-library-group-heading" type="button" aria-expanded={expanded} onClick={() => togglePickerGroup(groupKey)}>
+          <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
+          <BookOpen size={12} aria-hidden="true" />
+          <strong>{group.name.trim() || 'Untitled group'}</strong>
+          <small>{group.itemIds.length}</small>
+        </button>
+        {expanded ? <div className="source-choice-library-group-body">
+          {groupItems.length ? groupItems.map(renderLookupChoice) : <span className="empty-option">No matching lookups in this group.</span>}
+        </div> : null}
+      </section>
+    );
+  };
+  const renderVariablePickerGroup = (group: DataLibraryGroup) => {
+    const groupKey = `variable:${group.id}`;
+    const groupNameMatches = Boolean(normalizedQuery && normalize(group.name).includes(normalizedQuery));
+    const groupItems = config.variables.filter((variable) =>
+      group.itemIds.includes(variable.id) && (groupNameMatches || visibleVariableIds.has(variable.id))
+    );
+    if (normalizedQuery && !groupNameMatches && groupItems.length === 0) return null;
+    const expanded = Boolean(normalizedQuery) || expandedPickerGroupKeys.includes(groupKey);
+    return (
+      <section className="source-choice-library-group is-variable" key={groupKey}>
+        <button className="source-choice-library-group-heading" type="button" aria-expanded={expanded} onClick={() => togglePickerGroup(groupKey)}>
+          <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
+          <VariableIcon size={12} aria-hidden="true" />
+          <strong>{group.name.trim() || 'Untitled group'}</strong>
+          <small>{group.itemIds.length}</small>
+        </button>
+        {expanded ? <div className="source-choice-library-group-body">
+          {groupItems.length ? groupItems.map(renderVariableChoice) : <span className="empty-option">No matching variables in this group.</span>}
+        </div> : null}
+      </section>
     );
   };
   return (
@@ -4393,25 +4467,29 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
           {pickerScope === 'lookups' ? (
             <fieldset className="source-scope-panel">
               <legend>Lookups</legend>
-              {visibleLookups.length === 0 ? <span className="empty-option">No matching lookups.</span> : null}
-              {visibleLookups.map((lookup) => (
-                <label className="source-choice-row" key={lookup.id}>
-                  <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'lookup' && item.lookupId === lookup.id)} onChange={() => toggleLookup(lookup.id)} />
-                  <span><strong>{lookup.outputName}</strong><small>{lookup.outputExplanation}{lookup.inputs.length ? ` · ${lookup.inputs.length} ${lookup.inputs.length === 1 ? 'input' : 'inputs'}` : ''}</small></span>
-                </label>
-              ))}
+              {!hasVisibleLookupChoices ? <span className="empty-option">No matching lookups.</span> : null}
+              {config.lookups.flatMap((lookup, lookupIndex) => {
+                const groupsAtPosition = config.lookupGroups.filter((group) => group.position === lookupIndex);
+                return [
+                  ...groupsAtPosition.map(renderLookupPickerGroup),
+                  ...(!groupedPickerLookupIds.has(lookup.id) && visibleLookupIds.has(lookup.id) ? [renderLookupChoice(lookup)] : [])
+                ];
+              })}
+              {config.lookupGroups.filter((group) => group.position === config.lookups.length).map(renderLookupPickerGroup)}
             </fieldset>
           ) : null}
           {pickerScope === 'variables' ? (
             <fieldset className="source-scope-panel">
               <legend>Variables</legend>
-              {visibleVariables.length === 0 ? <span className="empty-option">No matching variables.</span> : null}
-              {visibleVariables.map((variable) => (
-                <label className="source-choice-row" key={variable.id}>
-                  <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'variable' && item.variableId === variable.id)} onChange={() => toggleVariable(variable.id)} />
-                  <span><strong>{variable.name}</strong><small>{variable.explanation}{variable.unit ? ` · ${variable.unit}` : ''}</small></span>
-                </label>
-              ))}
+              {!hasVisibleVariableChoices ? <span className="empty-option">No matching variables.</span> : null}
+              {config.variables.flatMap((variable, variableIndex) => {
+                const groupsAtPosition = config.variableGroups.filter((group) => group.position === variableIndex);
+                return [
+                  ...groupsAtPosition.map(renderVariablePickerGroup),
+                  ...(!groupedPickerVariableIds.has(variable.id) && visibleVariableIds.has(variable.id) ? [renderVariableChoice(variable)] : [])
+                ];
+              })}
+              {config.variableGroups.filter((group) => group.position === config.variables.length).map(renderVariablePickerGroup)}
             </fieldset>
           ) : null}
           {selectedDataSource ? (
@@ -6707,8 +6785,14 @@ function EditorApp({
   const lastSyncedRelationIdsRef = useRef(
     new Set(initialRemoteExists ? initialConfig.tableRelations.map((relation) => relation.id) : [])
   );
+  const lastSyncedLookupIdsRef = useRef(
+    new Set(initialRemoteExists ? initialConfig.lookups.map((lookup) => lookup.id) : [])
+  );
   const lastSavedConfigRef = useRef(
     initialRemoteExists || exportedSnapshot ? JSON.stringify(initialConfig) : ''
+  );
+  const lastSyncedConfigRef = useRef<KpiPoolConfig | undefined>(
+    initialRemoteExists ? initialConfig : undefined
   );
   const indexesCacheRef = useRef<{ config: KpiPoolConfig; indexes: AppIndexes }>();
   const serializedConfig = useMemo(() => JSON.stringify(config), [config]);
@@ -6956,7 +7040,9 @@ function EditorApp({
     lastSyncedKpiIdsRef.current = new Set(repaired.config.kpis.map((kpi) => kpi.id));
     lastSyncedDataSourceIdsRef.current = new Set(repaired.config.dataSources.map((source) => source.id));
     lastSyncedRelationIdsRef.current = new Set(repaired.config.tableRelations.map((relation) => relation.id));
+    lastSyncedLookupIdsRef.current = new Set(repaired.config.lookups.map((lookup) => lookup.id));
     lastSavedConfigRef.current = JSON.stringify(repaired.config);
+    lastSyncedConfigRef.current = repaired.config;
     setConfig(repaired.config);
     setEtag(result.etag);
     setWarnings([...repaired.warnings, ...(result.warnings ?? [])]);
@@ -6996,13 +7082,19 @@ function EditorApp({
       const deletedRelationIds = [...lastSyncedRelationIdsRef.current].filter(
         (id) => !currentRelationIds.has(id)
       );
+      const currentLookupIds = new Set(config.lookups.map((lookup) => lookup.id));
+      const deletedLookupIds = [...lastSyncedLookupIdsRef.current].filter(
+        (id) => !currentLookupIds.has(id)
+      );
       const result = await syncRemoteConfig(
         hostedSecret,
         config,
+        lastSyncedConfigRef.current,
         etag,
         deletedKpiIds,
         deletedDataSourceIds,
-        deletedRelationIds
+        deletedRelationIds,
+        deletedLookupIds
       );
       replaceWithRemoteConfig(
         result,
@@ -7186,7 +7278,7 @@ function EditorApp({
               type="button"
               onClick={saveToHostedJson}
               disabled={exportedSnapshot || saveBusy || !hasUnsavedChanges}
-              title={remoteActionTitle ?? 'Add or update records and apply your KPI and data-source deletions'}
+              title={remoteActionTitle ?? 'Merge changes while preserving every deletion made in this editor'}
             >
               <Save size={15} aria-hidden="true" />
               Save to JSON

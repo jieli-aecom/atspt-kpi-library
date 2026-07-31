@@ -7,7 +7,11 @@ import {
   repairConfig,
   UnsupportedSchemaVersionError
 } from '../src/configSchema.js';
-import { applyConfigDeletions, mergeCurrentAdditiveConfig, mergeImportedConfig } from '../src/configMerge.js';
+import {
+  applyConfigDeletions,
+  mergeConcurrentConfig,
+  mergeImportedConfig
+} from '../src/configMerge.js';
 import type { KpiPoolConfig } from '../src/types.js';
 
 const CONFIG_PATH = 'kpi-library.json';
@@ -23,11 +27,13 @@ type StoredConfig = {
 
 type WriteRequest = {
   config?: unknown;
+  baseConfig?: unknown;
   baseEtag?: unknown;
   override?: unknown;
   deletedKpiIds?: unknown;
   deletedDataSourceIds?: unknown;
   deletedRelationIds?: unknown;
+  deletedLookupIds?: unknown;
 };
 
 // Private Blob downloads expose the object ETag as a weak HTTP validator
@@ -115,7 +121,7 @@ const readStoredConfig = async (): Promise<StoredConfig> => {
 
 const readWriteRequest = async (request: Request) => {
   const declaredLength = Number(request.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_CONFIG_BYTES) {
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_CONFIG_BYTES * 2 + 1024 * 1024) {
     throw new Response(JSON.stringify({ error: 'The KPI library request exceeds the supported 5 MB limit.' }), {
       status: 413,
       headers: { 'Content-Type': 'application/json' }
@@ -134,6 +140,13 @@ const readWriteRequest = async (request: Request) => {
 
   if (!body || typeof body !== 'object' || !body.config || typeof body.config !== 'object') {
     throw new Response(JSON.stringify({ error: 'A KPI library configuration is required.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
+  if (body.baseConfig !== undefined && (!body.baseConfig || typeof body.baseConfig !== 'object')) {
+    throw new Response(JSON.stringify({ error: 'The base KPI library configuration must be an object.' }), {
       status: 400,
       headers: { 'Content-Type': 'application/json' }
     });
@@ -169,7 +182,18 @@ const readWriteRequest = async (request: Request) => {
     });
   }
 
+  if (
+    body.deletedLookupIds !== undefined &&
+    (!Array.isArray(body.deletedLookupIds) || body.deletedLookupIds.some((id) => typeof id !== 'string' || !id.trim()))
+  ) {
+    throw new Response(JSON.stringify({ error: 'Deleted lookup IDs must be non-empty strings.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+
   const repaired = repairConfig(body.config);
+  const repairedBase = body.baseConfig ? repairConfig(body.baseConfig) : undefined;
   const serialized = JSON.stringify(repaired.config);
   if (Buffer.byteLength(serialized, 'utf8') > MAX_CONFIG_BYTES) {
     throw new Response(JSON.stringify({ error: 'The KPI library exceeds the supported 5 MB limit.' }), {
@@ -177,15 +201,23 @@ const readWriteRequest = async (request: Request) => {
       headers: { 'Content-Type': 'application/json' }
     });
   }
+  if (repairedBase && Buffer.byteLength(JSON.stringify(repairedBase.config), 'utf8') > MAX_CONFIG_BYTES) {
+    throw new Response(JSON.stringify({ error: 'The base KPI library exceeds the supported 5 MB limit.' }), {
+      status: 413,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
 
   return {
     config: repaired.config,
+    baseConfig: repairedBase?.config,
     warnings: repaired.warnings,
     baseEtag: typeof body.baseEtag === 'string' ? body.baseEtag : null,
     override: body.override === true,
     deletedKpiIds: [...new Set((body.deletedKpiIds as string[] | undefined) ?? [])],
     deletedDataSourceIds: [...new Set((body.deletedDataSourceIds as string[] | undefined) ?? [])],
-    deletedRelationIds: [...new Set((body.deletedRelationIds as string[] | undefined) ?? [])]
+    deletedRelationIds: [...new Set((body.deletedRelationIds as string[] | undefined) ?? [])],
+    deletedLookupIds: [...new Set((body.deletedLookupIds as string[] | undefined) ?? [])]
   };
 };
 
@@ -207,17 +239,22 @@ const normalSync = async (request: Request) => {
   for (let attempt = 0; attempt < MAX_WRITE_ATTEMPTS; attempt += 1) {
     const stored = await readStoredConfig();
     const basedOnCurrent = incoming.baseEtag === stored.etag;
-    const mergeResult = basedOnCurrent ? null : mergeImportedConfig(stored.config, incoming.config);
+    const mergeResult = basedOnCurrent || incoming.baseConfig
+      ? null
+      : mergeImportedConfig(stored.config, incoming.config);
     const additiveConfig = basedOnCurrent
-      ? mergeCurrentAdditiveConfig(stored.config, incoming.config)
-      : mergeResult!.config;
+      ? incoming.config
+      : incoming.baseConfig
+        ? mergeConcurrentConfig(stored.config, incoming.baseConfig, incoming.config)
+        : mergeResult!.config;
     // Explicit tombstones make this editor's own deletions win without treating
     // every hosted record that is absent locally as a deletion.
-    const mergedConfig = applyConfigDeletions(additiveConfig, {
+    const mergedConfig = repairConfig(applyConfigDeletions(additiveConfig, {
       kpiIds: incoming.deletedKpiIds,
       dataSourceIds: incoming.deletedDataSourceIds,
-      relationIds: incoming.deletedRelationIds
-    });
+      relationIds: incoming.deletedRelationIds,
+      lookupIds: incoming.deletedLookupIds
+    })).config;
 
     try {
       const written = await writeConfig(mergedConfig, stored.etag);

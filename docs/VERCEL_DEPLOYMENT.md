@@ -68,7 +68,7 @@ For the API, verify locally through `npx vercel dev`:
 
 - `GET /api/config` without a secret returns JSON HTTP 401.
 - An authenticated `GET /api/config` returns HTTP 200 and the hosted configuration.
-- Normal Save performs an additive synchronization: this editor's explicit KPI deletions win, while KPIs deleted only by another editor are restored if they remain in this editor.
+- Normal Save performs a three-way synchronization against the configuration this editor last loaded. Every explicit local deletion wins, untouched records retain remote edits or deletions, and independent top-level additions from both editors are preserved.
 - Force Save replaces the complete JSON after confirmation.
 - An exported HTML snapshot disables hosted write controls.
 

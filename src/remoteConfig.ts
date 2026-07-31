@@ -75,14 +75,24 @@ export const loadRemoteConfig = (secret: string) => request(secret);
 export const syncRemoteConfig = (
   secret: string,
   config: KpiPoolConfig,
+  baseConfig: KpiPoolConfig | undefined,
   baseEtag: string | null,
   deletedKpiIds: string[],
   deletedDataSourceIds: string[],
-  deletedRelationIds: string[]
+  deletedRelationIds: string[],
+  deletedLookupIds: string[]
 ) =>
   request(secret, {
     method: 'POST',
-    body: JSON.stringify({ config, baseEtag, deletedKpiIds, deletedDataSourceIds, deletedRelationIds })
+    body: JSON.stringify({
+      config,
+      baseConfig,
+      baseEtag,
+      deletedKpiIds,
+      deletedDataSourceIds,
+      deletedRelationIds,
+      deletedLookupIds
+    })
   });
 
 export const forceRemoteConfig = (

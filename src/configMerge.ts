@@ -17,6 +17,81 @@ export type ConfigMergeResult = {
 
 const sameValue = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
 
+const mergeConcurrentCollection = <T extends { id: string }>(
+  current: T[],
+  base: T[],
+  incoming: T[]
+) => {
+  const currentById = new Map(current.map((entry) => [entry.id, entry]));
+  const baseById = new Map(base.map((entry) => [entry.id, entry]));
+  const incomingById = new Map(incoming.map((entry) => [entry.id, entry]));
+  const localStructureChanged = !sameValue(
+    base.map((entry) => entry.id),
+    incoming.map((entry) => entry.id)
+  );
+  const orderedIds = localStructureChanged
+    ? [
+        ...incoming.map((entry) => entry.id),
+        ...current.filter((entry) => !baseById.has(entry.id) && !incomingById.has(entry.id)).map((entry) => entry.id)
+      ]
+    : [
+        ...current.map((entry) => entry.id),
+        ...incoming.filter((entry) => !currentById.has(entry.id)).map((entry) => entry.id)
+      ];
+
+  return [...new Set(orderedIds)].flatMap((id): T[] => {
+    const currentEntry = currentById.get(id);
+    const baseEntry = baseById.get(id);
+    const incomingEntry = incomingById.get(id);
+
+    // It existed when this editor last synchronized and is now absent:
+    // this editor explicitly deleted it, so deletion wins over remote edits.
+    if (baseEntry && !incomingEntry) return [];
+    if (!incomingEntry) return currentEntry ? [currentEntry] : [];
+
+    // A locally edited entity wins as a whole. This also preserves every
+    // nested deletion inside data sources, lookups, and KPIs.
+    if (baseEntry && !sameValue(baseEntry, incomingEntry)) return [incomingEntry];
+
+    // If this editor left the entity untouched, retain the hosted edit or
+    // deletion. Brand-new local entities are appended unless their ID collided.
+    if (currentEntry) return [currentEntry];
+    if (baseEntry) return [];
+    return [incomingEntry];
+  });
+};
+
+/**
+ * Three-way hosted merge using the configuration this editor last synchronized.
+ * Local deletions win, untouched records retain remote edits/deletions, and
+ * independent top-level additions from both editors are preserved.
+ */
+export const mergeConcurrentConfig = (
+  current: KpiPoolConfig,
+  base: KpiPoolConfig,
+  incoming: KpiPoolConfig
+): KpiPoolConfig => ({
+  ...current,
+  schemaVersion: CURRENT_SCHEMA_VERSION,
+  title: incoming.title !== base.title ? incoming.title : current.title,
+  defaultFocus: !sameValue(incoming.defaultFocus, base.defaultFocus)
+    ? incoming.defaultFocus
+    : current.defaultFocus,
+  enums: Object.fromEntries(
+    enumCategoryKeys.map((category) => [
+      category,
+      mergeConcurrentCollection(current.enums[category], base.enums[category], incoming.enums[category])
+    ])
+  ) as KpiPoolConfig['enums'],
+  dataSources: mergeConcurrentCollection(current.dataSources, base.dataSources, incoming.dataSources),
+  tableRelations: mergeConcurrentCollection(current.tableRelations, base.tableRelations, incoming.tableRelations),
+  lookups: mergeConcurrentCollection(current.lookups, base.lookups, incoming.lookups),
+  lookupGroups: mergeConcurrentCollection(current.lookupGroups, base.lookupGroups, incoming.lookupGroups),
+  variables: mergeConcurrentCollection(current.variables, base.variables, incoming.variables),
+  variableGroups: mergeConcurrentCollection(current.variableGroups, base.variableGroups, incoming.variableGroups),
+  kpis: mergeConcurrentCollection(current.kpis, base.kpis, incoming.kpis)
+});
+
 const mergeImportedLibraryGroups = <T extends { id: string }>(
   currentGroups: DataLibraryGroup[],
   incomingGroups: DataLibraryGroup[],
@@ -176,67 +251,11 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
   };
 };
 
-const mergeAdditiveCollection = <T extends { id: string }>(current: T[], incoming: T[]) => {
-  const incomingIds = new Set(incoming.map((entry) => entry.id));
-  return [...incoming, ...current.filter((entry) => !incomingIds.has(entry.id))];
-};
-
-const mergeAdditiveLibraryGroups = (
-  current: DataLibraryGroup[],
-  incoming: DataLibraryGroup[],
-  validItemIds: Set<string>
-) => {
-  const assignedItemIds = new Set<string>();
-  return mergeAdditiveCollection(current, incoming).map((group) => ({
-    ...group,
-    itemIds: group.itemIds.filter((id) => {
-      if (!validItemIds.has(id) || assignedItemIds.has(id)) return false;
-      assignedItemIds.add(id);
-      return true;
-    })
-  }));
-};
-
-/**
- * Applies a normal hosted save when the editor still has the latest server ETag.
- * Existing incoming values are updated, new values are added, and deletions are ignored.
- */
-export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: KpiPoolConfig): KpiPoolConfig => {
-  const lookups = mergeAdditiveCollection(current.lookups, incoming.lookups);
-  const variables = mergeAdditiveCollection(current.variables, incoming.variables);
-  return {
-    ...current,
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    title: incoming.title,
-    defaultFocus: incoming.defaultFocus,
-    enums: Object.fromEntries(
-      enumCategoryKeys.map((category) => [
-        category,
-        mergeAdditiveCollection(current.enums[category], incoming.enums[category])
-      ])
-    ) as KpiPoolConfig['enums'],
-    dataSources: mergeAdditiveCollection(current.dataSources, incoming.dataSources),
-    tableRelations: mergeAdditiveCollection(current.tableRelations, incoming.tableRelations),
-    lookups,
-    lookupGroups: mergeAdditiveLibraryGroups(
-      current.lookupGroups,
-      incoming.lookupGroups,
-      new Set(lookups.map((lookup) => lookup.id))
-    ),
-    variables,
-    variableGroups: mergeAdditiveLibraryGroups(
-      current.variableGroups,
-      incoming.variableGroups,
-      new Set(variables.map((variable) => variable.id))
-    ),
-    kpis: mergeAdditiveCollection(current.kpis, incoming.kpis)
-  };
-};
-
 export type ConfigDeletions = {
   kpiIds: readonly string[];
   dataSourceIds: readonly string[];
   relationIds: readonly string[];
+  lookupIds: readonly string[];
 };
 
 /**
@@ -246,12 +265,18 @@ export type ConfigDeletions = {
  * along with those records.
  */
 export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDeletions): KpiPoolConfig => {
-  if (deletions.kpiIds.length === 0 && deletions.dataSourceIds.length === 0 && deletions.relationIds.length === 0) {
+  if (
+    deletions.kpiIds.length === 0 &&
+    deletions.dataSourceIds.length === 0 &&
+    deletions.relationIds.length === 0 &&
+    deletions.lookupIds.length === 0
+  ) {
     return config;
   }
 
   const deletedKpiIds = new Set(deletions.kpiIds);
   const deletedDataSourceIds = new Set(deletions.dataSourceIds);
+  const deletedLookupIds = new Set(deletions.lookupIds);
   const deletedRelationIds = new Set([
     ...deletions.relationIds,
     ...config.tableRelations
@@ -272,8 +297,13 @@ export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDel
           ...group,
           fieldIds: group.fieldIds.filter((fieldId) => !removedGeneratedFieldKeys.has(`${source.id}\u0000${fieldId}`))
         }))
-      })),
+    })),
     tableRelations: config.tableRelations.filter((relation) => !deletedRelationIds.has(relation.id)),
+    lookups: config.lookups.filter((lookup) => !deletedLookupIds.has(lookup.id)),
+    lookupGroups: config.lookupGroups.map((group) => ({
+      ...group,
+      itemIds: group.itemIds.filter((id) => !deletedLookupIds.has(id))
+    })),
     kpis: config.kpis
       .filter((kpi) => !deletedKpiIds.has(kpi.id))
       .map((kpi) => ({
@@ -281,6 +311,7 @@ export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDel
         sources: kpi.sources.filter(
           (source) =>
             (source.type !== 'kpi' || !deletedKpiIds.has(source.kpiId)) &&
+            (source.type !== 'lookup' || !deletedLookupIds.has(source.lookupId)) &&
             (source.type !== 'dataField' || (!deletedDataSourceIds.has(source.dataSourceId) && !removedGeneratedFieldKeys.has(`${source.dataSourceId}\u0000${source.fieldId}`)))
         ),
         prerequisite: {
