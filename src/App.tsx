@@ -3867,7 +3867,7 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
     entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview}`).includes(normalizedQuery))
   );
   const visibleLookups = config.lookups.filter((lookup) =>
-    !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation}`).join(' ')}`).includes(normalizedQuery)
+    !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation}`).join(' ')}`).includes(normalizedQuery)
   );
   const visibleVariables = config.variables.filter((variable) =>
     !normalizedQuery || normalize(`${variable.name} ${variable.explanation} ${variable.unit}`).includes(normalizedQuery)
