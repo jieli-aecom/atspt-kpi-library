@@ -15,6 +15,7 @@ import {
   type LookupDefinition,
   type LookupInput,
   type VariableDefinition,
+  type DataLibraryGroup,
   type KpiFormulaGroup,
   type KpiFormulaItem,
   type KpiMetric,
@@ -120,6 +121,13 @@ const variableSchema = z.object({
   name: z.string(),
   explanation: z.string(),
   unit: z.string()
+});
+
+const dataLibraryGroupSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  itemIds: z.array(z.string()),
+  position: z.number().int().nonnegative()
 });
 
 const kpiSourceItemSchema = z.discriminatedUnion('type', [
@@ -230,7 +238,9 @@ export const kpiPoolConfigSchema = z.object({
   dataSources: z.array(dataSourceSchema),
   tableRelations: z.array(tableRelationSchema),
   lookups: z.array(lookupSchema),
+  lookupGroups: z.array(dataLibraryGroupSchema),
   variables: z.array(variableSchema),
+  variableGroups: z.array(dataLibraryGroupSchema),
   kpis: z.array(kpiSchema)
 });
 
@@ -333,6 +343,16 @@ const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
 
 const hasDuplicate = (values: string[]) => new Set(values).size !== values.length;
 
+const isCurrentDataLibraryGroup = (value: unknown, itemCount: number): value is DataLibraryGroup =>
+  isRecord(value) &&
+  typeof value.id === 'string' &&
+  typeof value.name === 'string' &&
+  isStringArray(value.itemIds) &&
+  typeof value.position === 'number' &&
+  Number.isInteger(value.position) &&
+  value.position >= 0 &&
+  value.position <= itemCount;
+
 const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   if (
     !isRecord(input) ||
@@ -343,7 +363,9 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     !Array.isArray(input.dataSources) ||
     !Array.isArray(input.tableRelations) ||
     !Array.isArray(input.lookups) ||
+    !Array.isArray(input.lookupGroups) ||
     !Array.isArray(input.variables) ||
+    !Array.isArray(input.variableGroups) ||
     !Array.isArray(input.kpis)
   ) {
     return false;
@@ -480,11 +502,31 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     return false;
   }
   const validLookups = new Set(currentLookups.map((lookup) => lookup.id));
+  const currentLookupGroups = input.lookupGroups as DataLibraryGroup[];
+  const groupedLookupIds = currentLookupGroups.flatMap((group) => group.itemIds);
+  if (
+    !currentLookupGroups.every((group) => isCurrentDataLibraryGroup(group, currentLookups.length)) ||
+    hasDuplicate(currentLookupGroups.map((group) => group.id)) ||
+    hasDuplicate(groupedLookupIds) ||
+    currentLookupGroups.some((group) => !group.itemIds.every((id) => validLookups.has(id)))
+  ) {
+    return false;
+  }
   const currentVariables = input.variables as VariableDefinition[];
   if (hasDuplicate(currentVariables.map((variable) => variable.id))) {
     return false;
   }
   const validVariables = new Set(currentVariables.map((variable) => variable.id));
+  const currentVariableGroups = input.variableGroups as DataLibraryGroup[];
+  const groupedVariableIds = currentVariableGroups.flatMap((group) => group.itemIds);
+  if (
+    !currentVariableGroups.every((group) => isCurrentDataLibraryGroup(group, currentVariables.length)) ||
+    hasDuplicate(currentVariableGroups.map((group) => group.id)) ||
+    hasDuplicate(groupedVariableIds) ||
+    currentVariableGroups.some((group) => !group.itemIds.every((id) => validVariables.has(id)))
+  ) {
+    return false;
+  }
   const currentDataSources = input.dataSources as DataSource[];
   const dataSourceById = new Map(currentDataSources.map((source) => [source.id, source]));
   if (
@@ -2140,6 +2182,47 @@ const repairVariables = (rawValue: unknown, warnings: string[]): VariableDefinit
   });
 };
 
+const repairDataLibraryGroups = (
+  rawValue: unknown,
+  items: readonly { id: string }[],
+  collectionName: 'lookup' | 'variable',
+  warnings: string[]
+): DataLibraryGroup[] => {
+  if (rawValue == null) return [];
+  if (!Array.isArray(rawValue)) {
+    warnings.push(`${collectionName === 'lookup' ? 'Lookup' : 'Variable'} groups were not a list and were initialized empty.`);
+    return [];
+  }
+  const usedGroupIds = new Set<string>();
+  const assignedItemIds = new Set<string>();
+  const validItemIds = new Set(items.map((item) => item.id));
+  return rawValue.flatMap((rawGroup, groupIndex): DataLibraryGroup[] => {
+    if (!isRecord(rawGroup)) return [];
+    const rawItemIds = rawGroup.itemIds ??
+      (collectionName === 'lookup' ? rawGroup.lookupIds : rawGroup.variableIds);
+    const itemIds = (Array.isArray(rawItemIds) ? rawItemIds : [])
+      .map((id) => stringValue(id).trim())
+      .filter((id) => {
+        if (!id || !validItemIds.has(id) || assignedItemIds.has(id)) return false;
+        assignedItemIds.add(id);
+        return true;
+      });
+    const rawPosition = Number(rawGroup.position);
+    return [{
+      id: ensureUniqueId(
+        rawGroup.id,
+        `${collectionName}-group`,
+        usedGroupIds,
+        warnings,
+        `${collectionName === 'lookup' ? 'Lookup' : 'Variable'} group ${groupIndex + 1}`
+      ),
+      name: stringValue(rawGroup.name ?? rawGroup.label).trim() || `Group ${groupIndex + 1}`,
+      itemIds,
+      position: Math.max(0, Math.min(Number.isFinite(rawPosition) ? Math.floor(rawPosition) : items.length, items.length))
+    }];
+  });
+};
+
 const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string): KpiSourceItem[] => {
   if (rawValue == null) {
     return [];
@@ -2249,7 +2332,9 @@ export const createBlankConfig = (): KpiPoolConfig => ({
   dataSources: [],
   tableRelations: [],
   lookups: [],
+  lookupGroups: [],
   variables: [],
+  variableGroups: [],
   kpis: []
 });
 
@@ -2335,7 +2420,9 @@ export const repairConfig = (input: unknown): RepairResult => {
   const tableRelations = repairTableRelations(rawConfig.tableRelations ?? rawConfig.relations, repairedDataSources, warnings);
   const dataSources = reconcileRelationFields(repairedDataSources, tableRelations);
   const lookups = repairLookups(rawConfig.lookups, warnings);
+  const lookupGroups = repairDataLibraryGroups(rawConfig.lookupGroups, lookups, 'lookup', warnings);
   const variables = repairVariables(rawConfig.variables, warnings);
+  const variableGroups = repairDataLibraryGroups(rawConfig.variableGroups, variables, 'variable', warnings);
   const rawKpis = Array.isArray(rawConfig.kpis) ? rawConfig.kpis : [];
   if (!Array.isArray(rawConfig.kpis)) {
     warnings.push('Missing or invalid kpis list; initialized it as an empty list.');
@@ -2549,7 +2636,9 @@ export const repairConfig = (input: unknown): RepairResult => {
     dataSources,
     tableRelations,
     lookups,
+    lookupGroups,
     variables,
+    variableGroups,
     kpis: scopedKpis
   };
 

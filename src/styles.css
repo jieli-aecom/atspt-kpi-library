@@ -892,7 +892,7 @@ h1 {
 .variable-heading,
 .variable-row {
   display: grid;
-  grid-template-columns: minmax(120px, 0.65fr) minmax(220px, 1.35fr) minmax(80px, 0.45fr) 56px;
+  grid-template-columns: 26px minmax(120px, 0.65fr) minmax(220px, 1.35fr) minmax(80px, 0.45fr) 56px;
   align-items: center;
   gap: 6px;
 }
@@ -919,6 +919,149 @@ h1 {
 
 .variable-add {
   justify-self: start;
+}
+
+.library-item-shell {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: start;
+  gap: 4px;
+}
+
+.library-item-shell > .lookup-definition {
+  min-width: 0;
+}
+
+.library-item-drag {
+  width: 26px;
+  min-height: 34px;
+}
+
+.library-item-shell.is-drag-over-before,
+.variable-row.is-drag-over-before {
+  box-shadow: inset 0 2px 0 #565c91;
+}
+
+.library-item-shell.is-drag-over-after,
+.variable-row.is-drag-over-after {
+  box-shadow: inset 0 -2px 0 #565c91;
+}
+
+.library-group {
+  overflow: hidden;
+  border: 1px solid #d5d8e7;
+  border-radius: 6px;
+  background: #f4f4fa;
+}
+
+.library-group.is-variable {
+  border-color: #e1d7e6;
+  background: #faf4fb;
+}
+
+.library-group.is-drag-over {
+  border-color: #656aa0;
+  box-shadow: inset 0 0 0 1px #656aa0;
+  background: #eeeefa;
+}
+
+.library-group.is-variable.is-drag-over {
+  border-color: #9562a7;
+  box-shadow: inset 0 0 0 1px #9562a7;
+  background: #f7edf9;
+}
+
+.library-group-heading {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 31px;
+  border: 0;
+  background: transparent;
+  color: #424b79;
+  padding: 4px 7px;
+  text-align: left;
+}
+
+.library-group.is-variable .library-group-heading {
+  color: #71447f;
+}
+
+.library-group-heading strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.library-group-heading small {
+  color: #73798d;
+  font-size: 9px;
+}
+
+.library-group-body {
+  display: grid;
+  gap: 4px;
+  border-top: 1px solid #d5d8e7;
+  padding: 6px;
+}
+
+.library-group.is-variable .library-group-body {
+  border-top-color: #e1d7e6;
+}
+
+.library-group-settings {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px;
+  align-items: end;
+  gap: 5px;
+}
+
+.library-group-settings .field input {
+  min-height: 28px;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.library-group-drop-hint {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 36px;
+  border: 1px dashed #c4c6da;
+  border-radius: 5px;
+  color: #73798d;
+  font-size: 10px;
+}
+
+.library-group-add-item {
+  justify-self: start;
+}
+
+.library-final-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 2px;
+}
+
+.library-ungrouped-dropzone {
+  border: 1px dashed transparent;
+  border-radius: 6px;
+  padding: 3px;
+}
+
+.library-ungrouped-dropzone.is-drag-over {
+  border-color: #777cad;
+  background: #f0f0fa;
+}
+
+.variable-library .library-ungrouped-dropzone.is-drag-over {
+  border-color: #9a67ad;
+  background: #f8effa;
 }
 
 .lookup-library-heading {
@@ -4108,6 +4251,37 @@ h1 {
   .formula-group-drag-handle,
   .formula-drag-handle {
     margin-top: 0;
+  }
+
+  .variable-row {
+    grid-template-columns: 26px minmax(0, 1fr);
+    grid-template-areas:
+      "drag name"
+      "drag explanation"
+      "drag unit"
+      "drag actions";
+    align-items: start;
+  }
+
+  .variable-row > .library-item-drag {
+    grid-area: drag;
+    height: 100%;
+  }
+
+  .variable-row > input:nth-of-type(1) {
+    grid-area: name;
+  }
+
+  .variable-row > input:nth-of-type(2) {
+    grid-area: explanation;
+  }
+
+  .variable-row > input:nth-of-type(3) {
+    grid-area: unit;
+  }
+
+  .variable-row > .lookup-definition-actions {
+    grid-area: actions;
   }
 
   .term-explanation-row {

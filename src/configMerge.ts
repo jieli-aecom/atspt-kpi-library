@@ -1,4 +1,4 @@
-import { CURRENT_SCHEMA_VERSION, enumCategoryKeys, type KpiPoolConfig } from './types.js';
+import { CURRENT_SCHEMA_VERSION, enumCategoryKeys, type DataLibraryGroup, type KpiPoolConfig } from './types.js';
 
 export type ConfigMergeResult = {
   config: KpiPoolConfig;
@@ -16,6 +16,35 @@ export type ConfigMergeResult = {
 };
 
 const sameValue = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+
+const mergeImportedLibraryGroups = <T extends { id: string }>(
+  currentGroups: DataLibraryGroup[],
+  incomingGroups: DataLibraryGroup[],
+  currentItems: T[],
+  incomingItems: T[],
+  addedItems: T[]
+) => {
+  if (currentItems.length === 0 && currentGroups.length === 0) return incomingGroups;
+  const existingGroupIds = new Set(currentGroups.map((group) => group.id));
+  const addedItemIds = new Set(addedItems.map((item) => item.id));
+  const assignedItemIds = new Set(currentGroups.flatMap((group) => group.itemIds));
+  return [
+    ...currentGroups,
+    ...incomingGroups.flatMap((group) => {
+      if (existingGroupIds.has(group.id)) return [];
+      const itemIds = group.itemIds.filter((id) => {
+        if (!addedItemIds.has(id) || assignedItemIds.has(id)) return false;
+        assignedItemIds.add(id);
+        return true;
+      });
+      const addedBeforeGroup = incomingItems
+        .slice(0, Math.max(0, Math.min(group.position, incomingItems.length)))
+        .filter((item) => addedItemIds.has(item.id))
+        .length;
+      return [{ ...group, itemIds, position: currentItems.length + addedBeforeGroup }];
+    })
+  ];
+};
 
 export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolConfig): ConfigMergeResult => {
   let addedEnumOptions = 0;
@@ -101,7 +130,9 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     current.dataSources.length === 0 &&
     current.tableRelations.length === 0 &&
     current.lookups.length === 0 &&
+    current.lookupGroups.length === 0 &&
     current.variables.length === 0 &&
+    current.variableGroups.length === 0 &&
     enumCategoryKeys.every((category) => current.enums[category].length === 0);
 
   return {
@@ -114,7 +145,21 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
       dataSources: [...current.dataSources, ...addedDataSources],
       tableRelations: [...current.tableRelations, ...addedTableRelations],
       lookups: [...current.lookups, ...addedLookups],
+      lookupGroups: mergeImportedLibraryGroups(
+        current.lookupGroups,
+        incoming.lookupGroups,
+        current.lookups,
+        incoming.lookups,
+        addedLookups
+      ),
       variables: [...current.variables, ...addedVariables],
+      variableGroups: mergeImportedLibraryGroups(
+        current.variableGroups,
+        incoming.variableGroups,
+        current.variables,
+        incoming.variables,
+        addedVariables
+      ),
       kpis: [...mergedCurrentKpis, ...addedKpis]
     },
     importedKpiIds,
@@ -136,27 +181,57 @@ const mergeAdditiveCollection = <T extends { id: string }>(current: T[], incomin
   return [...incoming, ...current.filter((entry) => !incomingIds.has(entry.id))];
 };
 
+const mergeAdditiveLibraryGroups = (
+  current: DataLibraryGroup[],
+  incoming: DataLibraryGroup[],
+  validItemIds: Set<string>
+) => {
+  const assignedItemIds = new Set<string>();
+  return mergeAdditiveCollection(current, incoming).map((group) => ({
+    ...group,
+    itemIds: group.itemIds.filter((id) => {
+      if (!validItemIds.has(id) || assignedItemIds.has(id)) return false;
+      assignedItemIds.add(id);
+      return true;
+    })
+  }));
+};
+
 /**
  * Applies a normal hosted save when the editor still has the latest server ETag.
  * Existing incoming values are updated, new values are added, and deletions are ignored.
  */
-export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: KpiPoolConfig): KpiPoolConfig => ({
-  ...current,
-  schemaVersion: CURRENT_SCHEMA_VERSION,
-  title: incoming.title,
-  defaultFocus: incoming.defaultFocus,
-  enums: Object.fromEntries(
-    enumCategoryKeys.map((category) => [
-      category,
-      mergeAdditiveCollection(current.enums[category], incoming.enums[category])
-    ])
-  ) as KpiPoolConfig['enums'],
-  dataSources: mergeAdditiveCollection(current.dataSources, incoming.dataSources),
-  tableRelations: mergeAdditiveCollection(current.tableRelations, incoming.tableRelations),
-  lookups: mergeAdditiveCollection(current.lookups, incoming.lookups),
-  variables: mergeAdditiveCollection(current.variables, incoming.variables),
-  kpis: mergeAdditiveCollection(current.kpis, incoming.kpis)
-});
+export const mergeCurrentAdditiveConfig = (current: KpiPoolConfig, incoming: KpiPoolConfig): KpiPoolConfig => {
+  const lookups = mergeAdditiveCollection(current.lookups, incoming.lookups);
+  const variables = mergeAdditiveCollection(current.variables, incoming.variables);
+  return {
+    ...current,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    title: incoming.title,
+    defaultFocus: incoming.defaultFocus,
+    enums: Object.fromEntries(
+      enumCategoryKeys.map((category) => [
+        category,
+        mergeAdditiveCollection(current.enums[category], incoming.enums[category])
+      ])
+    ) as KpiPoolConfig['enums'],
+    dataSources: mergeAdditiveCollection(current.dataSources, incoming.dataSources),
+    tableRelations: mergeAdditiveCollection(current.tableRelations, incoming.tableRelations),
+    lookups,
+    lookupGroups: mergeAdditiveLibraryGroups(
+      current.lookupGroups,
+      incoming.lookupGroups,
+      new Set(lookups.map((lookup) => lookup.id))
+    ),
+    variables,
+    variableGroups: mergeAdditiveLibraryGroups(
+      current.variableGroups,
+      incoming.variableGroups,
+      new Set(variables.map((variable) => variable.id))
+    ),
+    kpis: mergeAdditiveCollection(current.kpis, incoming.kpis)
+  };
+};
 
 export type ConfigDeletions = {
   kpiIds: readonly string[];

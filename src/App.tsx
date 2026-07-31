@@ -70,6 +70,7 @@ import {
   type LookupDefinition,
   type LookupInput,
   type VariableDefinition,
+  type DataLibraryGroup,
   kpiEnumCategoryKeys,
   type KpiEnumCategoryKey,
   type KpiFormulaGroup,
@@ -2445,9 +2446,11 @@ function DataSourceHeader({
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
   const [collapsedFieldGroupIds, setCollapsedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
+  const [expandedLookupGroupIds, setExpandedLookupGroupIds] = useState<string[]>([]);
   const [lookupsExpanded, setLookupsExpanded] = useState(false);
   const [lookupTextEditorId, setLookupTextEditorId] = useState<string | null>(null);
   const [variablesExpanded, setVariablesExpanded] = useState(false);
+  const [expandedVariableGroupIds, setExpandedVariableGroupIds] = useState<string[]>([]);
   const [relationEditor, setRelationEditor] = useState<{
     sourceDataSourceId: string;
     targetDataSourceId: string;
@@ -2467,6 +2470,9 @@ function DataSourceHeader({
   const [fieldDragOver, setFieldDragOver] = useState<{ sourceIndex: number; fieldIndex: number; position: DropPosition } | null>(null);
   const [fieldInsertDragOver, setFieldInsertDragOver] = useState<{ sourceIndex: number; targetKey: string } | null>(null);
   const [fieldGroupDragOver, setFieldGroupDragOver] = useState<{ sourceIndex: number; groupId?: string } | null>(null);
+  const [libraryItemDrag, setLibraryItemDrag] = useState<{ kind: 'lookup' | 'variable'; itemIndex: number } | null>(null);
+  const [libraryItemDragOver, setLibraryItemDragOver] = useState<{ kind: 'lookup' | 'variable'; itemIndex: number; position: DropPosition } | null>(null);
+  const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: 'lookup' | 'variable'; groupId?: string } | null>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   useLayoutEffect(() => {
     if (!open) return undefined;
@@ -2516,9 +2522,11 @@ function DataSourceHeader({
   const patchDataSources = (dataSources: DataSource[]) => {
     onConfigChange({ ...config, dataSources });
   };
-  const patchLookups = (lookups: LookupDefinition[]) => onConfigChange({ ...config, lookups });
-  const patchVariables = (variables: VariableDefinition[]) => onConfigChange({ ...config, variables });
-  const addLookup = (insertionIndex = config.lookups.length) => {
+  const patchLookups = (lookups: LookupDefinition[], lookupGroups = config.lookupGroups) =>
+    onConfigChange({ ...config, lookups, lookupGroups });
+  const patchVariables = (variables: VariableDefinition[], variableGroups = config.variableGroups) =>
+    onConfigChange({ ...config, variables, variableGroups });
+  const addLookup = (insertionIndex = config.lookups.length, groupId?: string) => {
     const lookup: LookupDefinition = {
       id: createLocalId('lookup'),
       outputName: 'New lookup',
@@ -2527,7 +2535,14 @@ function DataSourceHeader({
       inputs: []
     };
     const index = Math.max(0, Math.min(insertionIndex, config.lookups.length));
-    patchLookups([...config.lookups.slice(0, index), lookup, ...config.lookups.slice(index)]);
+    patchLookups(
+      [...config.lookups.slice(0, index), lookup, ...config.lookups.slice(index)],
+      config.lookupGroups.map((group) => ({
+        ...group,
+        position: group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
+        itemIds: group.id === groupId ? [...group.itemIds, lookup.id] : group.itemIds
+      }))
+    );
     setLookupsExpanded(true);
     setExpandedLookupIds((current) => [...new Set([...current, lookup.id])]);
   };
@@ -2542,7 +2557,21 @@ function DataSourceHeader({
       outputName: `${lookup.outputName || 'Untitled lookup'} copy`,
       inputs: lookup.inputs.map((input) => ({ ...input, id: createLocalId('lookup-input') }))
     };
-    patchLookups([...config.lookups.slice(0, lookupIndex + 1), duplicate, ...config.lookups.slice(lookupIndex + 1)]);
+    const containingGroup = config.lookupGroups.find((group) => group.itemIds.includes(lookup.id));
+    patchLookups(
+      [...config.lookups.slice(0, lookupIndex + 1), duplicate, ...config.lookups.slice(lookupIndex + 1)],
+      config.lookupGroups.map((group) => {
+        const memberIndex = group.itemIds.indexOf(lookup.id);
+        return {
+          ...group,
+          position: group.position > lookupIndex ? group.position + 1 : group.position,
+          itemIds: memberIndex < 0
+            ? group.itemIds
+            : [...group.itemIds.slice(0, memberIndex + 1), duplicate.id, ...group.itemIds.slice(memberIndex + 1)]
+        };
+      })
+    );
+    if (containingGroup) setExpandedLookupGroupIds((current) => [...new Set([...current, containingGroup.id])]);
     setExpandedLookupIds((current) => [...new Set([...current, duplicate.id])]);
   };
   const deleteLookup = (lookupIndex: number) => {
@@ -2553,13 +2582,18 @@ function DataSourceHeader({
     onConfigChange({
       ...config,
       lookups: config.lookups.filter((_, index) => index !== lookupIndex),
+      lookupGroups: config.lookupGroups.map((group) => ({
+        ...group,
+        position: group.position > lookupIndex ? group.position - 1 : group.position,
+        itemIds: group.itemIds.filter((id) => id !== lookupId)
+      })),
       kpis: config.kpis.map((kpi) => ({
         ...kpi,
         sources: kpi.sources.filter((source) => source.type !== 'lookup' || source.lookupId !== lookupId)
       }))
     });
   };
-  const addVariable = (insertionIndex = config.variables.length) => {
+  const addVariable = (insertionIndex = config.variables.length, groupId?: string) => {
     const variable: VariableDefinition = {
       id: createLocalId('variable'),
       name: 'New variable',
@@ -2567,7 +2601,14 @@ function DataSourceHeader({
       unit: ''
     };
     const index = Math.max(0, Math.min(insertionIndex, config.variables.length));
-    patchVariables([...config.variables.slice(0, index), variable, ...config.variables.slice(index)]);
+    patchVariables(
+      [...config.variables.slice(0, index), variable, ...config.variables.slice(index)],
+      config.variableGroups.map((group) => ({
+        ...group,
+        position: group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
+        itemIds: group.id === groupId ? [...group.itemIds, variable.id] : group.itemIds
+      }))
+    );
     setVariablesExpanded(true);
   };
   const updateVariable = (variableIndex: number, partial: Partial<VariableDefinition>) =>
@@ -2580,7 +2621,21 @@ function DataSourceHeader({
       id: createLocalId('variable'),
       name: `${variable.name || 'Untitled variable'} copy`
     };
-    patchVariables([...config.variables.slice(0, variableIndex + 1), duplicate, ...config.variables.slice(variableIndex + 1)]);
+    const containingGroup = config.variableGroups.find((group) => group.itemIds.includes(variable.id));
+    patchVariables(
+      [...config.variables.slice(0, variableIndex + 1), duplicate, ...config.variables.slice(variableIndex + 1)],
+      config.variableGroups.map((group) => {
+        const memberIndex = group.itemIds.indexOf(variable.id);
+        return {
+          ...group,
+          position: group.position > variableIndex ? group.position + 1 : group.position,
+          itemIds: memberIndex < 0
+            ? group.itemIds
+            : [...group.itemIds.slice(0, memberIndex + 1), duplicate.id, ...group.itemIds.slice(memberIndex + 1)]
+        };
+      })
+    );
+    if (containingGroup) setExpandedVariableGroupIds((current) => [...new Set([...current, containingGroup.id])]);
     setVariablesExpanded(true);
   };
   const deleteVariable = (variableIndex: number) => {
@@ -2589,11 +2644,121 @@ function DataSourceHeader({
     onConfigChange({
       ...config,
       variables: config.variables.filter((_, index) => index !== variableIndex),
+      variableGroups: config.variableGroups.map((group) => ({
+        ...group,
+        position: group.position > variableIndex ? group.position - 1 : group.position,
+        itemIds: group.itemIds.filter((id) => id !== variableId)
+      })),
       kpis: config.kpis.map((kpi) => ({
         ...kpi,
         sources: kpi.sources.filter((source) => source.type !== 'variable' || source.variableId !== variableId)
       }))
     });
+  };
+  const addLibraryGroup = (kind: 'lookup' | 'variable', position: number) => {
+    const group: DataLibraryGroup = {
+      id: createLocalId(`${kind}-group`),
+      name: 'New group',
+      itemIds: [],
+      position
+    };
+    if (kind === 'lookup') {
+      onConfigChange({ ...config, lookupGroups: [...config.lookupGroups, group] });
+      setLookupsExpanded(true);
+    } else {
+      onConfigChange({ ...config, variableGroups: [...config.variableGroups, group] });
+      setVariablesExpanded(true);
+    }
+  };
+  const updateLibraryGroup = (kind: 'lookup' | 'variable', groupId: string, partial: Partial<DataLibraryGroup>) => {
+    if (kind === 'lookup') {
+      onConfigChange({
+        ...config,
+        lookupGroups: config.lookupGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
+      });
+    } else {
+      onConfigChange({
+        ...config,
+        variableGroups: config.variableGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
+      });
+    }
+  };
+  const deleteLibraryGroup = (kind: 'lookup' | 'variable', groupId: string) => {
+    if (kind === 'lookup') {
+      setExpandedLookupGroupIds((current) => current.filter((id) => id !== groupId));
+      onConfigChange({ ...config, lookupGroups: config.lookupGroups.filter((group) => group.id !== groupId) });
+    } else {
+      setExpandedVariableGroupIds((current) => current.filter((id) => id !== groupId));
+      onConfigChange({ ...config, variableGroups: config.variableGroups.filter((group) => group.id !== groupId) });
+    }
+  };
+  const assignLibraryItemToGroup = (kind: 'lookup' | 'variable', itemId: string, groupId?: string) => {
+    const groups = kind === 'lookup' ? config.lookupGroups : config.variableGroups;
+    const nextGroups = groups.map((group) => ({
+      ...group,
+      itemIds: group.id === groupId
+        ? group.itemIds.includes(itemId) ? group.itemIds : [...group.itemIds, itemId]
+        : group.itemIds.filter((id) => id !== itemId)
+    }));
+    if (kind === 'lookup') onConfigChange({ ...config, lookupGroups: nextGroups });
+    else onConfigChange({ ...config, variableGroups: nextGroups });
+  };
+  const moveLibraryCollection = <T extends { id: string },>(
+    items: T[],
+    groups: DataLibraryGroup[],
+    sourceIndex: number,
+    targetIndex: number,
+    position: DropPosition,
+    groupId?: string
+  ) => {
+    const nextItems = [...items];
+    const itemToMove = nextItems[sourceIndex];
+    if (!itemToMove) return { items, groups };
+    const targetBoundary = targetIndex + (position === 'after' ? 1 : 0);
+    const [moved] = nextItems.splice(sourceIndex, 1);
+    let insertionIndex = targetBoundary;
+    if (sourceIndex < insertionIndex) insertionIndex -= 1;
+    nextItems.splice(Math.max(0, Math.min(insertionIndex, nextItems.length)), 0, moved);
+    return {
+      items: nextItems,
+      groups: groups.map((group) => {
+        const positionAfterRemoval = group.position > sourceIndex ? group.position - 1 : group.position;
+        const nextPosition = group.id !== groupId && group.position >= targetBoundary
+          ? positionAfterRemoval + 1
+          : positionAfterRemoval;
+        return {
+          ...group,
+          position: nextPosition,
+          itemIds: group.id === groupId
+            ? group.itemIds.includes(moved.id) ? group.itemIds : [...group.itemIds, moved.id]
+            : group.itemIds.filter((id) => id !== moved.id)
+        };
+      })
+    };
+  };
+  const moveLibraryItem = (kind: 'lookup' | 'variable', targetIndex: number, position: DropPosition, groupId?: string) => {
+    if (!libraryItemDrag || libraryItemDrag.kind !== kind) return;
+    if (kind === 'lookup') {
+      const result = moveLibraryCollection(
+        config.lookups,
+        config.lookupGroups,
+        libraryItemDrag.itemIndex,
+        targetIndex,
+        position,
+        groupId
+      );
+      onConfigChange({ ...config, lookups: result.items, lookupGroups: result.groups });
+    } else {
+      const result = moveLibraryCollection(
+        config.variables,
+        config.variableGroups,
+        libraryItemDrag.itemIndex,
+        targetIndex,
+        position,
+        groupId
+      );
+      onConfigChange({ ...config, variables: result.items, variableGroups: result.groups });
+    }
   };
   const addLookupInput = (lookupIndex: number, insertionIndex?: number) => {
     const lookup = config.lookups[lookupIndex];
@@ -3032,6 +3197,269 @@ function DataSourceHeader({
       }))
     });
   };
+  const clearLibraryDrag = () => {
+    setLibraryItemDrag(null);
+    setLibraryItemDragOver(null);
+    setLibraryGroupDragOver(null);
+  };
+  const renderLibraryInsertActions = (
+    kind: 'lookup' | 'variable',
+    position: number,
+    key: string,
+    groupId?: string
+  ) => (
+    <div className="field-insert-actions library-insert-actions" key={key}>
+      <button
+        className="list-insert-divider"
+        type="button"
+        onClick={() => kind === 'lookup' ? addLookup(position, groupId) : addVariable(position, groupId)}
+      ><Plus size={11} aria-hidden="true" />Add {kind} here</button>
+      <button
+        className="list-insert-divider field-group-insert-divider"
+        type="button"
+        onClick={() => addLibraryGroup(kind, position)}
+      ><Plus size={11} aria-hidden="true" />Add group</button>
+    </div>
+  );
+  const renderLookupItem = (lookup: LookupDefinition, lookupIndex: number, groupId?: string) => (
+    <div
+      className={`library-item-shell ${libraryItemDragOver?.kind === 'lookup' && libraryItemDragOver.itemIndex === lookupIndex ? `is-drag-over-${libraryItemDragOver.position}` : ''}`}
+      key={lookup.id}
+      onDragOver={(event) => {
+        if (libraryItemDrag?.kind !== 'lookup') return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        setLibraryItemDragOver({
+          kind: 'lookup',
+          itemIndex: lookupIndex,
+          position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+        });
+        setLibraryGroupDragOver({ kind: 'lookup', groupId });
+      }}
+      onDrop={(event) => {
+        if (libraryItemDrag?.kind !== 'lookup') return;
+        event.preventDefault();
+        event.stopPropagation();
+        moveLibraryItem('lookup', lookupIndex, libraryItemDragOver?.position ?? 'before', groupId);
+        clearLibraryDrag();
+      }}
+    >
+      <button
+        className="mini-icon-button drag-handle library-item-drag"
+        type="button"
+        draggable
+        title="Drag to reorder or move into a group"
+        aria-label={`Drag ${lookup.outputName || 'lookup'} to reorder or move into a group`}
+        onDragStart={(event) => {
+          setLibraryItemDrag({ kind: 'lookup', itemIndex: lookupIndex });
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', lookup.id);
+        }}
+        onDragEnd={clearLibraryDrag}
+      ><GripVertical size={13} aria-hidden="true" /></button>
+      <details className="lookup-definition" open={expandedLookupIds.includes(lookup.id)} onToggle={(event) => {
+        const isOpen = event.currentTarget.open;
+        setExpandedLookupIds((current) => isOpen ? [...new Set([...current, lookup.id])] : current.filter((id) => id !== lookup.id));
+      }}>
+        <summary>
+          <BookOpen size={13} aria-hidden="true" />
+          <span><strong>{lookup.outputName.trim() || 'Untitled lookup'}</strong><small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small></span>
+          <code>{lookupDefaultLatex(lookup)}</code>
+          <ChevronDown size={12} aria-hidden="true" />
+        </summary>
+        <div className="lookup-definition-body">
+          <div className="lookup-output-fields">
+            <label className="field"><span>Output name</span><input value={lookup.outputName} onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} /></label>
+            <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
+            <div className="lookup-definition-actions">
+              <button
+                className={`mini-icon-button lookup-text-button ${lookup.text.trim() ? 'has-text' : ''}`}
+                type="button"
+                title={lookup.text.trim() ? 'Edit lookup text' : 'Add lookup text'}
+                aria-label={`${lookup.text.trim() ? 'Edit' : 'Add'} lookup text for ${lookup.outputName.trim() || 'untitled lookup'}`}
+                onClick={() => setLookupTextEditorId(lookup.id)}
+              >
+                <FileText size={12} aria-hidden="true" />
+              </button>
+              <button className="mini-icon-button" type="button" title="Copy lookup" onClick={() => duplicateLookup(lookupIndex)}><Copy size={12} /></button>
+              <button className="mini-icon-button danger" type="button" title="Delete lookup" onClick={() => deleteLookup(lookupIndex)}><Trash2 size={12} /></button>
+            </div>
+          </div>
+          <div className="lookup-input-heading"><span>Input representation</span><span>Explanation</span><span>Actions</span></div>
+          {lookup.inputs.length === 0 ? <span className="empty-option">No input variables.</span> : null}
+          {lookup.inputs.flatMap((input, inputIndex) => [
+            <button className="list-insert-divider lookup-input-insert" type="button" key={`insert-lookup-input-${input.id}`} onClick={() => addLookupInput(lookupIndex, inputIndex)}><Plus size={10} aria-hidden="true" />Add input here</button>,
+            <div className="lookup-input-row" key={input.id}>
+              <input value={input.representation} aria-label="Input variable representation" placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
+              <input value={input.explanation} aria-label="Input variable explanation" placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
+              <div className="lookup-definition-actions">
+                <button className="mini-icon-button" type="button" title="Copy input" onClick={() => duplicateLookupInput(lookupIndex, inputIndex)}><Copy size={11} /></button>
+                <button className="mini-icon-button danger" type="button" title="Delete input" onClick={() => deleteLookupInput(lookupIndex, inputIndex)}><Trash2 size={11} /></button>
+              </div>
+            </div>
+          ])}
+          <button className="secondary-action tiny lookup-add-input" type="button" onClick={() => addLookupInput(lookupIndex)}><Plus size={11} /> Add input</button>
+        </div>
+      </details>
+    </div>
+  );
+  const renderVariableItem = (variable: VariableDefinition, variableIndex: number, groupId?: string) => (
+    <div
+      className={`variable-row ${libraryItemDragOver?.kind === 'variable' && libraryItemDragOver.itemIndex === variableIndex ? `is-drag-over-${libraryItemDragOver.position}` : ''}`}
+      key={variable.id}
+      onDragOver={(event) => {
+        if (libraryItemDrag?.kind !== 'variable') return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = event.currentTarget.getBoundingClientRect();
+        setLibraryItemDragOver({
+          kind: 'variable',
+          itemIndex: variableIndex,
+          position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+        });
+        setLibraryGroupDragOver({ kind: 'variable', groupId });
+      }}
+      onDrop={(event) => {
+        if (libraryItemDrag?.kind !== 'variable') return;
+        event.preventDefault();
+        event.stopPropagation();
+        moveLibraryItem('variable', variableIndex, libraryItemDragOver?.position ?? 'before', groupId);
+        clearLibraryDrag();
+      }}
+    >
+      <button
+        className="mini-icon-button drag-handle library-item-drag"
+        type="button"
+        draggable
+        title="Drag to reorder or move into a group"
+        aria-label={`Drag ${variable.name || 'variable'} to reorder or move into a group`}
+        onDragStart={(event) => {
+          setLibraryItemDrag({ kind: 'variable', itemIndex: variableIndex });
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', variable.id);
+        }}
+        onDragEnd={clearLibraryDrag}
+      ><GripVertical size={13} aria-hidden="true" /></button>
+      <input value={variable.name} aria-label="Variable name" placeholder="Variable name" onChange={(event) => updateVariable(variableIndex, { name: event.target.value })} />
+      <input value={variable.explanation} aria-label="Variable explanation" placeholder="What this variable represents" onChange={(event) => updateVariable(variableIndex, { explanation: event.target.value })} />
+      <input value={variable.unit} aria-label="Variable unit" placeholder="Unit" onChange={(event) => updateVariable(variableIndex, { unit: event.target.value })} />
+      <div className="lookup-definition-actions">
+        <button className="mini-icon-button" type="button" title="Copy variable" onClick={() => duplicateVariable(variableIndex)}><Copy size={11} /></button>
+        <button className="mini-icon-button danger" type="button" title="Delete variable" onClick={() => deleteVariable(variableIndex)}><Trash2 size={11} /></button>
+      </div>
+    </div>
+  );
+  const renderLookupGroup = (group: DataLibraryGroup) => {
+    const groupItems = config.lookups
+      .map((lookup, lookupIndex) => ({ lookup, lookupIndex }))
+      .filter(({ lookup }) => group.itemIds.includes(lookup.id));
+    const expanded = expandedLookupGroupIds.includes(group.id);
+    return (
+      <div
+        className={`library-group ${libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === group.id ? 'is-drag-over' : ''}`}
+        key={group.id}
+        onDragOver={(event) => {
+          if (libraryItemDrag?.kind !== 'lookup') return;
+          event.preventDefault();
+          event.stopPropagation();
+          setLibraryItemDragOver(null);
+          setLibraryGroupDragOver({ kind: 'lookup', groupId: group.id });
+          setExpandedLookupGroupIds((current) => [...new Set([...current, group.id])]);
+        }}
+        onDrop={(event) => {
+          if (libraryItemDrag?.kind !== 'lookup') return;
+          event.preventDefault();
+          event.stopPropagation();
+          const dragged = config.lookups[libraryItemDrag.itemIndex];
+          if (dragged) assignLibraryItemToGroup('lookup', dragged.id, group.id);
+          clearLibraryDrag();
+        }}
+      >
+        <button
+          className="library-group-heading"
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpandedLookupGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}
+        >
+          <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
+          <strong>{group.name.trim() || 'Untitled group'}</strong>
+          <small>{group.itemIds.length} {group.itemIds.length === 1 ? 'lookup' : 'lookups'}</small>
+        </button>
+        {expanded ? <div className="library-group-body">
+          <div className="library-group-settings">
+            <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('lookup', group.id, { name: event.target.value })} /></label>
+            <button className="mini-icon-button danger" type="button" title="Delete lookup group" onClick={() => deleteLibraryGroup('lookup', group.id)}><Trash2 size={12} /></button>
+          </div>
+          {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag lookups here</span> : null}
+          {groupItems.flatMap(({ lookup, lookupIndex }) => [
+            renderLibraryInsertActions('lookup', lookupIndex, `insert-group-lookup-${lookup.id}`, group.id),
+            renderLookupItem(lookup, lookupIndex, group.id)
+          ])}
+          <div className="library-final-actions">
+            <button className="secondary-action tiny library-group-add-item" type="button" onClick={() => addLookup(config.lookups.length, group.id)}><Plus size={11} /> Add lookup</button>
+            <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('lookup', group.position)}><Plus size={11} /> Add group</button>
+          </div>
+        </div> : null}
+      </div>
+    );
+  };
+  const renderVariableGroup = (group: DataLibraryGroup) => {
+    const groupItems = config.variables
+      .map((variable, variableIndex) => ({ variable, variableIndex }))
+      .filter(({ variable }) => group.itemIds.includes(variable.id));
+    const expanded = expandedVariableGroupIds.includes(group.id);
+    return (
+      <div
+        className={`library-group is-variable ${libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === group.id ? 'is-drag-over' : ''}`}
+        key={group.id}
+        onDragOver={(event) => {
+          if (libraryItemDrag?.kind !== 'variable') return;
+          event.preventDefault();
+          event.stopPropagation();
+          setLibraryItemDragOver(null);
+          setLibraryGroupDragOver({ kind: 'variable', groupId: group.id });
+          setExpandedVariableGroupIds((current) => [...new Set([...current, group.id])]);
+        }}
+        onDrop={(event) => {
+          if (libraryItemDrag?.kind !== 'variable') return;
+          event.preventDefault();
+          event.stopPropagation();
+          const dragged = config.variables[libraryItemDrag.itemIndex];
+          if (dragged) assignLibraryItemToGroup('variable', dragged.id, group.id);
+          clearLibraryDrag();
+        }}
+      >
+        <button
+          className="library-group-heading"
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpandedVariableGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}
+        >
+          <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
+          <strong>{group.name.trim() || 'Untitled group'}</strong>
+          <small>{group.itemIds.length} {group.itemIds.length === 1 ? 'variable' : 'variables'}</small>
+        </button>
+        {expanded ? <div className="library-group-body">
+          <div className="library-group-settings">
+            <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('variable', group.id, { name: event.target.value })} /></label>
+            <button className="mini-icon-button danger" type="button" title="Delete variable group" onClick={() => deleteLibraryGroup('variable', group.id)}><Trash2 size={12} /></button>
+          </div>
+          {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag variables here</span> : null}
+          {groupItems.flatMap(({ variable, variableIndex }) => [
+            renderLibraryInsertActions('variable', variableIndex, `insert-group-variable-${variable.id}`, group.id),
+            renderVariableItem(variable, variableIndex, group.id)
+          ])}
+          <div className="library-final-actions">
+            <button className="secondary-action tiny library-group-add-item" type="button" onClick={() => addVariable(config.variables.length, group.id)}><Plus size={11} /> Add variable</button>
+            <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('variable', group.position)}><Plus size={11} /> Add group</button>
+          </div>
+        </div> : null}
+      </div>
+    );
+  };
+  const groupedLookupIds = new Set(config.lookupGroups.flatMap((group) => group.itemIds));
+  const groupedVariableIds = new Set(config.variableGroups.flatMap((group) => group.itemIds));
   return (
     <div className="source-header-control" ref={controlRef}>
       <div className="header-title">
@@ -3059,8 +3487,6 @@ function DataSourceHeader({
               <span>Define table sources, fields, reusable lookups, and variables.</span>
             </div>
             <div className="data-source-library-actions">
-              <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={12} /> Add variable</button>
-              <button className="secondary-action tiny" type="button" onClick={() => addLookup()}><Plus size={12} /> Add lookup</button>
               <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add table source</button>
             </div>
           </div>
@@ -3079,57 +3505,49 @@ function DataSourceHeader({
                   <strong>Lookups</strong>
                   <small>{config.lookups.length}</small>
                 </button>
-                <button className="secondary-action tiny" type="button" onClick={() => addLookup()}><Plus size={11} /> Add lookup</button>
               </div>
-              {lookupsExpanded ? <div className="lookup-library-list" id="lookup-library-list">
+              {lookupsExpanded ? <div
+                className={`lookup-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
+                id="lookup-library-list"
+                onDragOver={(event) => {
+                  if (libraryItemDrag?.kind !== 'lookup') return;
+                  event.preventDefault();
+                  setLibraryItemDragOver(null);
+                  setLibraryGroupDragOver({ kind: 'lookup' });
+                }}
+                onDrop={(event) => {
+                  if (libraryItemDrag?.kind !== 'lookup') return;
+                  event.preventDefault();
+                  const dragged = config.lookups[libraryItemDrag.itemIndex];
+                  if (dragged) assignLibraryItemToGroup('lookup', dragged.id);
+                  clearLibraryDrag();
+                }}
+              >
                 {config.lookups.length === 0 ? <span className="empty-option">No lookups defined.</span> : null}
-                {config.lookups.flatMap((lookup, lookupIndex) => [
-                  <button className="list-insert-divider" type="button" key={`insert-lookup-${lookup.id}`} onClick={() => addLookup(lookupIndex)}><Plus size={11} aria-hidden="true" />Add lookup here</button>,
-                  <details className="lookup-definition" key={lookup.id} open={expandedLookupIds.includes(lookup.id)} onToggle={(event) => {
-                    const isOpen = event.currentTarget.open;
-                    setExpandedLookupIds((current) => isOpen ? [...new Set([...current, lookup.id])] : current.filter((id) => id !== lookup.id));
-                  }}>
-                    <summary>
-                      <BookOpen size={13} aria-hidden="true" />
-                      <span><strong>{lookup.outputName.trim() || 'Untitled lookup'}</strong><small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small></span>
-                      <code>{lookupDefaultLatex(lookup)}</code>
-                      <ChevronDown size={12} aria-hidden="true" />
-                    </summary>
-                    <div className="lookup-definition-body">
-                      <div className="lookup-output-fields">
-                        <label className="field"><span>Output name</span><input value={lookup.outputName} onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} /></label>
-                        <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
-                        <div className="lookup-definition-actions">
-                          <button
-                            className={`mini-icon-button lookup-text-button ${lookup.text.trim() ? 'has-text' : ''}`}
-                            type="button"
-                            title={lookup.text.trim() ? 'Edit lookup text' : 'Add lookup text'}
-                            aria-label={`${lookup.text.trim() ? 'Edit' : 'Add'} lookup text for ${lookup.outputName.trim() || 'untitled lookup'}`}
-                            onClick={() => setLookupTextEditorId(lookup.id)}
-                          >
-                            <FileText size={12} aria-hidden="true" />
-                          </button>
-                          <button className="mini-icon-button" type="button" title="Copy lookup" onClick={() => duplicateLookup(lookupIndex)}><Copy size={12} /></button>
-                          <button className="mini-icon-button danger" type="button" title="Delete lookup" onClick={() => deleteLookup(lookupIndex)}><Trash2 size={12} /></button>
-                        </div>
-                      </div>
-                      <div className="lookup-input-heading"><span>Input representation</span><span>Explanation</span><span>Actions</span></div>
-                      {lookup.inputs.length === 0 ? <span className="empty-option">No input variables.</span> : null}
-                      {lookup.inputs.flatMap((input, inputIndex) => [
-                        <button className="list-insert-divider lookup-input-insert" type="button" key={`insert-lookup-input-${input.id}`} onClick={() => addLookupInput(lookupIndex, inputIndex)}><Plus size={10} aria-hidden="true" />Add input here</button>,
-                        <div className="lookup-input-row" key={input.id}>
-                          <input value={input.representation} aria-label="Input variable representation" placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
-                          <input value={input.explanation} aria-label="Input variable explanation" placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
-                          <div className="lookup-definition-actions">
-                            <button className="mini-icon-button" type="button" title="Copy input" onClick={() => duplicateLookupInput(lookupIndex, inputIndex)}><Copy size={11} /></button>
-                            <button className="mini-icon-button danger" type="button" title="Delete input" onClick={() => deleteLookupInput(lookupIndex, inputIndex)}><Trash2 size={11} /></button>
-                          </div>
-                        </div>
-                      ])}
-                      <button className="secondary-action tiny lookup-add-input" type="button" onClick={() => addLookupInput(lookupIndex)}><Plus size={11} /> Add input</button>
-                    </div>
-                  </details>
-                ])}
+                {config.lookups.flatMap((lookup, lookupIndex) => {
+                  const groupsAtPosition = config.lookupGroups.filter((group) => group.position === lookupIndex);
+                  const isUngrouped = !groupedLookupIds.has(lookup.id);
+                  return [
+                    ...(groupsAtPosition.length > 0
+                      ? [renderLibraryInsertActions('lookup', lookupIndex, `before-lookup-groups-${lookup.id}`)]
+                      : []),
+                    ...groupsAtPosition.map(renderLookupGroup),
+                    ...(isUngrouped ? [
+                      ...(groupsAtPosition.length > 0
+                        ? [renderLibraryInsertActions('lookup', lookupIndex, `after-lookup-groups-${lookup.id}`)]
+                        : [renderLibraryInsertActions('lookup', lookupIndex, `insert-lookup-${lookup.id}`)]),
+                      renderLookupItem(lookup, lookupIndex)
+                    ] : [])
+                  ];
+                })}
+                {config.lookupGroups.some((group) => group.position === config.lookups.length)
+                  ? renderLibraryInsertActions('lookup', config.lookups.length, 'before-final-lookup-groups')
+                  : null}
+                {config.lookupGroups.filter((group) => group.position === config.lookups.length).map(renderLookupGroup)}
+                <div className="library-final-actions">
+                  <button className="secondary-action tiny" type="button" onClick={() => addLookup()}><Plus size={11} /> Add lookup</button>
+                  <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('lookup', config.lookups.length)}><Plus size={11} /> Add group</button>
+                </div>
               </div> : null}
             </section>
             <section className="variable-library">
@@ -3146,25 +3564,51 @@ function DataSourceHeader({
                   <strong>Variables</strong>
                   <small>{config.variables.length}</small>
                 </button>
-                <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button>
               </div>
-              {variablesExpanded ? <div className="variable-library-list" id="variable-library-list">
+              {variablesExpanded ? <div
+                className={`variable-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
+                id="variable-library-list"
+                onDragOver={(event) => {
+                  if (libraryItemDrag?.kind !== 'variable') return;
+                  event.preventDefault();
+                  setLibraryItemDragOver(null);
+                  setLibraryGroupDragOver({ kind: 'variable' });
+                }}
+                onDrop={(event) => {
+                  if (libraryItemDrag?.kind !== 'variable') return;
+                  event.preventDefault();
+                  const dragged = config.variables[libraryItemDrag.itemIndex];
+                  if (dragged) assignLibraryItemToGroup('variable', dragged.id);
+                  clearLibraryDrag();
+                }}
+              >
                 {config.variables.length === 0 ? <span className="empty-option">No variables defined.</span> : (
-                  <div className="variable-heading"><span>Name</span><span>Explanation</span><span>Unit</span><span>Actions</span></div>
+                  <div className="variable-heading"><span /><span>Name</span><span>Explanation</span><span>Unit</span><span>Actions</span></div>
                 )}
-                {config.variables.flatMap((variable, variableIndex) => [
-                  <button className="list-insert-divider" type="button" key={`insert-variable-${variable.id}`} onClick={() => addVariable(variableIndex)}><Plus size={11} aria-hidden="true" />Add variable here</button>,
-                  <div className="variable-row" key={variable.id}>
-                    <input value={variable.name} aria-label="Variable name" placeholder="Variable name" onChange={(event) => updateVariable(variableIndex, { name: event.target.value })} />
-                    <input value={variable.explanation} aria-label="Variable explanation" placeholder="What this variable represents" onChange={(event) => updateVariable(variableIndex, { explanation: event.target.value })} />
-                    <input value={variable.unit} aria-label="Variable unit" placeholder="Unit" onChange={(event) => updateVariable(variableIndex, { unit: event.target.value })} />
-                    <div className="lookup-definition-actions">
-                      <button className="mini-icon-button" type="button" title="Copy variable" onClick={() => duplicateVariable(variableIndex)}><Copy size={11} /></button>
-                      <button className="mini-icon-button danger" type="button" title="Delete variable" onClick={() => deleteVariable(variableIndex)}><Trash2 size={11} /></button>
-                    </div>
-                  </div>
-                ])}
-                {config.variables.length ? <button className="secondary-action tiny variable-add" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button> : null}
+                {config.variables.flatMap((variable, variableIndex) => {
+                  const groupsAtPosition = config.variableGroups.filter((group) => group.position === variableIndex);
+                  const isUngrouped = !groupedVariableIds.has(variable.id);
+                  return [
+                    ...(groupsAtPosition.length > 0
+                      ? [renderLibraryInsertActions('variable', variableIndex, `before-variable-groups-${variable.id}`)]
+                      : []),
+                    ...groupsAtPosition.map(renderVariableGroup),
+                    ...(isUngrouped ? [
+                      ...(groupsAtPosition.length > 0
+                        ? [renderLibraryInsertActions('variable', variableIndex, `after-variable-groups-${variable.id}`)]
+                        : [renderLibraryInsertActions('variable', variableIndex, `insert-variable-${variable.id}`)]),
+                      renderVariableItem(variable, variableIndex)
+                    ] : [])
+                  ];
+                })}
+                {config.variableGroups.some((group) => group.position === config.variables.length)
+                  ? renderLibraryInsertActions('variable', config.variables.length, 'before-final-variable-groups')
+                  : null}
+                {config.variableGroups.filter((group) => group.position === config.variables.length).map(renderVariableGroup)}
+                <div className="library-final-actions">
+                  <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button>
+                  <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('variable', config.variables.length)}><Plus size={11} /> Add group</button>
+                </div>
               </div> : null}
             </section>
             {config.dataSources.length === 0 ? <span className="empty-option">No data sources defined.</span> : null}

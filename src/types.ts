@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 28 as const;
+export const CURRENT_SCHEMA_VERSION = 29 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -114,6 +114,13 @@ export type VariableDefinition = {
   name: string;
   explanation: string;
   unit: string;
+};
+
+export type DataLibraryGroup = {
+  id: string;
+  name: string;
+  itemIds: string[];
+  position: number;
 };
 
 export type KpiDataFieldSource = {
@@ -226,7 +233,9 @@ export type KpiPoolConfig = {
   dataSources: DataSource[];
   tableRelations: TableRelation[];
   lookups: LookupDefinition[];
+  lookupGroups: DataLibraryGroup[];
   variables: VariableDefinition[];
+  variableGroups: DataLibraryGroup[];
   kpis: KpiMetric[];
 };
 
