@@ -107,6 +107,7 @@ const lookupSchema = z.object({
   id: z.string().min(1),
   outputName: z.string(),
   outputExplanation: z.string(),
+  text: z.string(),
   inputs: z.array(z.object({
     id: z.string().min(1),
     representation: z.string(),
@@ -409,6 +410,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       typeof lookup.id === 'string' &&
       typeof lookup.outputName === 'string' &&
       typeof lookup.outputExplanation === 'string' &&
+      typeof lookup.text === 'string' &&
       Array.isArray(lookup.inputs) &&
       lookup.inputs.every((entry) =>
         isRecord(entry) &&
@@ -2110,6 +2112,7 @@ const repairLookups = (rawValue: unknown, warnings: string[]): LookupDefinition[
       id,
       outputName,
       outputExplanation: stringValue(rawLookup.outputExplanation ?? rawLookup.explanation ?? rawLookup.description),
+      text: stringValue(rawLookup.text ?? rawLookup.lookupText ?? rawLookup.longDescription),
       inputs
     }];
   });

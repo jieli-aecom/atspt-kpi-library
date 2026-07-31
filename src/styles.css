@@ -1037,9 +1037,76 @@ h1 {
 
 .lookup-output-fields {
   display: grid;
-  grid-template-columns: minmax(140px, 0.7fr) minmax(220px, 1.4fr) 56px;
+  grid-template-columns: minmax(140px, 0.7fr) minmax(220px, 1.4fr) 80px;
   align-items: end;
   gap: 6px;
+}
+
+.lookup-text-button.has-text {
+  border-color: #777cad;
+  background: #ebeafa;
+  color: #4d528a;
+}
+
+.lookup-text-modal-backdrop {
+  position: fixed;
+  z-index: 10020;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(24, 31, 43, 0.42);
+  padding: 20px;
+}
+
+.lookup-text-modal {
+  display: grid;
+  gap: 14px;
+  width: min(680px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
+  border: 1px solid #bcc7d2;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgba(18, 30, 42, 0.28);
+  padding: 16px;
+  text-align: left;
+}
+
+.lookup-text-modal-heading,
+.lookup-text-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lookup-text-modal-heading > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.lookup-text-modal-heading strong {
+  color: #27314f;
+  font-size: 15px;
+}
+
+.lookup-text-modal-heading span,
+.lookup-text-modal-footer span {
+  overflow: hidden;
+  color: #68727d;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lookup-text-field textarea {
+  min-height: 260px;
+  line-height: 1.5;
+}
+
+.lookup-text-modal-footer {
+  align-items: end;
 }
 
 .lookup-input-heading,

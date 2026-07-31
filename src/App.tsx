@@ -14,6 +14,7 @@ import {
   Cloud,
   Database,
   Download,
+  FileText,
   FileJson,
   GitFork,
   GripVertical,
@@ -2430,6 +2431,7 @@ function DataSourceHeader({
   const [collapsedFieldGroupIds, setCollapsedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [lookupsExpanded, setLookupsExpanded] = useState(false);
+  const [lookupTextEditorId, setLookupTextEditorId] = useState<string | null>(null);
   const [variablesExpanded, setVariablesExpanded] = useState(false);
   const [relationEditor, setRelationEditor] = useState<{
     sourceDataSourceId: string;
@@ -2442,6 +2444,8 @@ function DataSourceHeader({
   const [dimensionOptionDrafts, setDimensionOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const lookupTextModalRef = useRef<HTMLDivElement | null>(null);
+  const lookupTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
   const [sourceDragOver, setSourceDragOver] = useState<{ sourceIndex: number; position: DropPosition } | null>(null);
   const [fieldDrag, setFieldDrag] = useState<{ sourceIndex: number; fieldIndex: number } | null>(null);
@@ -2472,13 +2476,14 @@ function DataSourceHeader({
     if (!open) return undefined;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
+      if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target) || lookupTextModalRef.current?.contains(target))) return;
       setOpen(false);
       setRelationEditor(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (relationEditor) setRelationEditor(null);
+        if (lookupTextEditorId) setLookupTextEditorId(null);
+        else if (relationEditor) setRelationEditor(null);
         else setOpen(false);
       }
     };
@@ -2488,7 +2493,11 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, relationEditor]);
+  }, [open, lookupTextEditorId, relationEditor]);
+  useEffect(() => {
+    if (!lookupTextEditorId) return;
+    lookupTextAreaRef.current?.focus();
+  }, [lookupTextEditorId]);
   const patchDataSources = (dataSources: DataSource[]) => {
     onConfigChange({ ...config, dataSources });
   };
@@ -2499,6 +2508,7 @@ function DataSourceHeader({
       id: createLocalId('lookup'),
       outputName: 'New lookup',
       outputExplanation: '',
+      text: '',
       inputs: []
     };
     const index = Math.max(0, Math.min(insertionIndex, config.lookups.length));
@@ -2523,6 +2533,7 @@ function DataSourceHeader({
   const deleteLookup = (lookupIndex: number) => {
     const lookupId = config.lookups[lookupIndex]?.id;
     if (!lookupId) return;
+    if (lookupTextEditorId === lookupId) setLookupTextEditorId(null);
     setExpandedLookupIds((current) => current.filter((id) => id !== lookupId));
     onConfigChange({
       ...config,
@@ -2590,6 +2601,10 @@ function DataSourceHeader({
     const lookup = config.lookups[lookupIndex];
     updateLookup(lookupIndex, { inputs: lookup.inputs.filter((_, index) => index !== inputIndex) });
   };
+  const lookupTextEditorIndex = lookupTextEditorId
+    ? config.lookups.findIndex((lookup) => lookup.id === lookupTextEditorId)
+    : -1;
+  const lookupTextEditor = lookupTextEditorIndex >= 0 ? config.lookups[lookupTextEditorIndex] : undefined;
   const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
   const fallbackPrimaryKeyName = (source: DataSource) => `${relationFieldBaseName(source.name)}ID`;
   const collectionNameFromKey = (keyName: string) => {
@@ -3070,6 +3085,15 @@ function DataSourceHeader({
                         <label className="field"><span>Output name</span><input value={lookup.outputName} onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} /></label>
                         <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
                         <div className="lookup-definition-actions">
+                          <button
+                            className={`mini-icon-button lookup-text-button ${lookup.text.trim() ? 'has-text' : ''}`}
+                            type="button"
+                            title={lookup.text.trim() ? 'Edit lookup text' : 'Add lookup text'}
+                            aria-label={`${lookup.text.trim() ? 'Edit' : 'Add'} lookup text for ${lookup.outputName.trim() || 'untitled lookup'}`}
+                            onClick={() => setLookupTextEditorId(lookup.id)}
+                          >
+                            <FileText size={12} aria-hidden="true" />
+                          </button>
                           <button className="mini-icon-button" type="button" title="Copy lookup" onClick={() => duplicateLookup(lookupIndex)}><Copy size={12} /></button>
                           <button className="mini-icon-button danger" type="button" title="Delete lookup" onClick={() => deleteLookup(lookupIndex)}><Trash2 size={12} /></button>
                         </div>
@@ -3586,6 +3610,47 @@ function DataSourceHeader({
               ];
             })}
           </div>
+        </div>,
+        document.body
+      ) : null}
+      {lookupTextEditor ? createPortal(
+        <div
+          className="lookup-text-modal-backdrop"
+          ref={lookupTextModalRef}
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) setLookupTextEditorId(null);
+          }}
+        >
+          <section
+            className="lookup-text-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="lookup-text-modal-title"
+          >
+            <div className="lookup-text-modal-heading">
+              <div>
+                <strong id="lookup-text-modal-title">Lookup text</strong>
+                <span>{lookupTextEditor.outputName.trim() || 'Untitled lookup'}</span>
+              </div>
+              <button className="mini-icon-button" type="button" title="Close lookup text" aria-label="Close lookup text" onClick={() => setLookupTextEditorId(null)}>
+                <X size={13} aria-hidden="true" />
+              </button>
+            </div>
+            <label className="field lookup-text-field">
+              <span>Detailed text</span>
+              <textarea
+                ref={lookupTextAreaRef}
+                value={lookupTextEditor.text}
+                rows={12}
+                placeholder="Add detailed lookup guidance. Blank lines create separate paragraphs."
+                onChange={(event) => updateLookup(lookupTextEditorIndex, { text: event.target.value })}
+              />
+            </label>
+            <div className="lookup-text-modal-footer">
+              <span>Paragraphs and line breaks are preserved.</span>
+              <button className="primary-action small" type="button" onClick={() => setLookupTextEditorId(null)}>Done</button>
+            </div>
+          </section>
         </div>,
         document.body
       ) : null}
