@@ -1268,7 +1268,8 @@ h1 {
 
 .lookup-details-field textarea {
   min-height: 68px;
-  overflow: hidden;
+  max-height: 500px;
+  overflow-y: auto;
   line-height: 1.5;
   resize: none;
 }
@@ -1791,6 +1792,15 @@ h1 {
 
 .data-source-field-row.is-relation-field {
   box-shadow: inset 3px 0 #347862;
+}
+
+.data-source-field-enum-options {
+  grid-column: 3 / 7;
+  min-width: 0;
+}
+
+.data-source-field-enum-options .lookup-enum-options {
+  margin: 1px 0 2px;
 }
 
 .primary-key-cell {
@@ -4577,6 +4587,10 @@ h1 {
   .lookup-input-heading,
   .variable-heading {
     display: none;
+  }
+
+  .data-source-field-enum-options {
+    grid-column: 1;
   }
 
   .formula-item-main-row {

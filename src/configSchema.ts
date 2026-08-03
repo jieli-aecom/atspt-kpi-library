@@ -73,6 +73,7 @@ const dataSourceFieldSchema = z.object({
   meaning: z.string(),
   dataType: z.enum(dataSourceFieldTypes),
   valueUnit: z.string(),
+  options: z.array(z.string()),
   generatedRelationId: z.string().min(1).optional(),
   generatedRelationRole: z.enum(['oneCollection', 'manyForeignKey', 'sourceCollection', 'targetCollection']).optional()
 });
@@ -419,6 +420,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
             typeof field.meaning === 'string' &&
             dataSourceFieldTypes.some((type) => type === field.dataType) &&
             typeof field.valueUnit === 'string' &&
+            isStringArray(field.options) &&
             (field.dataType === 'number' || !field.valueUnit) &&
             (field.generatedRelationId === undefined || typeof field.generatedRelationId === 'string') &&
             (field.generatedRelationRole === undefined ||
@@ -1892,6 +1894,16 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
       const fieldName = stringValue(rawField.name ?? rawField.Name).trim() || `Field ${fieldIndex + 1}`;
       const legacyUnit = stringValue(rawField.valueUnit ?? rawField.unit ?? rawField['Value Unit']);
       const dataType = normalizeDataSourceFieldType(rawField.dataType ?? rawField.fieldType ?? rawField.type, legacyUnit);
+      const seenOptions = new Set<string>();
+      const rawOptions = rawField.options ?? rawField.enumOptions;
+      const options = (Array.isArray(rawOptions) ? rawOptions : stringValue(rawOptions).split(','))
+        .map((option) => stringValue(option).trim())
+        .filter((option) => {
+          const normalizedOption = option.toLocaleLowerCase();
+          if (!option || seenOptions.has(normalizedOption)) return false;
+          seenOptions.add(normalizedOption);
+          return true;
+        });
       const generatedRelationId = stringValue(rawField.generatedRelationId).trim();
       const generatedRelationRole = rawField.generatedRelationRole === 'oneCollection' ||
         rawField.generatedRelationRole === 'manyForeignKey' ||
@@ -1905,6 +1917,7 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
         dataType,
         valueUnit: dataType === 'number' ? legacyUnit : '',
+        options,
         ...(generatedRelationId ? { generatedRelationId } : {}),
         ...(generatedRelationRole ? { generatedRelationRole } : {})
       }];
@@ -2089,6 +2102,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           meaning: `Related ${target?.name ?? 'table'} record IDs`,
           dataType: 'collection',
           valueUnit: '',
+          options: [],
           generatedRelationId: relation.id,
           generatedRelationRole: 'oneCollection'
         });
@@ -2100,6 +2114,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           meaning: `ID of the related ${relationSource?.name ?? 'table'} record`,
           dataType: 'id',
           valueUnit: '',
+          options: [],
           generatedRelationId: relation.id,
           generatedRelationRole: 'manyForeignKey'
         });
@@ -2111,6 +2126,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           meaning: `Related ${target?.name ?? 'table'} record IDs`,
           dataType: 'collection',
           valueUnit: '',
+          options: [],
           generatedRelationId: relation.id,
           generatedRelationRole: 'sourceCollection'
         });
@@ -2122,6 +2138,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           meaning: `Related ${relationSource?.name ?? 'table'} record IDs`,
           dataType: 'collection',
           valueUnit: '',
+          options: [],
           generatedRelationId: relation.id,
           generatedRelationRole: 'targetCollection'
         });

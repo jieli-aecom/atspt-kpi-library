@@ -2699,7 +2699,12 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   if (item.type !== 'dataField') return label;
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
-  const details = [field ? `Type: ${dataSourceFieldTypeLabels[field.dataType]}` : '', field?.meaning.trim(), field?.valueUnit ? `Unit: ${field.valueUnit}` : ''].filter(Boolean);
+  const details = [
+    field ? `Type: ${dataSourceFieldTypeLabels[field.dataType]}` : '',
+    field?.dataType === 'enum' && field.options.length ? `Options: ${field.options.join(', ')}` : '',
+    field?.meaning.trim(),
+    field?.valueUnit ? `Unit: ${field.valueUnit}` : ''
+  ].filter(Boolean);
   return details.length ? `${label}\n${details.join('\n')}` : label;
 };
 
@@ -3300,7 +3305,8 @@ function DataSourceHeader({
         name: uniqueFieldName(current, fallbackPrimaryKeyName(current)),
         meaning: `Primary key for ${current.name || 'this table'}`,
         dataType: 'id',
-        valueUnit: ''
+        valueUnit: '',
+        options: []
       };
       workingSources.set(current.id, { ...current, primaryKeyFieldId: created.id, fields: [...current.fields, created] });
       return created;
@@ -3328,6 +3334,7 @@ function DataSourceHeader({
         meaning: `Related ${target.name || 'table'} keys`,
         dataType: 'collection',
         valueUnit: '',
+        options: [],
         generatedRelationId: relation.id,
         generatedRelationRole: 'oneCollection'
       }] });
@@ -3337,6 +3344,7 @@ function DataSourceHeader({
         meaning: `ID of the related ${source.name || 'table'} record`,
         dataType: 'id',
         valueUnit: '',
+        options: [],
         generatedRelationId: relation.id,
         generatedRelationRole: 'manyForeignKey'
       }] });
@@ -3349,6 +3357,7 @@ function DataSourceHeader({
         meaning: `Related ${target.name || 'table'} keys`,
         dataType: 'collection',
         valueUnit: '',
+        options: [],
         generatedRelationId: relation.id,
         generatedRelationRole: 'sourceCollection'
       }] });
@@ -3358,6 +3367,7 @@ function DataSourceHeader({
         meaning: `Related ${source.name || 'table'} keys`,
         dataType: 'collection',
         valueUnit: '',
+        options: [],
         generatedRelationId: relation.id,
         generatedRelationRole: 'targetCollection'
       }] });
@@ -3386,7 +3396,7 @@ function DataSourceHeader({
       id: createLocalId('source'),
       name: `${source.name || 'Untitled data source'} copy`,
       primaryKeyFieldId: source.primaryKeyFieldId ? fieldIdMap.get(source.primaryKeyFieldId) : undefined,
-      fields: copiedFields.map((field) => ({ ...field, id: fieldIdMap.get(field.id)! })),
+      fields: copiedFields.map((field) => ({ ...field, id: fieldIdMap.get(field.id)!, options: [...field.options] })),
       fieldGroups: source.fieldGroups.map((group) => ({
         ...group,
         id: createLocalId('field-group'),
@@ -3448,14 +3458,14 @@ function DataSourceHeader({
     updateDataSource(sourceIndex, {
       primaryKeyFieldId: nextPrimaryKeyFieldId,
       fields: source.fields.map((entry) => entry.id === nextPrimaryKeyFieldId
-        ? { ...entry, dataType: 'id', valueUnit: '' }
+        ? { ...entry, dataType: 'id', valueUnit: '', options: [] }
         : entry)
     });
   };
   const addField = (sourceIndex: number, insertionIndex?: number, groupId?: string, shiftGroupsAtPosition = false) => {
     const source = config.dataSources[sourceIndex];
     const index = Math.max(0, Math.min(insertionIndex ?? source.fields.length, source.fields.length));
-    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', dataType: 'text', valueUnit: '' };
+    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', dataType: 'text', valueUnit: '', options: [] };
     updateDataSource(sourceIndex, {
       fields: [...source.fields.slice(0, index), field, ...source.fields.slice(index)],
       fieldGroups: source.fieldGroups.map((group) => ({
@@ -3471,7 +3481,7 @@ function DataSourceHeader({
     const source = config.dataSources[sourceIndex];
     const field = source?.fields[fieldIndex];
     if (!source || !field) return;
-    const duplicate = { ...field, id: createLocalId('field'), name: `${field.name || 'Untitled field'} copy` };
+    const duplicate = { ...field, id: createLocalId('field'), name: `${field.name || 'Untitled field'} copy`, options: [...field.options] };
     updateDataSource(sourceIndex, {
       fields: [...source.fields.slice(0, fieldIndex + 1), duplicate, ...source.fields.slice(fieldIndex + 1)],
       fieldGroups: source.fieldGroups.map((group) => {
@@ -4323,6 +4333,13 @@ function DataSourceHeader({
                     ><Trash2 size={12} /></button>
                     </>}
                   </div>
+                  {field.dataType === 'enum' ? <div className="data-source-field-enum-options">
+                    {renderLookupEnumOptions(
+                      field.options,
+                      field.name || `Field ${fieldIndex + 1}`,
+                      (options) => updateField(sourceIndex, fieldIndex, { options })
+                    )}
+                  </div> : null}
                 </div>
                 );
               };
@@ -4861,7 +4878,7 @@ function KpiSourceEditor({
     ? config.dataSources.find((source) => source.id === pickerScope.slice(5))
     : undefined;
   const visibleFields = selectedDataSource?.fields.filter((field) =>
-    !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit}`).includes(normalizedQuery)
+    !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit} ${field.options.join(' ')}`).includes(normalizedQuery)
   ) ?? [];
   const visibleKpis = config.kpis.filter((entry) =>
     entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview}`).includes(normalizedQuery))
@@ -5115,7 +5132,7 @@ function KpiSourceEditor({
                 return (
                   <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
                     <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{field.name}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{dimensionLabel ? ` · Dimensions: ${dimensionLabel}` : ''}</small></span>
+                    <span><strong>{field.name}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.dataType === 'enum' && field.options.length ? ` · Options: ${field.options.join(', ')}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{dimensionLabel ? ` · Dimensions: ${dimensionLabel}` : ''}</small></span>
                   </label>
                 );
               })}
