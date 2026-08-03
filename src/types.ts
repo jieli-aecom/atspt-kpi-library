@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 29 as const;
+export const CURRENT_SCHEMA_VERSION = 30 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -95,16 +95,23 @@ export type TableRelation = {
   cardinality: 'oneToOne' | 'oneToMany' | 'manyToMany';
 };
 
+export const lookupValueTypes = ['number', 'enum'] as const;
+export type LookupValueType = (typeof lookupValueTypes)[number];
+
 export type LookupInput = {
   id: string;
   representation: string;
   explanation: string;
+  valueType: LookupValueType;
+  options: string[];
 };
 
 export type LookupDefinition = {
   id: string;
   outputName: string;
   outputExplanation: string;
+  outputValueType: LookupValueType;
+  outputOptions: string[];
   text: string;
   inputs: LookupInput[];
 };

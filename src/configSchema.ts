@@ -14,6 +14,8 @@ import {
   type TableRelation,
   type LookupDefinition,
   type LookupInput,
+  lookupValueTypes,
+  type LookupValueType,
   type VariableDefinition,
   type DataLibraryGroup,
   type KpiFormulaGroup,
@@ -108,11 +110,15 @@ const lookupSchema = z.object({
   id: z.string().min(1),
   outputName: z.string(),
   outputExplanation: z.string(),
+  outputValueType: z.enum(lookupValueTypes),
+  outputOptions: z.array(z.string()),
   text: z.string(),
   inputs: z.array(z.object({
     id: z.string().min(1),
     representation: z.string(),
-    explanation: z.string()
+    explanation: z.string(),
+    valueType: z.enum(lookupValueTypes),
+    options: z.array(z.string())
   }))
 });
 
@@ -432,13 +438,17 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       typeof lookup.id === 'string' &&
       typeof lookup.outputName === 'string' &&
       typeof lookup.outputExplanation === 'string' &&
+      lookupValueTypes.some((valueType) => valueType === lookup.outputValueType) &&
+      isStringArray(lookup.outputOptions) &&
       typeof lookup.text === 'string' &&
       Array.isArray(lookup.inputs) &&
       lookup.inputs.every((entry) =>
         isRecord(entry) &&
         typeof entry.id === 'string' &&
         typeof entry.representation === 'string' &&
-        typeof entry.explanation === 'string'
+        typeof entry.explanation === 'string' &&
+        lookupValueTypes.some((valueType) => valueType === entry.valueType) &&
+        isStringArray(entry.options)
       )
     )
   ) {
@@ -2140,6 +2150,10 @@ const repairLookups = (rawValue: unknown, warnings: string[]): LookupDefinition[
     }
     const outputName = stringValue(rawLookup.outputName ?? rawLookup.name ?? rawLookup.output).trim() || `Lookup ${lookupIndex + 1}`;
     const id = ensureUniqueId(rawLookup.id, 'lookup', usedLookupIds, warnings, `Lookup "${outputName}"`);
+    const repairValueType = (value: unknown): LookupValueType => value === 'enum' ? 'enum' : 'number';
+    const repairOptions = (value: unknown) => (Array.isArray(value) ? value : [])
+      .map((option) => stringValue(option).trim())
+      .filter(Boolean);
     const rawInputs = Array.isArray(rawLookup.inputs ?? rawLookup.arguments) ? (rawLookup.inputs ?? rawLookup.arguments) as unknown[] : [];
     const usedInputIds = new Set<string>();
     const inputs = rawInputs.flatMap((rawInput, inputIndex): LookupInput[] => {
@@ -2147,13 +2161,17 @@ const repairLookups = (rawValue: unknown, warnings: string[]): LookupDefinition[
       return [{
         id: ensureUniqueId(rawInput.id, 'lookup-input', usedInputIds, warnings, `${outputName}: input ${inputIndex + 1}`),
         representation: stringValue(rawInput.representation ?? rawInput.name ?? rawInput.variable),
-        explanation: stringValue(rawInput.explanation ?? rawInput.description)
+        explanation: stringValue(rawInput.explanation ?? rawInput.description),
+        valueType: repairValueType(rawInput.valueType ?? rawInput.dataType ?? rawInput.type),
+        options: repairOptions(rawInput.options ?? rawInput.enumOptions)
       }];
     });
     return [{
       id,
       outputName,
       outputExplanation: stringValue(rawLookup.outputExplanation ?? rawLookup.explanation ?? rawLookup.description),
+      outputValueType: repairValueType(rawLookup.outputValueType ?? rawLookup.outputType),
+      outputOptions: repairOptions(rawLookup.outputOptions ?? rawLookup.enumOptions),
       text: stringValue(rawLookup.text ?? rawLookup.lookupText ?? rawLookup.longDescription),
       inputs
     }];

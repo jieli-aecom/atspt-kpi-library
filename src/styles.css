@@ -1189,7 +1189,7 @@ h1 {
 
 .lookup-output-fields {
   display: grid;
-  grid-template-columns: minmax(140px, 0.7fr) minmax(220px, 1.4fr);
+  grid-template-columns: minmax(140px, 0.7fr) minmax(100px, 0.35fr) minmax(220px, 1.4fr);
   align-items: end;
   gap: 6px;
 }
@@ -1426,7 +1426,7 @@ h1 {
 .lookup-input-heading,
 .lookup-input-row {
   display: grid;
-  grid-template-columns: minmax(130px, 0.55fr) minmax(220px, 1.45fr) 56px;
+  grid-template-columns: minmax(130px, 0.55fr) minmax(90px, 0.3fr) minmax(220px, 1.45fr) 56px;
   align-items: center;
   gap: 6px;
 }
@@ -1438,10 +1438,59 @@ h1 {
   text-transform: none;
 }
 
-.lookup-input-row input {
+.lookup-input-row input,
+.lookup-input-row select {
   min-height: 29px;
   padding: 5px 7px;
   font-size: 11px;
+}
+
+.lookup-input-card {
+  display: grid;
+  gap: 5px;
+  border-radius: 5px;
+}
+
+.lookup-enum-options {
+  display: grid;
+  gap: 4px;
+  border-left: 2px solid #c9cde2;
+  padding: 4px 6px;
+}
+
+.lookup-input-card > .lookup-enum-options {
+  margin-left: 6px;
+}
+
+.lookup-enum-options-label {
+  color: #68727d;
+  font-size: 9px;
+  font-weight: 800;
+}
+
+.lookup-enum-option-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.lookup-enum-option {
+  display: inline-grid;
+  grid-template-columns: minmax(70px, 140px) 22px;
+  align-items: center;
+  gap: 2px;
+}
+
+.lookup-enum-option input {
+  min-height: 25px;
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
+.lookup-enum-options-required {
+  color: #9a4f39;
+  font-size: 9px;
 }
 
 .lookup-input-insert {

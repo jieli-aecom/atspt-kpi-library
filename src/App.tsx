@@ -68,6 +68,7 @@ import {
   type TableRelation,
   type LookupDefinition,
   type LookupInput,
+  type LookupValueType,
   type VariableDefinition,
   type DataLibraryGroup,
   kpiEnumCategoryKeys,
@@ -2920,6 +2921,8 @@ function DataSourceHeader({
       id: createLocalId('lookup'),
       outputName: 'New lookup',
       outputExplanation: '',
+      outputValueType: 'number',
+      outputOptions: [],
       text: '',
       inputs: []
     };
@@ -3161,7 +3164,13 @@ function DataSourceHeader({
   const addLookupInput = (lookupIndex: number, insertionIndex?: number) => {
     const lookup = config.lookups[lookupIndex];
     const index = Math.max(0, Math.min(insertionIndex ?? lookup.inputs.length, lookup.inputs.length));
-    const input: LookupInput = { id: createLocalId('lookup-input'), representation: '', explanation: '' };
+    const input: LookupInput = {
+      id: createLocalId('lookup-input'),
+      representation: '',
+      explanation: '',
+      valueType: 'number',
+      options: []
+    };
     updateLookup(lookupIndex, { inputs: [...lookup.inputs.slice(0, index), input, ...lookup.inputs.slice(index)] });
   };
   const updateLookupInput = (lookupIndex: number, inputIndex: number, partial: Partial<LookupInput>) => {
@@ -3179,6 +3188,43 @@ function DataSourceHeader({
     const lookup = config.lookups[lookupIndex];
     updateLookup(lookupIndex, { inputs: lookup.inputs.filter((_, index) => index !== inputIndex) });
   };
+  const nextLookupOption = (options: string[]) => {
+    const existing = new Set(options.map((option) => option.trim().toLocaleLowerCase()));
+    let index = options.length + 1;
+    while (existing.has(`option ${index}`)) index += 1;
+    return `Option ${index}`;
+  };
+  const renderLookupEnumOptions = (
+    options: string[],
+    label: string,
+    onChange: (options: string[]) => void
+  ) => (
+    <div className="lookup-enum-options">
+      <span className="lookup-enum-options-label">Enum options</span>
+      <div className="lookup-enum-option-list">
+        {options.map((option, optionIndex) => (
+          <span className="lookup-enum-option" key={`${optionIndex}-${option}`}>
+            <input
+              value={option}
+              aria-label={`${label} enum option ${optionIndex + 1}`}
+              onChange={(event) => onChange(options.map((entry, index) => index === optionIndex ? event.target.value : entry))}
+            />
+            <button
+              className="mini-icon-button danger"
+              type="button"
+              title={`Remove ${option || 'option'}`}
+              aria-label={`Remove ${label} enum option ${optionIndex + 1}`}
+              onClick={() => onChange(options.filter((_, index) => index !== optionIndex))}
+            ><X size={10} /></button>
+          </span>
+        ))}
+        <button className="secondary-action tiny" type="button" onClick={() => onChange([...options, nextLookupOption(options)])}>
+          <Plus size={10} /> Add option
+        </button>
+      </div>
+      {options.length === 0 ? <span className="lookup-enum-options-required">Add at least one option for this enum.</span> : null}
+    </div>
+  );
   const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
   const fallbackPrimaryKeyName = (source: DataSource) => `${relationFieldBaseName(source.name)}ID`;
   const collectionNameFromKey = (keyName: string) => {
@@ -3698,19 +3744,33 @@ function DataSourceHeader({
         <div className="lookup-definition-body">
           <div className="lookup-output-fields">
             <label className="field"><span>Output name</span><input value={lookup.outputName} onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} /></label>
+            <label className="field"><span>Output type</span><select value={lookup.outputValueType} onChange={(event) => updateLookup(lookupIndex, { outputValueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select></label>
             <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
           </div>
-          <div className="lookup-input-heading"><span>Input representation</span><span>Explanation</span><span>Actions</span></div>
+          {lookup.outputValueType === 'enum' ? renderLookupEnumOptions(
+            lookup.outputOptions,
+            `${lookup.outputName || 'Lookup'} output`,
+            (outputOptions) => updateLookup(lookupIndex, { outputOptions })
+          ) : null}
+          <div className="lookup-input-heading"><span>Input representation</span><span>Type</span><span>Explanation</span><span>Actions</span></div>
           {lookup.inputs.length === 0 ? <span className="empty-option">No input variables.</span> : null}
           {lookup.inputs.flatMap((input, inputIndex) => [
             <button className="list-insert-divider lookup-input-insert" type="button" key={`insert-lookup-input-${input.id}`} onClick={() => addLookupInput(lookupIndex, inputIndex)}><Plus size={10} aria-hidden="true" />Add input here</button>,
-            <div className="lookup-input-row" key={input.id}>
-              <input value={input.representation} aria-label="Input variable representation" placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
-              <input value={input.explanation} aria-label="Input variable explanation" placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
-              <div className="lookup-definition-actions">
-                <button className="mini-icon-button" type="button" title="Copy input" onClick={() => duplicateLookupInput(lookupIndex, inputIndex)}><Copy size={11} /></button>
-                <button className="mini-icon-button danger" type="button" title="Delete input" onClick={() => deleteLookupInput(lookupIndex, inputIndex)}><Trash2 size={11} /></button>
+            <div className="lookup-input-card" key={input.id}>
+              <div className="lookup-input-row">
+                <input value={input.representation} aria-label="Input variable representation" placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
+                <select value={input.valueType} aria-label="Input value type" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { valueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select>
+                <input value={input.explanation} aria-label="Input variable explanation" placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
+                <div className="lookup-definition-actions">
+                  <button className="mini-icon-button" type="button" title="Copy input" onClick={() => duplicateLookupInput(lookupIndex, inputIndex)}><Copy size={11} /></button>
+                  <button className="mini-icon-button danger" type="button" title="Delete input" onClick={() => deleteLookupInput(lookupIndex, inputIndex)}><Trash2 size={11} /></button>
+                </div>
               </div>
+              {input.valueType === 'enum' ? renderLookupEnumOptions(
+                input.options,
+                input.representation || `Input ${inputIndex + 1}`,
+                (options) => updateLookupInput(lookupIndex, inputIndex, { options })
+              ) : null}
             </div>
           ])}
           <button className="secondary-action tiny lookup-add-input" type="button" onClick={() => addLookupInput(lookupIndex)}><Plus size={11} /> Add input</button>
