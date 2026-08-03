@@ -2684,8 +2684,12 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
 const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const label = sourceItemLabel(config, item);
   if (item.type === 'lookup') {
-    const explanation = config.lookups.find((lookup) => lookup.id === item.lookupId)?.outputExplanation.trim();
-    return explanation ? `${label}\n${explanation}` : label;
+    const lookup = config.lookups.find((entry) => entry.id === item.lookupId);
+    if (!lookup) return label;
+    const type = lookup.outputValueType === 'enum'
+      ? `Type: Enum${lookup.outputOptions.length ? ` (${lookup.outputOptions.join(', ')})` : ''}`
+      : 'Type: Number';
+    return [label, type, lookup.outputExplanation.trim()].filter(Boolean).join('\n');
   }
   if (item.type === 'variable') {
     const variable = config.variables.find((entry) => entry.id === item.variableId);
@@ -3203,7 +3207,7 @@ function DataSourceHeader({
       <span className="lookup-enum-options-label">Enum options</span>
       <div className="lookup-enum-option-list">
         {options.map((option, optionIndex) => (
-          <span className="lookup-enum-option" key={`${optionIndex}-${option}`}>
+          <span className="lookup-enum-option" key={optionIndex}>
             <input
               value={option}
               aria-label={`${label} enum option ${optionIndex + 1}`}
@@ -4863,7 +4867,7 @@ function KpiSourceEditor({
     entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview}`).includes(normalizedQuery))
   );
   const lookupMatchesQuery = (lookup: LookupDefinition) =>
-    !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation}`).join(' ')}`).includes(normalizedQuery);
+    !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.outputValueType} ${lookup.outputOptions.join(' ')} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation} ${input.valueType} ${input.options.join(' ')}`).join(' ')}`).includes(normalizedQuery);
   const variableMatchesQuery = (variable: VariableDefinition) =>
     !normalizedQuery || normalize(`${variable.name} ${variable.explanation} ${variable.unit}`).includes(normalizedQuery);
   const visibleLookups = config.lookups.filter(lookupMatchesQuery);
@@ -4946,7 +4950,7 @@ function KpiSourceEditor({
   const renderLookupChoice = (lookup: LookupDefinition) => (
     <label className="source-choice-row" key={lookup.id}>
       <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'lookup' && item.lookupId === lookup.id)} onChange={() => toggleLookup(lookup.id)} />
-      <span><strong>{lookup.outputName}</strong><small>{lookup.outputExplanation}{lookup.inputs.length ? ` · ${lookup.inputs.length} ${lookup.inputs.length === 1 ? 'input' : 'inputs'}` : ''}</small></span>
+      <span><strong>{lookup.outputName}</strong><small>{lookup.outputValueType === 'enum' ? 'Enum output' : 'Number output'}{lookup.outputExplanation ? ` · ${lookup.outputExplanation}` : ''}{lookup.inputs.length ? ` · ${lookup.inputs.length} ${lookup.inputs.length === 1 ? 'input' : 'inputs'}` : ''}</small></span>
     </label>
   );
   const renderVariableChoice = (variable: VariableDefinition) => (
