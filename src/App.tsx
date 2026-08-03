@@ -2699,7 +2699,7 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
 };
 
 const lookupDefaultLatex = (lookup: LookupDefinition) => {
-  const name = lookup.outputName.trim().replace(/\s+/g, '\\ ') || 'Lookup';
+  const name = lookup.outputName.replace(/\s+/g, '') || 'Lookup';
   return `${name}(${','.repeat(Math.max(0, lookup.inputs.length - 1))})`;
 };
 
