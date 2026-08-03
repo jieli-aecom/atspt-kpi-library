@@ -1274,6 +1274,11 @@ h1 {
   resize: none;
 }
 
+.lookup-details-field .markdown-content {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
 .markdown-content {
   min-height: 68px;
   overflow-x: auto;
