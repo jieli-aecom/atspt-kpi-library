@@ -14,7 +14,6 @@ import {
   Cloud,
   Database,
   Download,
-  FileText,
   FileJson,
   GitFork,
   GripVertical,
@@ -110,6 +109,20 @@ type ColumnFilters = {
 
 type DropPosition = 'before' | 'after';
 type PerformanceAreaSortOrder = 'asc' | 'desc' | undefined;
+
+type SourceLibraryEditTarget =
+  | { kind: 'dataField'; dataSourceId: string; fieldId: string }
+  | { kind: 'lookup'; lookupId: string }
+  | { kind: 'variable'; variableId: string };
+
+type SourceLibraryEditRequest = SourceLibraryEditTarget & { requestId: number };
+const transientSourceHighlightDurationMs = 2500;
+
+const sourceLibraryTargetKey = (target: SourceLibraryEditTarget) => target.kind === 'dataField'
+  ? `field:${target.fieldId}`
+  : target.kind === 'lookup'
+    ? `lookup:${target.lookupId}`
+    : `variable:${target.variableId}`;
 
 type UseCaseAssignment = {
   userGroup: string;
@@ -2156,6 +2169,298 @@ function AutoGrowTextarea({ value, onValueChange, preventLineBreaks = false, ...
   );
 }
 
+const markdownInlinePattern = /(`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_)/g;
+
+const safeMarkdownHref = (href: string) =>
+  /^(https?:\/\/|mailto:|#|\/(?!\/)|\.\.?\/)/i.test(href) ? href : undefined;
+
+type MarkdownTextEdit = (start: number, end: number, value: string) => void;
+
+function EditableMarkdownText({
+  value,
+  start,
+  end,
+  onTextEdit,
+  placeholder = 'Edit text'
+}: {
+  value: string;
+  start: number;
+  end: number;
+  onTextEdit: MarkdownTextEdit;
+  placeholder?: string;
+}) {
+  const editableRef = useRef<HTMLSpanElement | null>(null);
+
+  useEffect(() => {
+    const editable = editableRef.current;
+    if (editable && document.activeElement !== editable && editable.textContent !== value) editable.textContent = value;
+  }, [value]);
+
+  return (
+    <span
+      className="markdown-editable-text"
+      contentEditable
+      data-placeholder={placeholder}
+      ref={editableRef}
+      role="textbox"
+      aria-label="Editable Markdown text"
+      spellCheck
+      suppressContentEditableWarning
+      onBlur={(event) => {
+        const nextValue = (event.currentTarget.textContent ?? '').replace(/\r?\n/g, ' ');
+        if (nextValue !== value) onTextEdit(start, end, nextValue);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.preventDefault();
+        if (event.key === 'Escape') event.currentTarget.blur();
+      }}
+    >{value}</span>
+  );
+}
+
+const renderMarkdownText = (
+  value: string,
+  key: string,
+  start: number,
+  onTextEdit?: MarkdownTextEdit,
+  placeholder?: string
+) => onTextEdit
+  ? <EditableMarkdownText end={start + value.length} key={key} onTextEdit={onTextEdit} placeholder={placeholder} start={start} value={value} />
+  : value;
+
+function renderMarkdownInline(
+  value: string,
+  keyPrefix: string,
+  baseOffset = 0,
+  onTextEdit?: MarkdownTextEdit,
+  allowEmpty = false
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let tokenIndex = 0;
+  for (const match of value.matchAll(markdownInlinePattern)) {
+    const token = match[0];
+    const index = match.index ?? 0;
+    if (index > lastIndex) {
+      nodes.push(renderMarkdownText(value.slice(lastIndex, index), `${keyPrefix}-text-${tokenIndex}`, baseOffset + lastIndex, onTextEdit));
+    }
+    const key = `${keyPrefix}-inline-${tokenIndex}`;
+    tokenIndex += 1;
+    if (token.startsWith('`')) {
+      nodes.push(<code key={key}>{renderMarkdownText(token.slice(1, -1), `${key}-code`, baseOffset + index + 1, onTextEdit)}</code>);
+    } else if (token.startsWith('[')) {
+      const link = token.match(/^\[([^\]]+)\]\((\S+?)(?:\s+"[^"]*")?\)$/);
+      const href = link ? safeMarkdownHref(link[2]) : undefined;
+      nodes.push(link && href
+        ? <a href={href} key={key} onClick={(event) => onTextEdit && event.preventDefault()} rel="noreferrer" target={href.startsWith('#') ? undefined : '_blank'} title={onTextEdit ? `Link target: ${href}` : undefined}>{renderMarkdownInline(link[1], `${key}-link`, baseOffset + index + 1, onTextEdit)}</a>
+        : renderMarkdownText(token, `${key}-text`, baseOffset + index, onTextEdit));
+    } else if (token.startsWith('**') || token.startsWith('__')) {
+      nodes.push(<strong key={key}>{renderMarkdownInline(token.slice(2, -2), `${key}-strong`, baseOffset + index + 2, onTextEdit)}</strong>);
+    } else if (token.startsWith('~~')) {
+      nodes.push(<del key={key}>{renderMarkdownInline(token.slice(2, -2), `${key}-strike`, baseOffset + index + 2, onTextEdit)}</del>);
+    } else {
+      nodes.push(<em key={key}>{renderMarkdownInline(token.slice(1, -1), `${key}-em`, baseOffset + index + 1, onTextEdit)}</em>);
+    }
+    lastIndex = index + token.length;
+  }
+  if (lastIndex < value.length) {
+    nodes.push(renderMarkdownText(value.slice(lastIndex), `${keyPrefix}-text-${tokenIndex}`, baseOffset + lastIndex, onTextEdit));
+  }
+  if (allowEmpty && value.length === 0 && onTextEdit) {
+    nodes.push(renderMarkdownText('', `${keyPrefix}-empty`, baseOffset, onTextEdit, 'Click to edit'));
+  }
+  return nodes;
+}
+
+type MarkdownTableCell = { value: string; start: number; end: number };
+
+const isEscapedMarkdownCharacter = (value: string, index: number) => {
+  let slashCount = 0;
+  for (let cursor = index - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) slashCount += 1;
+  return slashCount % 2 === 1;
+};
+
+const markdownTableCellRanges = (line: string, lineStart = 0): MarkdownTableCell[] => {
+  const firstContentIndex = line.search(/\S/);
+  if (firstContentIndex < 0) return [{ value: '', start: lineStart, end: lineStart }];
+  let contentStart = line[firstContentIndex] === '|' ? firstContentIndex + 1 : firstContentIndex;
+  let contentEnd = line.length;
+  while (contentEnd > contentStart && /\s/.test(line[contentEnd - 1])) contentEnd -= 1;
+  if (line[contentEnd - 1] === '|' && !isEscapedMarkdownCharacter(line, contentEnd - 1)) contentEnd -= 1;
+  const cells: MarkdownTableCell[] = [];
+  let cellStart = contentStart;
+  for (let cursor = contentStart; cursor <= contentEnd; cursor += 1) {
+    if (cursor < contentEnd && (line[cursor] !== '|' || isEscapedMarkdownCharacter(line, cursor))) continue;
+    let trimmedStart = cellStart;
+    let trimmedEnd = cursor;
+    while (trimmedStart < trimmedEnd && /\s/.test(line[trimmedStart])) trimmedStart += 1;
+    while (trimmedEnd > trimmedStart && /\s/.test(line[trimmedEnd - 1])) trimmedEnd -= 1;
+    cells.push({ value: line.slice(trimmedStart, trimmedEnd), start: lineStart + trimmedStart, end: lineStart + trimmedEnd });
+    cellStart = cursor + 1;
+  }
+  return cells;
+};
+
+const markdownTableCells = (line: string) => markdownTableCellRanges(line).map((cell) => cell.value);
+
+const isMarkdownTableDivider = (line: string) => {
+  const cells = markdownTableCells(line);
+  return cells.length > 1 && cells.every((cell) => /^:?-{3,}:?$/.test(cell));
+};
+
+function renderMarkdownBlocks(value: string, keyPrefix: string, onTextEdit?: MarkdownTextEdit): React.ReactNode[] {
+  const rawLines = value.split('\n');
+  const lines = rawLines.map((line) => line.endsWith('\r') ? line.slice(0, -1) : line);
+  const lineStarts: number[] = [];
+  let lineOffset = 0;
+  rawLines.forEach((line) => {
+    lineStarts.push(lineOffset);
+    lineOffset += line.length + 1;
+  });
+  const blocks: React.ReactNode[] = [];
+  let index = 0;
+  let blockIndex = 0;
+  const nextKey = () => `${keyPrefix}-block-${blockIndex++}`;
+  const isBlockStart = (lineIndex: number) => {
+    const line = lines[lineIndex] ?? '';
+    return /^\s*```/.test(line)
+      || /^\s*#{1,6}\s+/.test(line)
+      || /^\s*(?:[-*_]\s*){3,}$/.test(line)
+      || /^\s*>\s?/.test(line)
+      || /^\s*[-+*]\s+/.test(line)
+      || /^\s*\d+[.)]\s+/.test(line)
+      || (line.includes('|') && isMarkdownTableDivider(lines[lineIndex + 1] ?? ''));
+  };
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+
+    const fence = line.match(/^\s*```\s*([^\s`]*)\s*$/);
+    if (fence) {
+      const codeLineIndexes: number[] = [];
+      index += 1;
+      while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) {
+        codeLineIndexes.push(index);
+        index += 1;
+      }
+      if (index < lines.length) index += 1;
+      const key = nextKey();
+      const codeNodes: React.ReactNode[] = [];
+      codeLineIndexes.forEach((lineIndex, codeLineIndex) => {
+        codeNodes.push(renderMarkdownText(lines[lineIndex], `${key}-code-${codeLineIndex}`, lineStarts[lineIndex], onTextEdit, 'Edit code'));
+        if (codeLineIndex < codeLineIndexes.length - 1) codeNodes.push(<br key={`${key}-code-break-${codeLineIndex}`} />);
+      });
+      blocks.push(<pre key={key}><code data-language={fence[1] || undefined}>{codeNodes}</code></pre>);
+      continue;
+    }
+
+    const heading = line.match(/^\s*(#{1,6})\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      const Heading = `h${heading[1].length}` as keyof React.JSX.IntrinsicElements;
+      const key = nextKey();
+      const contentStart = line.indexOf(heading[2], heading[1].length);
+      blocks.push(<Heading key={key}>{renderMarkdownInline(heading[2], `${key}-heading`, lineStarts[index] + contentStart, onTextEdit)}</Heading>);
+      index += 1;
+      continue;
+    }
+
+    if (/^\s*(?:[-*_]\s*){3,}$/.test(line)) {
+      blocks.push(<hr key={nextKey()} />);
+      index += 1;
+      continue;
+    }
+
+    if (line.includes('|') && isMarkdownTableDivider(lines[index + 1] ?? '')) {
+      const headers = markdownTableCellRanges(line, lineStarts[index]);
+      const alignments = markdownTableCells(lines[index + 1]).map((cell) => cell.startsWith(':') && cell.endsWith(':')
+        ? 'center'
+        : cell.endsWith(':') ? 'right' : 'left');
+      const rows: MarkdownTableCell[][] = [];
+      index += 2;
+      while (index < lines.length && lines[index].trim() && lines[index].includes('|')) {
+        rows.push(markdownTableCellRanges(lines[index], lineStarts[index]));
+        index += 1;
+      }
+      const key = nextKey();
+      blocks.push(
+        <div className="markdown-table-scroll" key={key}>
+          <table>
+            <thead><tr>{headers.map((cell, cellIndex) => <th key={`${key}-head-${cellIndex}`} style={{ textAlign: alignments[cellIndex] as 'left' | 'center' | 'right' }}>{renderMarkdownInline(cell.value, `${key}-head-${cellIndex}`, cell.start, onTextEdit, true)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => <tr key={`${key}-row-${rowIndex}`}>{headers.map((_, cellIndex) => {
+              const cell = row[cellIndex];
+              return <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: alignments[cellIndex] as 'left' | 'center' | 'right' }}>{cell ? renderMarkdownInline(cell.value, `${key}-row-${rowIndex}-${cellIndex}`, cell.start, onTextEdit, true) : null}</td>;
+            })}</tr>)}</tbody>
+          </table>
+        </div>
+      );
+      continue;
+    }
+
+    if (/^\s*>\s?/.test(line)) {
+      const quoteLines: { value: string; start: number }[] = [];
+      while (index < lines.length && /^\s*>\s?/.test(lines[index])) {
+        const quote = lines[index].match(/^(\s*>\s?)(.*)$/);
+        if (quote) quoteLines.push({ value: quote[2], start: lineStarts[index] + quote[1].length });
+        index += 1;
+      }
+      const key = nextKey();
+      const quoteNodes: React.ReactNode[] = [];
+      quoteLines.forEach((quote, quoteIndex) => {
+        quoteNodes.push(...renderMarkdownInline(quote.value, `${key}-quote-${quoteIndex}`, quote.start, onTextEdit, true));
+        if (quoteIndex < quoteLines.length - 1) quoteNodes.push(<br key={`${key}-quote-break-${quoteIndex}`} />);
+      });
+      blocks.push(<blockquote key={key}>{quoteNodes}</blockquote>);
+      continue;
+    }
+
+    const unordered = line.match(/^\s*[-+*]\s+(.+)$/);
+    const ordered = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      const orderedList = Boolean(ordered);
+      const items: { value: string; start: number }[] = [];
+      const itemPattern = orderedList ? /^\s*\d+[.)]\s+(.+)$/ : /^\s*[-+*]\s+(.+)$/;
+      while (index < lines.length) {
+        const item = lines[index].match(itemPattern);
+        if (!item) break;
+        items.push({ value: item[1], start: lineStarts[index] + lines[index].indexOf(item[1]) });
+        index += 1;
+      }
+      const key = nextKey();
+      const children = items.map((item, itemIndex) => <li key={`${key}-item-${itemIndex}`}>{renderMarkdownInline(item.value, `${key}-item-${itemIndex}`, item.start, onTextEdit)}</li>);
+      blocks.push(orderedList ? <ol key={key}>{children}</ol> : <ul key={key}>{children}</ul>);
+      continue;
+    }
+
+    const paragraphLineIndexes = [index];
+    index += 1;
+    while (index < lines.length && lines[index].trim() && !isBlockStart(index)) {
+      paragraphLineIndexes.push(index);
+      index += 1;
+    }
+    const key = nextKey();
+    const paragraphNodes: React.ReactNode[] = [];
+    paragraphLineIndexes.forEach((lineIndex, paragraphLineIndex) => {
+      const trimmed = lines[lineIndex].trim();
+      const contentStart = lines[lineIndex].indexOf(trimmed);
+      paragraphNodes.push(...renderMarkdownInline(trimmed, `${key}-paragraph-${paragraphLineIndex}`, lineStarts[lineIndex] + contentStart, onTextEdit));
+      if (paragraphLineIndex < paragraphLineIndexes.length - 1) paragraphNodes.push(<br key={`${key}-paragraph-break-${paragraphLineIndex}`} />);
+    });
+    blocks.push(<p key={key}>{paragraphNodes}</p>);
+  }
+  return blocks;
+}
+
+function MarkdownContent({ value, onTextEdit }: { value: string; onTextEdit: MarkdownTextEdit }) {
+  if (!value.trim()) {
+    return <div className="markdown-content is-empty">{renderMarkdownText('', 'markdown-empty', 0, onTextEdit, 'Click to add lookup details')}</div>;
+  }
+  return <div className="markdown-content">{renderMarkdownBlocks(value, 'markdown', onTextEdit)}</div>;
+}
+
 function RowEnumSelect({
   config,
   category,
@@ -2321,6 +2626,9 @@ function RowKpiSelect({
   );
 }
 
+const dimensionedSourceLabel = (name: string, dimensionLabel: string) =>
+  `${name}${dimensionLabel ? ` by [${dimensionLabel}]` : ''}`;
+
 const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   if (item.type === 'custom') {
     return item.name || 'Untitled custom source';
@@ -2329,7 +2637,7 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
     const referencedKpi = config.kpis.find((kpi) => kpi.id === item.kpiId);
     if (!referencedKpi) return 'Missing KPI';
     const dimensionLabel = referencedKpi.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ');
-    return `${referencedKpi.name}${dimensionLabel ? ` [${dimensionLabel}]` : ''}`;
+    return dimensionedSourceLabel(referencedKpi.name, dimensionLabel);
   }
   if (item.type === 'lookup') {
     return config.lookups.find((lookup) => lookup.id === item.lookupId)?.outputName ?? 'Missing lookup';
@@ -2341,8 +2649,7 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
   const group = source?.fieldGroups.find((entry) => entry.fieldIds.includes(item.fieldId));
   const dimensionNames = group?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean) ?? [];
-  const dimensionLabel = dimensionNames.length ? ` [${dimensionNames.join(', ')}]` : '';
-  return `${source?.name ?? 'Missing source'} / ${field?.name ?? 'Missing field'}${dimensionLabel}`;
+  return `${source?.name ?? 'Missing source'} / ${dimensionedSourceLabel(field?.name ?? 'Missing field', dimensionNames.join(', '))}`;
 };
 
 const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
@@ -2435,12 +2742,14 @@ function DataSourceHeader({
   config,
   filter,
   onFilterChange,
-  onConfigChange
+  onConfigChange,
+  editRequest
 }: {
   config: KpiPoolConfig;
   filter: string;
   onFilterChange: (value: string) => void;
   onConfigChange: (next: KpiPoolConfig) => void;
+  editRequest?: SourceLibraryEditRequest;
 }) {
   const [open, setOpen] = useState(false);
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
@@ -2448,7 +2757,7 @@ function DataSourceHeader({
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [expandedLookupGroupIds, setExpandedLookupGroupIds] = useState<string[]>([]);
   const [lookupsExpanded, setLookupsExpanded] = useState(false);
-  const [lookupTextEditorId, setLookupTextEditorId] = useState<string | null>(null);
+  const [lookupDetailsSourceIds, setLookupDetailsSourceIds] = useState<string[]>([]);
   const [variablesExpanded, setVariablesExpanded] = useState(false);
   const [expandedVariableGroupIds, setExpandedVariableGroupIds] = useState<string[]>([]);
   const [relationEditor, setRelationEditor] = useState<{
@@ -2462,8 +2771,6 @@ function DataSourceHeader({
   const [dimensionOptionDrafts, setDimensionOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
-  const lookupTextModalRef = useRef<HTMLDivElement | null>(null);
-  const lookupTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
   const [sourceDragOver, setSourceDragOver] = useState<{ sourceIndex: number; position: DropPosition } | null>(null);
   const [fieldDrag, setFieldDrag] = useState<{ sourceIndex: number; fieldIndex: number } | null>(null);
@@ -2472,8 +2779,65 @@ function DataSourceHeader({
   const [fieldGroupDragOver, setFieldGroupDragOver] = useState<{ sourceIndex: number; groupId?: string } | null>(null);
   const [libraryItemDrag, setLibraryItemDrag] = useState<{ kind: 'lookup' | 'variable'; itemIndex: number } | null>(null);
   const [libraryItemDragOver, setLibraryItemDragOver] = useState<{ kind: 'lookup' | 'variable'; itemIndex: number; position: DropPosition } | null>(null);
-  const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: 'lookup' | 'variable'; groupId?: string } | null>(null);
+  const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: 'lookup' | 'variable'; groupId?: string; position?: DropPosition } | null>(null);
+  const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: 'lookup' | 'variable'; key: string } | null>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
+  const [focusedEditRequest, setFocusedEditRequest] = useState<SourceLibraryEditRequest>();
+  useEffect(() => {
+    if (!editRequest) return;
+    setFocusedEditRequest(editRequest);
+    setOpen(true);
+    if (editRequest.kind === 'dataField') {
+      setExpandedSourceIds((current) => [...new Set([...current, editRequest.dataSourceId])]);
+      const source = config.dataSources.find((entry) => entry.id === editRequest.dataSourceId);
+      const group = source?.fieldGroups.find((entry) => entry.fieldIds.includes(editRequest.fieldId));
+      if (group) {
+        setCollapsedFieldGroupIds((current) => current.filter((id) => id !== group.id));
+      }
+      return;
+    }
+    if (editRequest.kind === 'lookup') {
+      setLookupsExpanded(true);
+      setExpandedLookupIds((current) => [...new Set([...current, editRequest.lookupId])]);
+      const group = config.lookupGroups.find((entry) => entry.itemIds.includes(editRequest.lookupId));
+      if (group) {
+        setExpandedLookupGroupIds((current) => [...new Set([...current, group.id])]);
+      }
+      return;
+    }
+    setVariablesExpanded(true);
+    const group = config.variableGroups.find((entry) => entry.itemIds.includes(editRequest.variableId));
+    if (group) {
+      setExpandedVariableGroupIds((current) => [...new Set([...current, group.id])]);
+    }
+  }, [editRequest?.requestId]);
+
+  useEffect(() => {
+    if (!open || !popoverPosition || !focusedEditRequest) return undefined;
+    const targetKey = sourceLibraryTargetKey(focusedEditRequest);
+    const frame = window.requestAnimationFrame(() => {
+      const target = [...(popoverRef.current?.querySelectorAll<HTMLElement>('[data-library-target]') ?? [])]
+        .find((element) => element.dataset.libraryTarget === targetKey);
+      target?.scrollIntoView({ block: 'center' });
+      target?.querySelector<HTMLInputElement>('input:not([type="checkbox"])')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [focusedEditRequest, open, popoverPosition]);
+
+  useEffect(() => {
+    if (!focusedEditRequest) return undefined;
+    const requestId = focusedEditRequest.requestId;
+    const targetKey = sourceLibraryTargetKey(focusedEditRequest);
+    const timeout = window.setTimeout(() => {
+      const target = [...(popoverRef.current?.querySelectorAll<HTMLElement>('[data-library-target]') ?? [])]
+        .find((element) => element.dataset.libraryTarget === targetKey);
+      if (target?.contains(document.activeElement)) {
+        (document.activeElement as HTMLElement)?.blur();
+      }
+      setFocusedEditRequest((current) => current?.requestId === requestId ? undefined : current);
+    }, transientSourceHighlightDurationMs);
+    return () => window.clearTimeout(timeout);
+  }, [focusedEditRequest?.requestId]);
   useLayoutEffect(() => {
     if (!open) return undefined;
     const updatePosition = () => {
@@ -2497,14 +2861,13 @@ function DataSourceHeader({
     if (!open) return undefined;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target) || lookupTextModalRef.current?.contains(target))) return;
+      if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
       setOpen(false);
       setRelationEditor(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (lookupTextEditorId) setLookupTextEditorId(null);
-        else if (relationEditor) setRelationEditor(null);
+        if (relationEditor) setRelationEditor(null);
         else setOpen(false);
       }
     };
@@ -2514,11 +2877,7 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, lookupTextEditorId, relationEditor]);
-  useEffect(() => {
-    if (!lookupTextEditorId) return;
-    lookupTextAreaRef.current?.focus();
-  }, [lookupTextEditorId]);
+  }, [open, relationEditor]);
   const patchDataSources = (dataSources: DataSource[]) => {
     onConfigChange({ ...config, dataSources });
   };
@@ -2577,8 +2936,8 @@ function DataSourceHeader({
   const deleteLookup = (lookupIndex: number) => {
     const lookupId = config.lookups[lookupIndex]?.id;
     if (!lookupId) return;
-    if (lookupTextEditorId === lookupId) setLookupTextEditorId(null);
     setExpandedLookupIds((current) => current.filter((id) => id !== lookupId));
+    setLookupDetailsSourceIds((current) => current.filter((id) => id !== lookupId));
     onConfigChange({
       ...config,
       lookups: config.lookups.filter((_, index) => index !== lookupIndex),
@@ -2709,7 +3068,8 @@ function DataSourceHeader({
     sourceIndex: number,
     targetIndex: number,
     position: DropPosition,
-    groupId?: string
+    groupId?: string,
+    shiftGroupsAtTarget = true
   ) => {
     const nextItems = [...items];
     const itemToMove = nextItems[sourceIndex];
@@ -2723,7 +3083,7 @@ function DataSourceHeader({
       items: nextItems,
       groups: groups.map((group) => {
         const positionAfterRemoval = group.position > sourceIndex ? group.position - 1 : group.position;
-        const nextPosition = group.id !== groupId && group.position >= targetBoundary
+        const nextPosition = shiftGroupsAtTarget && group.id !== groupId && group.position >= targetBoundary
           ? positionAfterRemoval + 1
           : positionAfterRemoval;
         return {
@@ -2736,7 +3096,13 @@ function DataSourceHeader({
       })
     };
   };
-  const moveLibraryItem = (kind: 'lookup' | 'variable', targetIndex: number, position: DropPosition, groupId?: string) => {
+  const moveLibraryItem = (
+    kind: 'lookup' | 'variable',
+    targetIndex: number,
+    position: DropPosition,
+    groupId?: string,
+    shiftGroupsAtTarget = true
+  ) => {
     if (!libraryItemDrag || libraryItemDrag.kind !== kind) return;
     if (kind === 'lookup') {
       const result = moveLibraryCollection(
@@ -2745,7 +3111,8 @@ function DataSourceHeader({
         libraryItemDrag.itemIndex,
         targetIndex,
         position,
-        groupId
+        groupId,
+        shiftGroupsAtTarget
       );
       onConfigChange({ ...config, lookups: result.items, lookupGroups: result.groups });
     } else {
@@ -2755,7 +3122,8 @@ function DataSourceHeader({
         libraryItemDrag.itemIndex,
         targetIndex,
         position,
-        groupId
+        groupId,
+        shiftGroupsAtTarget
       );
       onConfigChange({ ...config, variables: result.items, variableGroups: result.groups });
     }
@@ -2781,10 +3149,6 @@ function DataSourceHeader({
     const lookup = config.lookups[lookupIndex];
     updateLookup(lookupIndex, { inputs: lookup.inputs.filter((_, index) => index !== inputIndex) });
   };
-  const lookupTextEditorIndex = lookupTextEditorId
-    ? config.lookups.findIndex((lookup) => lookup.id === lookupTextEditorId)
-    : -1;
-  const lookupTextEditor = lookupTextEditorIndex >= 0 ? config.lookups[lookupTextEditorIndex] : undefined;
   const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
   const fallbackPrimaryKeyName = (source: DataSource) => `${relationFieldBaseName(source.name)}ID`;
   const collectionNameFromKey = (keyName: string) => {
@@ -3201,14 +3565,35 @@ function DataSourceHeader({
     setLibraryItemDrag(null);
     setLibraryItemDragOver(null);
     setLibraryGroupDragOver(null);
+    setLibraryInsertDragOver(null);
   };
   const renderLibraryInsertActions = (
     kind: 'lookup' | 'variable',
     position: number,
     key: string,
-    groupId?: string
+    groupId?: string,
+    shiftGroupsAtPosition = false
   ) => (
-    <div className="field-insert-actions library-insert-actions" key={key}>
+    <div
+      className={`field-insert-actions library-insert-actions ${libraryInsertDragOver?.kind === kind && libraryInsertDragOver.key === key ? 'is-drag-over' : ''}`}
+      key={key}
+      onDragOver={(event) => {
+        if (libraryItemDrag?.kind !== kind) return;
+        event.preventDefault();
+        event.stopPropagation();
+        event.dataTransfer.dropEffect = 'move';
+        setLibraryItemDragOver(null);
+        setLibraryGroupDragOver(null);
+        setLibraryInsertDragOver({ kind, key });
+      }}
+      onDrop={(event) => {
+        if (libraryItemDrag?.kind !== kind) return;
+        event.preventDefault();
+        event.stopPropagation();
+        moveLibraryItem(kind, position, 'before', groupId, shiftGroupsAtPosition);
+        clearLibraryDrag();
+      }}
+    >
       <button
         className="list-insert-divider"
         type="button"
@@ -3223,12 +3608,14 @@ function DataSourceHeader({
   );
   const renderLookupItem = (lookup: LookupDefinition, lookupIndex: number, groupId?: string) => (
     <div
-      className={`library-item-shell ${libraryItemDragOver?.kind === 'lookup' && libraryItemDragOver.itemIndex === lookupIndex ? `is-drag-over-${libraryItemDragOver.position}` : ''}`}
+      className={`library-item-shell ${libraryItemDragOver?.kind === 'lookup' && libraryItemDragOver.itemIndex === lookupIndex ? `is-drag-over-${libraryItemDragOver.position}` : ''} ${focusedEditRequest?.kind === 'lookup' && focusedEditRequest.lookupId === lookup.id ? 'is-library-edit-target' : ''}`}
+      data-library-target={`lookup:${lookup.id}`}
       key={lookup.id}
       onDragOver={(event) => {
         if (libraryItemDrag?.kind !== 'lookup') return;
         event.preventDefault();
         event.stopPropagation();
+        setLibraryInsertDragOver(null);
         const rect = event.currentTarget.getBoundingClientRect();
         setLibraryItemDragOver({
           kind: 'lookup',
@@ -3264,27 +3651,24 @@ function DataSourceHeader({
       }}>
         <summary>
           <BookOpen size={13} aria-hidden="true" />
-          <span><strong>{lookup.outputName.trim() || 'Untitled lookup'}</strong><small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small></span>
+          <span className="lookup-summary-title"><strong>{lookup.outputName.trim() || 'Untitled lookup'}</strong><small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small></span>
           <code>{lookupDefaultLatex(lookup)}</code>
+          <span className="lookup-header-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            <button className="mini-icon-button" type="button" title="Copy lookup" aria-label={`Copy ${lookup.outputName.trim() || 'untitled lookup'}`} onClick={(event) => {
+              event.preventDefault();
+              duplicateLookup(lookupIndex);
+            }}><Copy size={12} /></button>
+            <button className="mini-icon-button danger" type="button" title="Delete lookup" aria-label={`Delete ${lookup.outputName.trim() || 'untitled lookup'}`} onClick={(event) => {
+              event.preventDefault();
+              deleteLookup(lookupIndex);
+            }}><Trash2 size={12} /></button>
+          </span>
           <ChevronDown size={12} aria-hidden="true" />
         </summary>
         <div className="lookup-definition-body">
           <div className="lookup-output-fields">
             <label className="field"><span>Output name</span><input value={lookup.outputName} onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} /></label>
             <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
-            <div className="lookup-definition-actions">
-              <button
-                className={`mini-icon-button lookup-text-button ${lookup.text.trim() ? 'has-text' : ''}`}
-                type="button"
-                title={lookup.text.trim() ? 'Edit lookup text' : 'Add lookup text'}
-                aria-label={`${lookup.text.trim() ? 'Edit' : 'Add'} lookup text for ${lookup.outputName.trim() || 'untitled lookup'}`}
-                onClick={() => setLookupTextEditorId(lookup.id)}
-              >
-                <FileText size={12} aria-hidden="true" />
-              </button>
-              <button className="mini-icon-button" type="button" title="Copy lookup" onClick={() => duplicateLookup(lookupIndex)}><Copy size={12} /></button>
-              <button className="mini-icon-button danger" type="button" title="Delete lookup" onClick={() => deleteLookup(lookupIndex)}><Trash2 size={12} /></button>
-            </div>
           </div>
           <div className="lookup-input-heading"><span>Input representation</span><span>Explanation</span><span>Actions</span></div>
           {lookup.inputs.length === 0 ? <span className="empty-option">No input variables.</span> : null}
@@ -3300,18 +3684,54 @@ function DataSourceHeader({
             </div>
           ])}
           <button className="secondary-action tiny lookup-add-input" type="button" onClick={() => addLookupInput(lookupIndex)}><Plus size={11} /> Add input</button>
+          <div className="field lookup-details-field">
+            <div className="lookup-details-heading">
+              <span>Lookup details</span>
+              <label className="lookup-details-mode">
+                <span className={!lookupDetailsSourceIds.includes(lookup.id) ? 'is-active' : ''}>Rendered</span>
+                <input
+                  type="checkbox"
+                  role="switch"
+                  aria-label={`Show Markdown source for ${lookup.outputName.trim() || 'untitled lookup'}`}
+                  checked={lookupDetailsSourceIds.includes(lookup.id)}
+                  onChange={(event) => setLookupDetailsSourceIds((current) => event.target.checked
+                    ? [...new Set([...current, lookup.id])]
+                    : current.filter((id) => id !== lookup.id))}
+                />
+                <span className={lookupDetailsSourceIds.includes(lookup.id) ? 'is-active' : ''}>Source</span>
+              </label>
+            </div>
+            {lookupDetailsSourceIds.includes(lookup.id) ? (
+              <AutoGrowTextarea
+                value={lookup.text}
+                rows={3}
+                aria-label={`Markdown source for ${lookup.outputName.trim() || 'untitled lookup'}`}
+                placeholder="# Lookup details\n\nUse Markdown headings, lists, links, tables, and code."
+                onValueChange={(text) => updateLookup(lookupIndex, { text })}
+              />
+            ) : (
+              <MarkdownContent
+                value={lookup.text}
+                onTextEdit={(start, end, text) => updateLookup(lookupIndex, {
+                  text: `${lookup.text.slice(0, start)}${text}${lookup.text.slice(end)}`
+                })}
+              />
+            )}
+          </div>
         </div>
       </details>
     </div>
   );
   const renderVariableItem = (variable: VariableDefinition, variableIndex: number, groupId?: string) => (
     <div
-      className={`variable-row ${libraryItemDragOver?.kind === 'variable' && libraryItemDragOver.itemIndex === variableIndex ? `is-drag-over-${libraryItemDragOver.position}` : ''}`}
+      className={`variable-row ${libraryItemDragOver?.kind === 'variable' && libraryItemDragOver.itemIndex === variableIndex ? `is-drag-over-${libraryItemDragOver.position}` : ''} ${focusedEditRequest?.kind === 'variable' && focusedEditRequest.variableId === variable.id ? 'is-library-edit-target' : ''}`}
+      data-library-target={`variable:${variable.id}`}
       key={variable.id}
       onDragOver={(event) => {
         if (libraryItemDrag?.kind !== 'variable') return;
         event.preventDefault();
         event.stopPropagation();
+        setLibraryInsertDragOver(null);
         const rect = event.currentTarget.getBoundingClientRect();
         setLibraryItemDragOver({
           kind: 'variable',
@@ -3355,24 +3775,45 @@ function DataSourceHeader({
       .map((lookup, lookupIndex) => ({ lookup, lookupIndex }))
       .filter(({ lookup }) => group.itemIds.includes(lookup.id));
     const expanded = expandedLookupGroupIds.includes(group.id);
+    const groupDragPosition = libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === group.id
+      ? libraryGroupDragOver.position
+      : undefined;
+    const groupIsDragTarget = libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === group.id;
+    const lookupGroupDropPosition = (element: HTMLDivElement, clientY: number): DropPosition | undefined => {
+      const rect = element.getBoundingClientRect();
+      const edgeSize = Math.min(28, Math.max(10, rect.height * 0.2));
+      if (clientY < rect.top + edgeSize) return 'before';
+      if (clientY > rect.bottom - edgeSize) return 'after';
+      return undefined;
+    };
     return (
       <div
-        className={`library-group ${libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === group.id ? 'is-drag-over' : ''}`}
+        className={`library-group ${groupIsDragTarget ? groupDragPosition ? `is-drag-over-${groupDragPosition}` : 'is-drag-over' : ''}`}
         key={group.id}
         onDragOver={(event) => {
           if (libraryItemDrag?.kind !== 'lookup') return;
           event.preventDefault();
           event.stopPropagation();
+          event.dataTransfer.dropEffect = 'move';
+          const position = lookupGroupDropPosition(event.currentTarget, event.clientY);
           setLibraryItemDragOver(null);
-          setLibraryGroupDragOver({ kind: 'lookup', groupId: group.id });
-          setExpandedLookupGroupIds((current) => [...new Set([...current, group.id])]);
+          setLibraryInsertDragOver(null);
+          setLibraryGroupDragOver({ kind: 'lookup', groupId: group.id, position });
+          if (!position) setExpandedLookupGroupIds((current) => [...new Set([...current, group.id])]);
         }}
         onDrop={(event) => {
           if (libraryItemDrag?.kind !== 'lookup') return;
           event.preventDefault();
           event.stopPropagation();
-          const dragged = config.lookups[libraryItemDrag.itemIndex];
-          if (dragged) assignLibraryItemToGroup('lookup', dragged.id, group.id);
+          const position = lookupGroupDropPosition(event.currentTarget, event.clientY);
+          if (position === 'before') {
+            moveLibraryItem('lookup', group.position, 'before', undefined, true);
+          } else if (position === 'after') {
+            moveLibraryItem('lookup', group.position, 'before', undefined, false);
+          } else {
+            const dragged = config.lookups[libraryItemDrag.itemIndex];
+            if (dragged) assignLibraryItemToGroup('lookup', dragged.id, group.id);
+          }
           clearLibraryDrag();
         }}
       >
@@ -3418,6 +3859,7 @@ function DataSourceHeader({
           event.preventDefault();
           event.stopPropagation();
           setLibraryItemDragOver(null);
+          setLibraryInsertDragOver(null);
           setLibraryGroupDragOver({ kind: 'variable', groupId: group.id });
           setExpandedVariableGroupIds((current) => [...new Set([...current, group.id])]);
         }}
@@ -3513,6 +3955,7 @@ function DataSourceHeader({
                   if (libraryItemDrag?.kind !== 'lookup') return;
                   event.preventDefault();
                   setLibraryItemDragOver(null);
+                  setLibraryInsertDragOver(null);
                   setLibraryGroupDragOver({ kind: 'lookup' });
                 }}
                 onDrop={(event) => {
@@ -3529,7 +3972,7 @@ function DataSourceHeader({
                   const isUngrouped = !groupedLookupIds.has(lookup.id);
                   return [
                     ...(groupsAtPosition.length > 0
-                      ? [renderLibraryInsertActions('lookup', lookupIndex, `before-lookup-groups-${lookup.id}`)]
+                      ? [renderLibraryInsertActions('lookup', lookupIndex, `before-lookup-groups-${lookup.id}`, undefined, true)]
                       : []),
                     ...groupsAtPosition.map(renderLookupGroup),
                     ...(isUngrouped ? [
@@ -3541,7 +3984,7 @@ function DataSourceHeader({
                   ];
                 })}
                 {config.lookupGroups.some((group) => group.position === config.lookups.length)
-                  ? renderLibraryInsertActions('lookup', config.lookups.length, 'before-final-lookup-groups')
+                  ? renderLibraryInsertActions('lookup', config.lookups.length, 'before-final-lookup-groups', undefined, true)
                   : null}
                 {config.lookupGroups.filter((group) => group.position === config.lookups.length).map(renderLookupGroup)}
                 <div className="library-final-actions">
@@ -3572,6 +4015,7 @@ function DataSourceHeader({
                   if (libraryItemDrag?.kind !== 'variable') return;
                   event.preventDefault();
                   setLibraryItemDragOver(null);
+                  setLibraryInsertDragOver(null);
                   setLibraryGroupDragOver({ kind: 'variable' });
                 }}
                 onDrop={(event) => {
@@ -3590,7 +4034,7 @@ function DataSourceHeader({
                   const isUngrouped = !groupedVariableIds.has(variable.id);
                   return [
                     ...(groupsAtPosition.length > 0
-                      ? [renderLibraryInsertActions('variable', variableIndex, `before-variable-groups-${variable.id}`)]
+                      ? [renderLibraryInsertActions('variable', variableIndex, `before-variable-groups-${variable.id}`, undefined, true)]
                       : []),
                     ...groupsAtPosition.map(renderVariableGroup),
                     ...(isUngrouped ? [
@@ -3602,7 +4046,7 @@ function DataSourceHeader({
                   ];
                 })}
                 {config.variableGroups.some((group) => group.position === config.variables.length)
-                  ? renderLibraryInsertActions('variable', config.variables.length, 'before-final-variable-groups')
+                  ? renderLibraryInsertActions('variable', config.variables.length, 'before-final-variable-groups', undefined, true)
                   : null}
                 {config.variableGroups.filter((group) => group.position === config.variables.length).map(renderVariableGroup)}
                 <div className="library-final-actions">
@@ -3679,7 +4123,8 @@ function DataSourceHeader({
                 const relationIsDuplicate = relationDraftIsDuplicate;
                 return (
                 <div
-                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''}`}
+                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
+                  data-library-target={`field:${field.id}`}
                   key={field.id}
                   onDragOver={(event) => {
                     if (fieldDrag?.sourceIndex !== sourceIndex) return;
@@ -3833,11 +4278,11 @@ function DataSourceHeader({
                           {group.dimensions.map((dimension) => (
                             <div className="field-group-dimension-row" key={dimension.id}>
                               <label className="data-source-field-group-control">
-                                <small>Dimension name used in the subscript</small>
+                                <small>By:</small>
                                 <input value={dimension.name} aria-label="Dimension name" placeholder="Mode" onChange={(event) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { name: event.target.value })} />
                               </label>
                               <div className="data-source-field-group-control">
-                                <small>Dimension options (library and formula shortcuts)</small>
+                                <small>Options:</small>
                                 <div className="field-group-dimension-options">
                                   {dimension.options.map((option) => (
                                     <span className="field-group-dimension-chip" key={option}>
@@ -4072,52 +4517,19 @@ function DataSourceHeader({
         </div>,
         document.body
       ) : null}
-      {lookupTextEditor ? createPortal(
-        <div
-          className="lookup-text-modal-backdrop"
-          ref={lookupTextModalRef}
-          onPointerDown={(event) => {
-            if (event.target === event.currentTarget) setLookupTextEditorId(null);
-          }}
-        >
-          <section
-            className="lookup-text-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="lookup-text-modal-title"
-          >
-            <div className="lookup-text-modal-heading">
-              <div>
-                <strong id="lookup-text-modal-title">Lookup text</strong>
-                <span>{lookupTextEditor.outputName.trim() || 'Untitled lookup'}</span>
-              </div>
-              <button className="mini-icon-button" type="button" title="Close lookup text" aria-label="Close lookup text" onClick={() => setLookupTextEditorId(null)}>
-                <X size={13} aria-hidden="true" />
-              </button>
-            </div>
-            <label className="field lookup-text-field">
-              <span>Detailed text</span>
-              <textarea
-                ref={lookupTextAreaRef}
-                value={lookupTextEditor.text}
-                rows={12}
-                placeholder="Add detailed lookup guidance. Blank lines create separate paragraphs."
-                onChange={(event) => updateLookup(lookupTextEditorIndex, { text: event.target.value })}
-              />
-            </label>
-            <div className="lookup-text-modal-footer">
-              <span>Paragraphs and line breaks are preserved.</span>
-              <button className="primary-action small" type="button" onClick={() => setLookupTextEditorId(null)}>Done</button>
-            </div>
-          </section>
-        </div>,
-        document.body
-      ) : null}
     </div>
   );
 }
 
-function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric }) {
+function KpiSourceGroupedSummary({
+  config,
+  kpi,
+  onSourceClick
+}: {
+  config: KpiPoolConfig;
+  kpi: KpiMetric;
+  onSourceClick: (sourceId: string) => void;
+}) {
   const dataGroups = selectedDataSourceGroups(config, kpi);
   const prerequisiteKpis = kpi.sources.flatMap((source) =>
     source.type === 'kpi' ? [{ source, kpi: config.kpis.find((entry) => entry.id === source.kpiId) }] : []
@@ -4139,7 +4551,7 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
           <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}</span></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
             const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-            return <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)}>{field.name}{dimensionLabel ? ` [${dimensionLabel}]` : ''}</span>;
+            return <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
           })}</span>
         </span>
       ))}
@@ -4148,26 +4560,26 @@ function KpiSourceGroupedSummary({ config, kpi }: { config: KpiPoolConfig; kpi: 
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className="source-summary-item" key={source.id}>{prerequisite?.name ?? 'Missing KPI'}{dimensionLabel ? ` [${dimensionLabel}]` : ''}</span>;
+            return <span className="source-summary-item" key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
           })}</span>
         </span>
       ) : null}
       {lookupSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><BookOpen size={12} aria-hidden="true" /><span>Lookups</span></span>
-          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
+          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
         </span>
       ) : null}
       {variableSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><VariableIcon size={12} aria-hidden="true" /><span>Variables</span></span>
-          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)}>{variable?.name ?? 'Missing variable'}</span>)}</span>
+          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{variable?.name ?? 'Missing variable'}</span>)}</span>
         </span>
       ) : null}
       {customSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><Pencil size={12} aria-hidden="true" /><span>Custom sources</span></span>
-          <span className="source-summary-items">{customSources.map((source) => <span className="source-summary-item" key={source.id}>{source.name}</span>)}</span>
+          <span className="source-summary-items">{customSources.map((source) => <span className="source-summary-item" key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{source.name}</span>)}</span>
         </span>
       ) : null}
     </span>
@@ -4259,14 +4671,48 @@ const replaceKpiSourceLatex = (
   return { description, spatialScales };
 };
 
-function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: KpiPoolConfig; kpi: KpiMetric; onChange: (sources: KpiSourceItem[], formulaUpdates?: KpiSourceFormulaUpdates) => void; compact?: boolean }) {
+function KpiSourceEditor({
+  config,
+  kpi,
+  onChange,
+  onEditLibrarySource,
+  compact = false
+}: {
+  config: KpiPoolConfig;
+  kpi: KpiMetric;
+  onChange: (sources: KpiSourceItem[], formulaUpdates?: KpiSourceFormulaUpdates) => void;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  compact?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [pickerScope, setPickerScope] = useState('');
   const [query, setQuery] = useState('');
   const [customName, setCustomName] = useState('');
   const [customLatex, setCustomLatex] = useState('');
   const [expandedPickerGroupKeys, setExpandedPickerGroupKeys] = useState<string[]>([]);
+  const [highlightedSource, setHighlightedSource] = useState<{ sourceId: string; requestId: number }>();
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const highlightSource = (sourceId: string) => {
+    setHighlightedSource((current) => ({ sourceId, requestId: (current?.requestId ?? 0) + 1 }));
+    setOpen(true);
+  };
+  useEffect(() => {
+    if (!highlightedSource) return undefined;
+    const requestId = highlightedSource.requestId;
+    const timeout = window.setTimeout(() => {
+      setHighlightedSource((current) => current?.requestId === requestId ? undefined : current);
+    }, transientSourceHighlightDurationMs);
+    return () => window.clearTimeout(timeout);
+  }, [highlightedSource?.requestId]);
+  useEffect(() => {
+    if (!open || !highlightedSource) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const target = [...(controlRef.current?.querySelectorAll<HTMLElement>('[data-kpi-source-id]') ?? [])]
+        .find((element) => element.dataset.kpiSourceId === highlightedSource.sourceId);
+      target?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlightedSource, open]);
   const normalizedQuery = normalize(query);
   const toggleDataField = (dataSourceId: string, fieldId: string) => {
     const sameField = (item: KpiSourceItem) => item.type === 'dataField' && item.dataSourceId === dataSourceId && item.fieldId === fieldId;
@@ -4355,18 +4801,50 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   const selectedLookupSources = kpi.sources.filter((source) => source.type === 'lookup');
   const selectedVariableSources = kpi.sources.filter((source) => source.type === 'variable');
   const selectedCustomSources = kpi.sources.filter((source) => source.type === 'custom');
+  const editSelectedSource = (item: KpiSourceItem, button: HTMLButtonElement) => {
+    if (item.type === 'dataField') {
+      setOpen(false);
+      onEditLibrarySource({ kind: 'dataField', dataSourceId: item.dataSourceId, fieldId: item.fieldId });
+      return;
+    }
+    if (item.type === 'lookup') {
+      setOpen(false);
+      onEditLibrarySource({ kind: 'lookup', lookupId: item.lookupId });
+      return;
+    }
+    if (item.type === 'variable') {
+      setOpen(false);
+      onEditLibrarySource({ kind: 'variable', variableId: item.variableId });
+      return;
+    }
+    if (item.type === 'kpi') {
+      setPickerScope('kpis');
+      setQuery(config.kpis.find((entry) => entry.id === item.kpiId)?.name ?? '');
+      return;
+    }
+    button.closest('.selected-source-row')?.querySelector<HTMLInputElement>('input')?.focus();
+  };
   const renderSelectedSourceRow = (item: KpiSourceItem, label: string) => {
     const isCollection = item.type === 'dataField' && config.dataSources
       .find((source) => source.id === item.dataSourceId)?.fields
       .find((field) => field.id === item.fieldId)?.dataType === 'collection';
     return (
-    <div className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''}`} key={item.id}>
+    <div
+      className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${highlightedSource?.sourceId === item.id ? 'is-kpi-source-highlighted' : ''}`}
+      data-kpi-source-id={item.id}
+      key={item.id}
+      onClick={(event) => {
+        if ((event.target as HTMLElement).closest('button, input')) return;
+        highlightSource(item.id);
+      }}
+    >
       {item.type === 'custom'
         ? <input value={item.name} aria-label="Custom source name" onChange={(event) => updateItem(item.id, { name: event.target.value })} />
         : <span title={sourceItemTooltip(config, item)}>{label}</span>}
       <input className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onChange={(event) => updateItem(item.id, { latex: event.target.value })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
-      <button className="mini-icon-button danger" type="button" title="Remove source" onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
+      <button className="mini-icon-button edit-source-button" type="button" title="Edit source" aria-label={`Edit source ${label}`} onClick={(event) => editSelectedSource(item, event.currentTarget)}><Pencil size={12} /></button>
+      <button className="mini-icon-button danger" type="button" title="Remove source" aria-label={`Remove source ${label}`} onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
     </div>
     );
   };
@@ -4434,20 +4912,61 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
   return (
     <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef}>
       <button className="cell-enum-trigger" type="button" onClick={() => setOpen((value) => !value)}>
-        {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} /> : <span className="muted-dash">Select sources...</span>}
+        {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={highlightSource} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
       {open ? (
         <div className="kpi-source-popover">
           <div className="popover-title">KPI sources</div>
+          <section className="selected-source-section">
+            <div className="popover-title">Selected sources</div>
+            {kpi.sources.length ? (
+              <div className="selected-source-list">
+                {selectedDataGroups.map(({ dataSource, items }) => (
+                  <section className="selected-source-group" key={dataSource.id}>
+                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{dataSource.name}</span></div>
+                    {items.map(({ source, field }) => {
+                      const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
+                      return renderSelectedSourceRow(source, dimensionedSourceLabel(field.name, dimensionLabel));
+                    })}
+                  </section>
+                ))}
+                {selectedKpiSources.length ? (
+                  <section className="selected-source-group">
+                    <div className="selected-source-group-heading"><Gauge size={13} aria-hidden="true" /><span>Prerequisite KPIs</span></div>
+                    {selectedKpiSources.map((source) => renderSelectedSourceRow(source, sourceItemLabel(config, source)))}
+                  </section>
+                ) : null}
+                {selectedLookupSources.length ? (
+                  <section className="selected-source-group">
+                    <div className="selected-source-group-heading"><BookOpen size={13} aria-hidden="true" /><span>Lookups</span></div>
+                    {selectedLookupSources.map((source) => renderSelectedSourceRow(source, config.lookups.find((lookup) => lookup.id === source.lookupId)?.outputName ?? 'Missing lookup'))}
+                  </section>
+                ) : null}
+                {selectedVariableSources.length ? (
+                  <section className="selected-source-group is-variable">
+                    <div className="selected-source-group-heading"><VariableIcon size={13} aria-hidden="true" /><span>Variables</span></div>
+                    {selectedVariableSources.map((source) => renderSelectedSourceRow(source, config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing variable'))}
+                  </section>
+                ) : null}
+                {selectedCustomSources.length ? (
+                  <section className="selected-source-group">
+                    <div className="selected-source-group-heading"><Pencil size={13} aria-hidden="true" /><span>Custom sources</span></div>
+                    {selectedCustomSources.map((source) => renderSelectedSourceRow(source, source.name))}
+                  </section>
+                ) : null}
+              </div>
+            ) : <span className="selected-source-empty">No sources selected. Open a picker below to add one.</span>}
+          </section>
+          <div className="popover-title source-picker-title">Add sources</div>
           <div className="source-scope-buttons" aria-label="Add source from">
-            <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs</button>
-            <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups</button>
-            <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Variables</button>
+            <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={pickerScope === 'kpis' ? 'rotate' : ''} /></button>
+            <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
+            <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Variables<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
             {config.dataSources.map((source) => (
-              <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" key={source.id} onClick={() => { setPickerScope(`data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{source.name}</span></button>
+              <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{source.name}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
             ))}
-            <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" onClick={() => { setPickerScope('custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source</button>
+            <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
           </div>
           {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
             <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search variables…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
@@ -4514,46 +5033,6 @@ function KpiSourceEditor({ config, kpi, onChange, compact = false }: { config: K
               <label className="field"><span>LaTeX expression</span><input className="latex-code-editor" value={customLatex} placeholder="x_{custom}" onChange={(event) => setCustomLatex(event.target.value)} /></label>
               <span className="source-latex-preview">{customLatex.trim() ? <InlineMath math={customLatex} errorColor="#b42318" /> : 'Preview'}</span>
               <button className="primary-action tiny" type="button" disabled={!customName.trim()} onClick={addCustomSource}><Plus size={12} /> Add custom source</button>
-            </section>
-          ) : null}
-          {kpi.sources.length ? (
-            <section className="selected-source-section">
-              <div className="popover-title">Selected sources</div>
-              <div className="selected-source-list">
-                {selectedDataGroups.map(({ dataSource, items }) => (
-                  <section className="selected-source-group" key={dataSource.id}>
-                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{dataSource.name}</span></div>
-                    {items.map(({ source, field }) => {
-                      const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-                      return renderSelectedSourceRow(source, `${field.name}${dimensionLabel ? ` [${dimensionLabel}]` : ''}`);
-                    })}
-                  </section>
-                ))}
-                {selectedKpiSources.length ? (
-                  <section className="selected-source-group">
-                    <div className="selected-source-group-heading"><Gauge size={13} aria-hidden="true" /><span>Prerequisite KPIs</span></div>
-                    {selectedKpiSources.map((source) => renderSelectedSourceRow(source, config.kpis.find((entry) => entry.id === source.kpiId)?.name ?? 'Missing KPI'))}
-                  </section>
-                ) : null}
-                {selectedLookupSources.length ? (
-                  <section className="selected-source-group">
-                    <div className="selected-source-group-heading"><BookOpen size={13} aria-hidden="true" /><span>Lookups</span></div>
-                    {selectedLookupSources.map((source) => renderSelectedSourceRow(source, config.lookups.find((lookup) => lookup.id === source.lookupId)?.outputName ?? 'Missing lookup'))}
-                  </section>
-                ) : null}
-                {selectedVariableSources.length ? (
-                  <section className="selected-source-group is-variable">
-                    <div className="selected-source-group-heading"><VariableIcon size={13} aria-hidden="true" /><span>Variables</span></div>
-                    {selectedVariableSources.map((source) => renderSelectedSourceRow(source, config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing variable'))}
-                  </section>
-                ) : null}
-                {selectedCustomSources.length ? (
-                  <section className="selected-source-group">
-                    <div className="selected-source-group-heading"><Pencil size={13} aria-hidden="true" /><span>Custom sources</span></div>
-                    {selectedCustomSources.map((source) => renderSelectedSourceRow(source, source.name))}
-                  </section>
-                ) : null}
-              </div>
             </section>
           ) : null}
         </div>
@@ -5319,11 +5798,13 @@ function SpatialScaleMatrix({
 function ExpandedKpiEditor({
   config,
   kpi,
-  onChange
+  onChange,
+  onEditLibrarySource
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
   onChange: (next: KpiMetric) => void;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const [formulaDrag, setFormulaDrag] = useState<{ groupIndex: number; itemIndex: number } | null>(null);
@@ -5779,7 +6260,7 @@ function ExpandedKpiEditor({
       <section className="expanded-section source-and-scale-section scales-expanded-column">
         <div className="field expanded-independent expanded-sources">
           <span>Sources</span>
-          <KpiSourceEditor config={config} kpi={kpi} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+          <KpiSourceEditor config={config} kpi={kpi} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </div>
         <div
           className={`expanded-tab-panel spatial-scales-tab-panel ${activeExpandedPanel === 'scales' ? 'is-active' : 'is-inactive'}`}
@@ -5921,7 +6402,8 @@ function KpiRow({
   onDelete,
   onDuplicate,
   onDragHandleMouseDown,
-  onInsertBefore
+  onInsertBefore,
+  onEditLibrarySource
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
@@ -5941,6 +6423,7 @@ function KpiRow({
   onDuplicate: (id: string) => void;
   onDragHandleMouseDown: (id: string, event: React.MouseEvent<HTMLButtonElement>) => void;
   onInsertBefore: (id: string) => void;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const stopRowToggle = (event: React.SyntheticEvent) => event.stopPropagation();
@@ -5991,8 +6474,11 @@ function KpiRow({
                   onValueChange={(name) => patch({ name })}
                 />
                 {kpi.dimensions.length ? (
-                  <span className="kpi-dimension-summary" title={kpi.dimensions.map((dimension) => `${dimension.name}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join('\n')}>
-                    {kpi.dimensions.map((dimension) => <span key={dimension.id}>{dimension.name || 'Untitled'}{dimension.options.length ? ` (${dimension.options.length})` : ''}</span>)}
+                  <span className="kpi-dimension-line" title={kpi.dimensions.map((dimension) => `${dimension.name}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join('\n')}>
+                    <span className="kpi-dimension-by">by</span>
+                    <span className="kpi-dimension-summary">
+                      {kpi.dimensions.map((dimension) => <span key={dimension.id}>{dimension.name || 'Untitled'}{dimension.options.length ? ` (${dimension.options.length})` : ''}</span>)}
+                    </span>
                   </span>
                 ) : null}
               </div>
@@ -6018,7 +6504,7 @@ function KpiRow({
         </td>
         <td>
           <div onClick={stopRowToggle}>
-            <KpiSourceEditor config={config} kpi={kpi} compact onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+            <KpiSourceEditor config={config} kpi={kpi} compact onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
           </div>
         </td>
         <td>
@@ -6125,7 +6611,7 @@ function KpiRow({
         <tr className="expanded-row" ref={expandedRowRef}>
           <td colSpan={tableColumnCount}>
             <div className="expanded-row-viewport" style={{ width: tableViewportWidth || '100%' }}>
-              <ExpandedKpiEditor config={config} kpi={kpi} onChange={onChange} />
+              <ExpandedKpiEditor config={config} kpi={kpi} onChange={onChange} onEditLibrarySource={onEditLibrarySource} />
             </div>
           </td>
         </tr>
@@ -6218,11 +6704,15 @@ function KpiTable({
   const [hiddenEnumColumns, setHiddenEnumColumns] = useState<KpiEnumCategoryKey[]>(defaultHiddenEnumColumns);
   const [resizingColumn, setResizingColumn] = useState<number | null>(null);
   const [dragState, setDragState] = useState<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
+  const [sourceLibraryEditRequest, setSourceLibraryEditRequest] = useState<SourceLibraryEditRequest>();
   const dragSessionRef = useRef<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRequestRef = useRef<number | null>(null);
   const [scrollFrame, setScrollFrame] = useState({ top: 0, height: 0, width: 0 });
   const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map());
+  const editLibrarySource = useCallback((target: SourceLibraryEditTarget) => {
+    setSourceLibraryEditRequest((current) => ({ ...target, requestId: (current?.requestId ?? 0) + 1 }));
+  }, []);
   const visibleEnumCategories = useMemo(
     () => categoryFields.filter((category) => !hiddenEnumColumns.includes(category)),
     [hiddenEnumColumns]
@@ -6581,7 +7071,7 @@ function KpiTable({
                 {resizeHandle(0, 'Name and description')}
               </th>
               <th className={headerClass(2)}>
-                <DataSourceHeader config={config} filter={filters.prerequisite} onFilterChange={(prerequisite) => onFiltersChange({ ...filters, prerequisite })} onConfigChange={onConfigChange} />
+                <DataSourceHeader config={config} filter={filters.prerequisite} onFilterChange={(prerequisite) => onFiltersChange({ ...filters, prerequisite })} onConfigChange={onConfigChange} editRequest={sourceLibraryEditRequest} />
                 {resizeHandle(2, 'Source')}
               </th>
               <th className={headerClass(3)}>
@@ -6715,6 +7205,7 @@ function KpiTable({
                 onDuplicate={onDuplicate}
                 onInsertBefore={onAddKpi}
                 onDragHandleMouseDown={startRowDrag}
+                onEditLibrarySource={editLibrarySource}
                 onHeightChange={handleRowHeightChange}
               />
             ))}
