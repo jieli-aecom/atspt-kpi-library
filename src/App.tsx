@@ -2169,7 +2169,12 @@ function AutoGrowTextarea({ value, onValueChange, preventLineBreaks = false, ...
   );
 }
 
-const markdownInlinePattern = /(`[^`\n]+`|\[[^\]\n]+\]\([^)\n]+\)|\*\*[^*\n]+\*\*|__[^_\n]+__|~~[^~\n]+~~|\*[^*\n]+\*|_[^_\n]+_)/g;
+const markdownInlinePattern = /(`(?:\\.|[^\\`\n])+`|\[(?:\\.|[^\\\]\n])+\]\([^)\n]+\)|\*\*(?:\\.|(?!\*\*)[^\\\n])+\*\*|__(?:\\.|(?!__)[^\\\n])+__|~~(?:\\.|(?!~~)[^\\\n])+~~|\*(?:\\.|[^\\*\n])+\*|_(?:\\.|[^\\_\n])+_)/g;
+const markdownEscapableCharacterPattern = /[\\`*_[\]{}()<>#+\-.!|>~]/g;
+const markdownEscapeSequencePattern = /\\([\\`*_[\]{}()<>#+\-.!|>~])/g;
+
+const encodeMarkdownText = (value: string) => value.replace(markdownEscapableCharacterPattern, '\\$&');
+const decodeMarkdownText = (value: string) => value.replace(markdownEscapeSequencePattern, '$1');
 
 const safeMarkdownHref = (href: string) =>
   /^(https?:\/\/|mailto:|#|\/(?!\/)|\.\.?\/)/i.test(href) ? href : undefined;
@@ -2214,6 +2219,11 @@ function EditableMarkdownText({
         if (event.key === 'Enter') event.preventDefault();
         if (event.key === 'Escape') event.currentTarget.blur();
       }}
+      onPaste={(event) => {
+        event.preventDefault();
+        const pastedText = event.clipboardData.getData('text/plain').replace(/\r?\n/g, ' ');
+        document.execCommand('insertText', false, pastedText);
+      }}
     >{value}</span>
   );
 }
@@ -2223,10 +2233,18 @@ const renderMarkdownText = (
   key: string,
   start: number,
   onTextEdit?: MarkdownTextEdit,
-  placeholder?: string
+  placeholder?: string,
+  encodeEdit = true
 ) => onTextEdit
-  ? <EditableMarkdownText end={start + value.length} key={key} onTextEdit={onTextEdit} placeholder={placeholder} start={start} value={value} />
-  : value;
+  ? <EditableMarkdownText
+      end={start + value.length}
+      key={key}
+      onTextEdit={(editStart, editEnd, nextValue) => onTextEdit(editStart, editEnd, encodeEdit ? encodeMarkdownText(nextValue) : nextValue)}
+      placeholder={placeholder}
+      start={start}
+      value={encodeEdit ? decodeMarkdownText(value) : value}
+    />
+  : decodeMarkdownText(value);
 
 function renderMarkdownInline(
   value: string,
@@ -2249,7 +2267,7 @@ function renderMarkdownInline(
     if (token.startsWith('`')) {
       nodes.push(<code key={key}>{renderMarkdownText(token.slice(1, -1), `${key}-code`, baseOffset + index + 1, onTextEdit)}</code>);
     } else if (token.startsWith('[')) {
-      const link = token.match(/^\[([^\]]+)\]\((\S+?)(?:\s+"[^"]*")?\)$/);
+      const link = token.match(/^\[((?:\\.|[^\\\]])+)\]\((\S+?)(?:\s+"[^"]*")?\)$/);
       const href = link ? safeMarkdownHref(link[2]) : undefined;
       nodes.push(link && href
         ? <a href={href} key={key} onClick={(event) => onTextEdit && event.preventDefault()} rel="noreferrer" target={href.startsWith('#') ? undefined : '_blank'} title={onTextEdit ? `Link target: ${href}` : undefined}>{renderMarkdownInline(link[1], `${key}-link`, baseOffset + index + 1, onTextEdit)}</a>
@@ -2351,7 +2369,7 @@ function renderMarkdownBlocks(value: string, keyPrefix: string, onTextEdit?: Mar
       const key = nextKey();
       const codeNodes: React.ReactNode[] = [];
       codeLineIndexes.forEach((lineIndex, codeLineIndex) => {
-        codeNodes.push(renderMarkdownText(lines[lineIndex], `${key}-code-${codeLineIndex}`, lineStarts[lineIndex], onTextEdit, 'Edit code'));
+        codeNodes.push(renderMarkdownText(lines[lineIndex], `${key}-code-${codeLineIndex}`, lineStarts[lineIndex], onTextEdit, 'Edit code', false));
         if (codeLineIndex < codeLineIndexes.length - 1) codeNodes.push(<br key={`${key}-code-break-${codeLineIndex}`} />);
       });
       blocks.push(<pre key={key}><code data-language={fence[1] || undefined}>{codeNodes}</code></pre>);
@@ -2456,7 +2474,17 @@ function renderMarkdownBlocks(value: string, keyPrefix: string, onTextEdit?: Mar
 
 function MarkdownContent({ value, onTextEdit }: { value: string; onTextEdit: MarkdownTextEdit }) {
   if (!value.trim()) {
-    return <div className="markdown-content is-empty">{renderMarkdownText('', 'markdown-empty', 0, onTextEdit, 'Click to add lookup details')}</div>;
+    return (
+      <div className="markdown-content is-empty">
+        <EditableMarkdownText
+          end={value.length}
+          onTextEdit={(start, end, text) => onTextEdit(start, end, encodeMarkdownText(text))}
+          placeholder="Click to add lookup details"
+          start={0}
+          value=""
+        />
+      </div>
+    );
   }
   return <div className="markdown-content">{renderMarkdownBlocks(value, 'markdown', onTextEdit)}</div>;
 }
@@ -2862,6 +2890,8 @@ function DataSourceHeader({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
+      const activeElement = document.activeElement;
+      if (activeElement instanceof HTMLElement && activeElement.classList.contains('markdown-editable-text')) activeElement.blur();
       setOpen(false);
       setRelationEditor(null);
     };
