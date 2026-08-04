@@ -14,6 +14,7 @@ import {
   Cloud,
   Database,
   Download,
+  Eye,
   FileJson,
   GitFork,
   GripVertical,
@@ -2744,7 +2745,10 @@ function RowKpiSelect({
 }
 
 const dimensionedSourceLabel = (name: string, dimensionLabel: string) =>
-  `${name}${dimensionLabel ? ` by [${dimensionLabel}]` : ''}`;
+  `${name}${dimensionLabel ? ` [by ${dimensionLabel}]` : ''}`;
+
+const spatiallyScaledTableLabel = (name: string, spatialUnit: string) =>
+  `${name}${spatialUnit.trim() ? ` [by ${spatialUnit.trim()}]` : ''}`;
 
 const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   if (item.type === 'custom') {
@@ -2896,6 +2900,7 @@ function DataSourceHeader({
   const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+  const navigatedEditRequestIdRef = useRef<number>();
   const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
   const [sourceDragOver, setSourceDragOver] = useState<{ sourceIndex: number; position: DropPosition } | null>(null);
   const [fieldDrag, setFieldDrag] = useState<{ sourceIndex: number; fieldIndex: number } | null>(null);
@@ -2939,12 +2944,15 @@ function DataSourceHeader({
 
   useEffect(() => {
     if (!open || !popoverPosition || !focusedEditRequest) return undefined;
+    if (navigatedEditRequestIdRef.current === focusedEditRequest.requestId) return undefined;
     const targetKey = sourceLibraryTargetKey(focusedEditRequest);
     const frame = window.requestAnimationFrame(() => {
       const target = [...(popoverRef.current?.querySelectorAll<HTMLElement>('[data-library-target]') ?? [])]
         .find((element) => element.dataset.libraryTarget === targetKey);
-      target?.scrollIntoView({ block: 'center' });
-      target?.querySelector<HTMLInputElement>('input:not([type="checkbox"])')?.focus();
+      if (!target) return;
+      navigatedEditRequestIdRef.current = focusedEditRequest.requestId;
+      target.scrollIntoView({ block: 'center' });
+      target.querySelector<HTMLInputElement>('input:not([type="checkbox"])')?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
   }, [focusedEditRequest, open, popoverPosition]);
@@ -3772,7 +3780,13 @@ function DataSourceHeader({
       }}>
         <summary>
           <BookOpen size={13} aria-hidden="true" />
-          <span className="lookup-summary-title"><strong>{lookup.outputName.trim() || 'Untitled lookup'}</strong><small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small></span>
+          <label className="lookup-summary-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+            <span>Lookup Name</span>
+            <span className="lookup-summary-title-main">
+              <input value={lookup.outputName} placeholder="Untitled lookup" aria-label="Lookup Name" onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} />
+              <small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small>
+            </span>
+          </label>
           <code>{lookupDefaultLatex(lookup)}</code>
           <span className="lookup-header-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
             <button className="mini-icon-button" type="button" title="Copy lookup" aria-label={`Copy ${lookup.outputName.trim() || 'untitled lookup'}`} onClick={(event) => {
@@ -3787,38 +3801,49 @@ function DataSourceHeader({
           <ChevronDown size={12} aria-hidden="true" />
         </summary>
         <div className="lookup-definition-body">
-          <div className="lookup-output-fields">
-            <label className="field"><span>Output name</span><input value={lookup.outputName} onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} /></label>
-            <label className="field"><span>Output type</span><select value={lookup.outputValueType} onChange={(event) => updateLookup(lookupIndex, { outputValueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select></label>
-            <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
-          </div>
-          {lookup.outputValueType === 'enum' ? renderLookupEnumOptions(
-            lookup.outputOptions,
-            `${lookup.outputName || 'Lookup'} output`,
-            (outputOptions) => updateLookup(lookupIndex, { outputOptions })
-          ) : null}
-          <div className="lookup-input-heading"><span>Input representation</span><span>Type</span><span>Explanation</span><span>Actions</span></div>
-          {lookup.inputs.length === 0 ? <span className="empty-option">No input variables.</span> : null}
-          {lookup.inputs.flatMap((input, inputIndex) => [
-            <button className="list-insert-divider lookup-input-insert" type="button" key={`insert-lookup-input-${input.id}`} onClick={() => addLookupInput(lookupIndex, inputIndex)}><Plus size={10} aria-hidden="true" />Add input here</button>,
-            <div className="lookup-input-card" key={input.id}>
-              <div className="lookup-input-row">
-                <input value={input.representation} aria-label="Input variable representation" placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
-                <select value={input.valueType} aria-label="Input value type" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { valueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select>
-                <input value={input.explanation} aria-label="Input variable explanation" placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
-                <div className="lookup-definition-actions">
-                  <button className="mini-icon-button" type="button" title="Copy input" onClick={() => duplicateLookupInput(lookupIndex, inputIndex)}><Copy size={11} /></button>
-                  <button className="mini-icon-button danger" type="button" title="Delete input" onClick={() => deleteLookupInput(lookupIndex, inputIndex)}><Trash2 size={11} /></button>
-                </div>
-              </div>
-              {input.valueType === 'enum' ? renderLookupEnumOptions(
-                input.options,
-                input.representation || `Input ${inputIndex + 1}`,
-                (options) => updateLookupInput(lookupIndex, inputIndex, { options })
-              ) : null}
+          <section className="lookup-output-section" aria-label="Lookup output">
+            <div className="lookup-section-heading">
+              <span><strong>Lookup output</strong><small>The value returned by this lookup</small></span>
             </div>
-          ])}
-          <button className="secondary-action tiny lookup-add-input" type="button" onClick={() => addLookupInput(lookupIndex)}><Plus size={11} /> Add input</button>
+            <div className="lookup-output-fields">
+              <label className="field"><span>Output type</span><select value={lookup.outputValueType} onChange={(event) => updateLookup(lookupIndex, { outputValueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select></label>
+              <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
+            </div>
+            {lookup.outputValueType === 'enum' ? renderLookupEnumOptions(
+              lookup.outputOptions,
+              `${lookup.outputName || 'Lookup'} output`,
+              (outputOptions) => updateLookup(lookupIndex, { outputOptions })
+            ) : null}
+          </section>
+          <section className="lookup-inputs-section" aria-label="Lookup inputs">
+            <div className="lookup-section-heading lookup-inputs-section-heading">
+              <span><strong>Inputs</strong><small>Values used to find the output</small></span>
+              <small className="lookup-section-count">{lookup.inputs.length}</small>
+            </div>
+            <div className="lookup-input-heading"><span>Input representation</span><span>Type</span><span>Explanation</span><span>Actions</span></div>
+            {lookup.inputs.length === 0 ? <span className="empty-option">No input variables.</span> : null}
+            {lookup.inputs.flatMap((input, inputIndex) => [
+              <button className="list-insert-divider lookup-input-insert" type="button" key={`insert-lookup-input-${input.id}`} onClick={() => addLookupInput(lookupIndex, inputIndex)}><Plus size={10} aria-hidden="true" />Add input here</button>,
+              <div className="lookup-input-card" key={input.id}>
+                <div className="lookup-input-card-heading">Input {inputIndex + 1}</div>
+                <div className="lookup-input-row">
+                  <input value={input.representation} aria-label={`Input ${inputIndex + 1} representation`} placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
+                  <select value={input.valueType} aria-label={`Input ${inputIndex + 1} value type`} onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { valueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select>
+                  <input value={input.explanation} aria-label={`Input ${inputIndex + 1} explanation`} placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
+                  <div className="lookup-definition-actions">
+                    <button className="mini-icon-button" type="button" title="Copy input" aria-label={`Copy input ${inputIndex + 1}`} onClick={() => duplicateLookupInput(lookupIndex, inputIndex)}><Copy size={11} /></button>
+                    <button className="mini-icon-button danger" type="button" title="Delete input" aria-label={`Delete input ${inputIndex + 1}`} onClick={() => deleteLookupInput(lookupIndex, inputIndex)}><Trash2 size={11} /></button>
+                  </div>
+                </div>
+                {input.valueType === 'enum' ? renderLookupEnumOptions(
+                  input.options,
+                  input.representation || `Input ${inputIndex + 1}`,
+                  (options) => updateLookupInput(lookupIndex, inputIndex, { options })
+                ) : null}
+              </div>
+            ])}
+            <button className="secondary-action tiny lookup-add-input" type="button" onClick={() => addLookupInput(lookupIndex)}><Plus size={11} /> Add input</button>
+          </section>
           <div className="field lookup-details-field">
             <div className="lookup-details-heading">
               <span>Lookup details</span>
@@ -4411,10 +4436,21 @@ function DataSourceHeader({
                   >
                     <summary>
                       <span>Dimensioned fields</span>
-                      <small>{group.fieldIds.length} {group.fieldIds.length === 1 ? 'field' : 'fields'} · {group.dimensions.length ? group.dimensions.map((dimension) => `${dimension.name || 'Untitled dimension'}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join(' · ') : 'add dimensions'}</small>
+                      <small>{group.fieldIds.length} {group.fieldIds.length === 1 ? 'field' : 'fields'}{group.dimensions.length ? ` by ${group.dimensions.map((dimension) => `${dimension.name || 'Untitled dimension'}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join(' · ')}` : ' · add dimensions'}</small>
                       <ChevronDown size={12} aria-hidden="true" />
                     </summary>
                     <div className="data-source-field-group-body">
+                      <div className="data-source-dimension-dropzone">
+                        {groupFields.length === 0 ? <span><GripVertical size={12} aria-hidden="true" /> Drag fields here</span> : null}
+                        {groupFields.flatMap(({ field, fieldIndex }) => [
+                          renderInsertControls(fieldIndex, group.id, `group-${group.id}-insert-${field.id}`),
+                          renderFieldRow(field, fieldIndex, group.id)
+                        ])}
+                        <div className="field-final-actions">
+                          <button className="secondary-action tiny data-source-add-field" type="button" onClick={() => addField(sourceIndex, source.fields.length, group.id)}><Plus size={12} /> Add field</button>
+                          <button className="secondary-action tiny" type="button" onClick={() => addFieldGroup(sourceIndex, group.position)}><Plus size={12} /> Add field group</button>
+                        </div>
+                      </div>
                       <div className="data-source-field-group-settings">
                         <div className="field-group-dimension-list">
                           {group.dimensions.map((dimension) => (
@@ -4452,17 +4488,6 @@ function DataSourceHeader({
                           </div>
                         </div>
                         <button className="mini-icon-button danger" type="button" title="Delete dimensioned field set" aria-label="Delete dimensioned field set" onClick={() => deleteFieldGroup(sourceIndex, group.id)}><Trash2 size={12} /></button>
-                      </div>
-                      <div className="data-source-dimension-dropzone">
-                        {groupFields.length === 0 ? <span><GripVertical size={12} aria-hidden="true" /> Drag fields here</span> : null}
-                        {groupFields.flatMap(({ field, fieldIndex }) => [
-                          renderInsertControls(fieldIndex, group.id, `group-${group.id}-insert-${field.id}`),
-                          renderFieldRow(field, fieldIndex, group.id)
-                        ])}
-                        <div className="field-final-actions">
-                          <button className="secondary-action tiny data-source-add-field" type="button" onClick={() => addField(sourceIndex, source.fields.length, group.id)}><Plus size={12} /> Add field</button>
-                          <button className="secondary-action tiny" type="button" onClick={() => addFieldGroup(sourceIndex, group.position)}><Plus size={12} /> Add field group</button>
-                        </div>
                       </div>
                     </div>
                   </details>
@@ -4675,7 +4700,7 @@ function KpiSourceGroupedSummary({
     <span className="kpi-source-summary">
       {dataGroups.map(({ dataSource, items }) => (
         <span className="source-summary-group" key={dataSource.id}>
-          <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}</span></span>
+          <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(dataSource.name, dataSource.spatialUnit)}</span></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
             const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
             return <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
@@ -4970,7 +4995,7 @@ function KpiSourceEditor({
         : <span title={sourceItemTooltip(config, item)}>{label}</span>}
       <input className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onChange={(event) => updateItem(item.id, { latex: event.target.value })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
-      <button className="mini-icon-button edit-source-button" type="button" title="Edit source" aria-label={`Edit source ${label}`} onClick={(event) => editSelectedSource(item, event.currentTarget)}><Pencil size={12} /></button>
+      <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={(event) => editSelectedSource(item, event.currentTarget)}><Eye size={12} /></button>
       <button className="mini-icon-button danger" type="button" title="Remove source" aria-label={`Remove source ${label}`} onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
     </div>
     );
@@ -5051,7 +5076,7 @@ function KpiSourceEditor({
               <div className="selected-source-list">
                 {selectedDataGroups.map(({ dataSource, items }) => (
                   <section className="selected-source-group" key={dataSource.id}>
-                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{dataSource.name}</span></div>
+                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{spatiallyScaledTableLabel(dataSource.name, dataSource.spatialUnit)}</span></div>
                     {items.map(({ source, field }) => {
                       const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
                       return renderSelectedSourceRow(source, dimensionedSourceLabel(field.name, dimensionLabel));
@@ -5148,7 +5173,7 @@ function KpiSourceEditor({
                 return (
                   <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
                     <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{field.name}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.dataType === 'enum' && field.options.length ? ` · Options: ${field.options.join(', ')}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{dimensionLabel ? ` · Dimensions: ${dimensionLabel}` : ''}</small></span>
+                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.dataType === 'enum' && field.options.length ? ` · Options: ${field.options.join(', ')}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}</small></span>
                   </label>
                 );
               })}
