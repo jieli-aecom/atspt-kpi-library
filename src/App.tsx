@@ -4251,9 +4251,7 @@ function DataSourceHeader({
               );
               const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => {
                 const isPrimaryKey = source.primaryKeyFieldId === field.id;
-                const primaryKeyRelations = isPrimaryKey
-                  ? sourceRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.cardinality !== 'oneToMany')
-                  : [];
+                const primaryKeyRelations = isPrimaryKey ? sourceRelations : [];
                 const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
                 const relationIsDuplicate = relationDraftIsDuplicate;
                 return (
@@ -4331,12 +4329,14 @@ function DataSourceHeader({
                       <label className="field"><span>Related table</span><select value={relationEditor.targetDataSourceId} onChange={(event) => setRelationEditor((current) => current ? { ...current, targetDataSourceId: event.target.value } : current)}>
                         {config.dataSources.filter((entry) => entry.id !== source.id).map((entry) => <option value={entry.id} key={entry.id}>{entry.name || 'Untitled table'}</option>)}
                       </select></label>
-                      <div className="field-relation-cardinality" aria-label="Relationship cardinality">
+                      <div className="field-relation-cardinality has-four" aria-label="Relationship cardinality and direction">
                         <button className={relationEditor.cardinality === 'oneToOne' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToOne', direction: 'one' } : current)}><b>1:1</b><span>One to one</span></button>
-                        <button className={relationEditor.cardinality === 'oneToMany' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>One to many</span></button>
+                        <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'one' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>This table is one</span></button>
+                        <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'many' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'many' } : current)}><b>N:1</b><span>This table is many</span></button>
+                        <button className={relationEditor.cardinality === 'manyToMany' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'manyToMany', direction: 'one' } : current)}><b>N:N</b><span>Many to many</span></button>
                       </div>
-                      <small className="field-relation-note">For 1:N, this table is the “one” side. Linked auxiliary fields are created automatically.</small>
-                      <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationIsDuplicate} onClick={addTableRelation}>{relationIsDuplicate ? 'Relation already exists' : 'Add relation'}</button>
+                      <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID. N:N adds a linked collection of the other table's IDs to both tables.</small>
+                      <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationIsDuplicate} onClick={addTableRelation}>{relationIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
                     </div> : null}
                   </div>
                   <input value={field.name} aria-label="Field name" onChange={(event) => updateField(sourceIndex, fieldIndex, { name: event.target.value })} />
