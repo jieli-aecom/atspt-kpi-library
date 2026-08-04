@@ -2797,7 +2797,7 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
 };
 
 const lookupDefaultLatex = (lookup: LookupDefinition) => {
-  const name = lookup.outputName.replace(/\s+/g, '') || 'Lookup';
+  const name = latexIdentifier(lookup.outputName) || 'Lookup';
   return `${name}(${','.repeat(Math.max(0, lookup.inputs.length - 1))})`;
 };
 
@@ -2813,13 +2813,13 @@ const selectedDataSourceGroups = (config: KpiPoolConfig, kpi: KpiMetric) =>
     return items.length ? [{ dataSource, items }] : [];
   });
 
-const latexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
+const latexIdentifier = (value: string) => value.replace(/\s+/g, '');
 
 const sourceFieldDefaultLatex = (field: Pick<DataSourceField, 'name' | 'dataType'>, spatialUnit: string, dimensions: DataSourceFieldDimension[] = []) => {
   const fieldName = latexIdentifier(field.name);
   const spatial = latexIdentifier(spatialUnit);
   const dimensionTags = dimensions.map((dimension) => latexIdentifier(dimension.name)).filter(Boolean);
-  const subscript = [...dimensionTags, spatial].filter(Boolean).join(', ');
+  const subscript = [...dimensionTags, spatial].filter(Boolean).join(',');
   const expression = field.dataType === 'collection' ? `\\{${fieldName}\\}` : fieldName;
   return subscript ? `${expression}_{${subscript}}` : expression;
 };

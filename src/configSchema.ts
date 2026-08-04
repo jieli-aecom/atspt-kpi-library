@@ -678,13 +678,14 @@ const stringValue = (value: unknown): string => {
   return typeof value === 'string' ? value : value == null ? '' : String(value);
 };
 
-const latexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
+const latexIdentifier = (value: string) => value.replace(/\s+/g, '');
+const legacyLatexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\\ ');
 
 const defaultDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionNames: string[]) => {
   const field = latexIdentifier(fieldName);
   const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), latexIdentifier(spatialUnit)]
     .filter(Boolean)
-    .join(', ');
+    .join(',');
   return subscript ? `${field}_{${subscript}}` : field;
 };
 
@@ -693,14 +694,16 @@ const defaultCollectionDataFieldLatex = (fieldName: string, spatialUnit: string,
   const expression = `\\{${field}\\}`;
   const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), latexIdentifier(spatialUnit)]
     .filter(Boolean)
-    .join(', ');
+    .join(',');
   return subscript ? `${expression}_{${subscript}}` : expression;
 };
 
-const legacyDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionName: string, option: string) =>
-  defaultDataFieldLatex(fieldName, spatialUnit, [
-    dimensionName.trim() ? `${dimensionName.trim()}=${option.trim()}` : ''
-  ]);
+const legacyDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionName: string, option: string) => {
+  const field = legacyLatexIdentifier(fieldName);
+  const dimension = dimensionName.trim() ? legacyLatexIdentifier(`${dimensionName.trim()}=${option.trim()}`) : '';
+  const subscript = [dimension, legacyLatexIdentifier(spatialUnit)].filter(Boolean).join(', ');
+  return subscript ? `${field}_{${subscript}}` : field;
+};
 
 const booleanValue = (value: unknown): boolean => {
   return typeof value === 'boolean' ? value : false;
@@ -2559,7 +2562,13 @@ export const repairConfig = (input: unknown): RepairResult => {
 
       if (field.dataType === 'collection' && normalizedSource.type === 'dataField') {
         const identifier = latexIdentifier(field.name);
-        const oldDefaults = new Set([`\\{ ${identifier} \\}`, `\\{${identifier}\\}`]);
+        const legacyIdentifier = legacyLatexIdentifier(field.name);
+        const oldDefaults = new Set([
+          `\\{ ${identifier} \\}`,
+          `\\{${identifier}\\}`,
+          `\\{ ${legacyIdentifier} \\}`,
+          `\\{${legacyIdentifier}\\}`
+        ]);
         if (oldDefaults.has(normalizedSource.latex)) {
           const nextLatex = defaultCollectionDataFieldLatex(field.name, dataSource.spatialUnit, dimensionNames);
           if (nextLatex !== normalizedSource.latex) {
