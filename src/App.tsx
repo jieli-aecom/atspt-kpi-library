@@ -1936,7 +1936,15 @@ const spatialScaleFormulaItem = (scale: SpatialScaleKey, value: KpiMetric['spati
   terms: []
 });
 
-function SpatialScaleBadges({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric }) {
+function SpatialScaleBadges({
+  config,
+  kpi,
+  onSemanticTarget
+}: {
+  config: KpiPoolConfig;
+  kpi: KpiMetric;
+  onSemanticTarget: (target: FormulaSemanticTarget) => void;
+}) {
   const normalFormulaItems = kpi.description.formulas.flatMap((group) => group.items);
   const applicableScales = spatialScaleKeys.filter((scale) => kpi.spatialScales[scale].applicable);
   const scalesWithoutFormula = applicableScales.filter((scale) => {
@@ -1981,7 +1989,7 @@ function SpatialScaleBadges({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMe
             >
               {spatialScaleLabels[scale]}
             </span>
-            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} inline />
+            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} onSemanticTarget={onSemanticTarget} inline />
           </div>
         );
       })}
@@ -1989,7 +1997,17 @@ function SpatialScaleBadges({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMe
   );
 }
 
-function FormulaDisplay({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric }) {
+function FormulaDisplay({
+  config,
+  kpi,
+  highlightedFormulaIndex,
+  onSemanticTarget
+}: {
+  config: KpiPoolConfig;
+  kpi: KpiMetric;
+  highlightedFormulaIndex?: number;
+  onSemanticTarget: (target: FormulaSemanticTarget) => void;
+}) {
   const formulas = kpi.description.formulas;
   const comment = kpi.description.formulaComment;
   const allFormulaItems = formulas.flatMap((group) => group.items);
@@ -2105,6 +2123,8 @@ function FormulaDisplay({ config, kpi }: { config: KpiPoolConfig; kpi: KpiMetric
                         kpi={kpi}
                         item={item}
                         priorItems={allFormulaItems.slice(0, allFormulaItems.indexOf(item))}
+                        highlightedFormulaIndex={highlightedFormulaIndex}
+                        onSemanticTarget={onSemanticTarget}
                         inline
                       />
                     ) : (
