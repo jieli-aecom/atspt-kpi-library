@@ -4704,11 +4704,13 @@ function DataSourceHeader({
 function KpiSourceGroupedSummary({
   config,
   kpi,
-  onSourceClick
+  onSourceClick,
+  highlightedSourceId
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
   onSourceClick: (sourceId: string) => void;
+  highlightedSourceId?: string;
 }) {
   const dataGroups = selectedDataSourceGroups(config, kpi);
   const prerequisiteKpis = kpi.sources.flatMap((source) =>
@@ -4723,6 +4725,8 @@ function KpiSourceGroupedSummary({
     ? [{ source, variable: config.variables.find((variable) => variable.id === source.variableId) }]
     : []
   );
+  const sourceSummaryItemClassName = (sourceId: string) =>
+    `source-summary-item${highlightedSourceId === sourceId ? ' is-kpi-source-highlighted' : ''}`;
 
   return (
     <span className="kpi-source-summary">
@@ -4731,7 +4735,7 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(dataSource.name, dataSource.spatialUnit)}</span></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
             const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-            return <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
           })}</span>
         </span>
       ))}
@@ -4740,26 +4744,26 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className="source-summary-item" key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
           })}</span>
         </span>
       ) : null}
       {lookupSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><BookOpen size={12} aria-hidden="true" /><span>Lookups</span></span>
-          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
+          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className={sourceSummaryItemClassName(source.id)} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
         </span>
       ) : null}
       {variableSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><VariableIcon size={12} aria-hidden="true" /><span>Variables</span></span>
-          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className="source-summary-item" key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{variable?.name ?? 'Missing variable'}</span>)}</span>
+          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className={sourceSummaryItemClassName(source.id)} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{variable?.name ?? 'Missing variable'}</span>)}</span>
         </span>
       ) : null}
       {customSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><Pencil size={12} aria-hidden="true" /><span>Custom sources</span></span>
-          <span className="source-summary-items">{customSources.map((source) => <span className="source-summary-item" key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{source.name}</span>)}</span>
+          <span className="source-summary-items">{customSources.map((source) => <span className={sourceSummaryItemClassName(source.id)} key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{source.name}</span>)}</span>
         </span>
       ) : null}
     </span>
@@ -4856,12 +4860,14 @@ function KpiSourceEditor({
   kpi,
   onChange,
   onEditLibrarySource,
+  transientHighlightedSourceId,
   compact = false
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
   onChange: (sources: KpiSourceItem[], formulaUpdates?: KpiSourceFormulaUpdates) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  transientHighlightedSourceId?: string;
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -5010,7 +5016,7 @@ function KpiSourceEditor({
       .find((field) => field.id === item.fieldId)?.dataType === 'collection';
     return (
     <div
-      className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${highlightedSource?.sourceId === item.id ? 'is-kpi-source-highlighted' : ''}`}
+      className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${highlightedSource?.sourceId === item.id || transientHighlightedSourceId === item.id ? 'is-kpi-source-highlighted' : ''}`}
       data-kpi-source-id={item.id}
       key={item.id}
       onClick={(event) => {
@@ -5092,7 +5098,7 @@ function KpiSourceEditor({
   return (
     <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef}>
       <button className="cell-enum-trigger" type="button" onClick={() => setOpen((value) => !value)}>
-        {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={highlightSource} /> : <span className="muted-dash">Select sources...</span>}
+        {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={highlightSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
       {open ? (
@@ -5430,6 +5436,8 @@ type FormulaSemanticToken = {
   kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale';
   prominent?: boolean;
   label: string;
+  target?: FormulaSemanticTarget;
+  originFormulaIndex?: number;
 };
 
 type IndexedFormulaSemanticToken = FormulaSemanticToken & { index: number };
@@ -5650,7 +5658,23 @@ const renderFormulaHtml = (formula: string, decorated: string, inline: boolean) 
   return cacheFormulaResult(formulaHtmlCache, cacheKey, rendered);
 };
 
-function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean }) {
+function InteractiveFormulaPreview({
+  config,
+  kpi,
+  item,
+  priorItems,
+  inline = false,
+  highlightedFormulaIndex,
+  onSemanticTarget
+}: {
+  config: KpiPoolConfig;
+  kpi: KpiMetric;
+  item: KpiFormulaItem;
+  priorItems: KpiFormulaItem[];
+  inline?: boolean;
+  highlightedFormulaIndex?: number;
+  onSemanticTarget?: (target: FormulaSemanticTarget) => void;
+}) {
   const previewRef = useRef<HTMLDivElement | null>(null);
   const dimensionTokens = useMemo(() => formulaDimensions(config, kpi).flatMap((dimension): FormulaSemanticToken[] => [
       {
@@ -5680,18 +5704,24 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
       matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
       requiresFollowingParenthesis: lookupOpenParenthesis > 0,
       kind: source.type === 'variable' ? 'variable' : source.type === 'lookup' ? 'lookup' : fieldType === 'collection' ? 'collection' : 'source',
-      label: `Source: ${sourceItemTooltip(config, source)}`
+      label: `Source: ${sourceItemTooltip(config, source)}`,
+      target: { kind: 'source', sourceId: source.id }
     };
   }), [config.dataSources, config.lookups, config.variables, kpi.sources, referencedKpiNames]);
   const regularFormulaItems = kpi.description.formulas.flatMap((group) => group.items);
   const finalFormulaItem = regularFormulaItems.slice().reverse().find((formulaItem) => formulaItem.formula.trim() || formulaItem.leftExpression.trim());
-  const priorItemsKey = JSON.stringify(priorItems.map((prior) => [prior.leftExpression, prior.tag]));
-  const priorItemTokens = useMemo(() => priorItems.map((prior): FormulaSemanticToken => ({
-    latex: prior.leftExpression,
-    kind: 'result',
-    prominent: prior === finalFormulaItem,
-    label: `Previous formula: ${prior.tag || 'Untitled formula'}`
-  })), [finalFormulaItem, priorItemsKey]);
+  const currentFormulaIndex = regularFormulaItems.indexOf(item);
+  const priorItemsKey = JSON.stringify(priorItems.map((prior) => [regularFormulaItems.indexOf(prior), prior.leftExpression, prior.tag]));
+  const priorItemTokens = useMemo(() => priorItems.map((prior): FormulaSemanticToken => {
+    const formulaIndex = regularFormulaItems.indexOf(prior);
+    return {
+      latex: prior.leftExpression,
+      kind: 'result',
+      prominent: prior === finalFormulaItem,
+      label: `Previous formula: ${prior.tag || 'Untitled formula'}`,
+      target: formulaIndex >= 0 ? { kind: 'formula', formulaIndex } : undefined
+    };
+  }), [finalFormulaItem, priorItemsKey]);
   const semantic = useMemo(
     () => decorateFormulaTokens(item.formula, [
       ...sourceTokens,
@@ -5702,9 +5732,15 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
         label: `Spatial scale: ${keyword}`
       })),
       ...priorItemTokens,
-      { latex: item.leftExpression, kind: 'result' as const, prominent: item === finalFormulaItem, label: `Formula tag: ${item.tag.trim() || 'Untitled formula'}` }
+      {
+        latex: item.leftExpression,
+        kind: 'result' as const,
+        prominent: item === finalFormulaItem,
+        label: `Formula tag: ${item.tag.trim() || 'Untitled formula'}`,
+        originFormulaIndex: currentFormulaIndex >= 0 ? currentFormulaIndex : undefined
+      }
     ]),
-    [dimensionTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
+    [currentFormulaIndex, dimensionTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
   const renderedHtml = useMemo(
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),
@@ -5714,13 +5750,40 @@ function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = fal
   useEffect(() => {
     const container = previewRef.current;
     if (!container) return;
+    const cleanups: Array<() => void> = [];
+    container.querySelectorAll<HTMLElement>('.is-formula-origin-highlighted').forEach((element) => {
+      element.classList.remove('is-formula-origin-highlighted');
+    });
     semantic.tokens.forEach((token) => {
-      container.querySelectorAll<HTMLElement>(`.formula-token-${token.index}`).forEach((element) => {
+      const elements = [...container.querySelectorAll<HTMLElement>(`.formula-token-${token.index}`)];
+      if (highlightedFormulaIndex !== undefined && token.originFormulaIndex === highlightedFormulaIndex) {
+        elements[0]?.classList.add('is-formula-origin-highlighted');
+      }
+      elements.forEach((element) => {
         element.title = token.label;
         element.tabIndex = 0;
+        if (!token.target || !onSemanticTarget) return;
+        element.classList.add('is-actionable');
+        element.setAttribute('role', 'button');
+        const activate = (event: Event) => {
+          event.stopPropagation();
+          onSemanticTarget(token.target!);
+        };
+        const handleKeyDown = (event: KeyboardEvent) => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          activate(event);
+        };
+        element.addEventListener('click', activate, true);
+        element.addEventListener('keydown', handleKeyDown);
+        cleanups.push(() => {
+          element.removeEventListener('click', activate, true);
+          element.removeEventListener('keydown', handleKeyDown);
+        });
       });
     });
-  }, [semantic]);
+    return () => cleanups.forEach((cleanup) => cleanup());
+  }, [highlightedFormulaIndex, onSemanticTarget, semantic]);
 
   if (inline) {
     return <div className="interactive-inline-formula" ref={previewRef} role="math" aria-label={item.formula} dangerouslySetInnerHTML={{ __html: renderedHtml }} />;
@@ -5897,11 +5960,13 @@ function RowPerformanceAreaSelect({
 function SpatialScaleMatrix({
   config,
   kpi,
-  onChange
+  onChange,
+  onSemanticTarget
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
   onChange: (next: KpiMetric['spatialScales']) => void;
+  onSemanticTarget: (target: FormulaSemanticTarget) => void;
 }) {
   const normalFormulaItems = kpi.description.formulas.flatMap((group) => group.items);
   const updateScale = (scale: SpatialScaleKey, partial: Partial<KpiMetric['spatialScales'][SpatialScaleKey]>) =>
@@ -5961,7 +6026,7 @@ function SpatialScaleMatrix({
                     rightExpression: partial.rightExpression ?? scaleValue.rightExpression
                   })}
                 />
-                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} />
+                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} onSemanticTarget={onSemanticTarget} />
                 <details className="formula-explanations spatial-scale-explanation">
                   <summary title="Show aggregation explanation"><Info size={13} aria-hidden="true" /><span>Aggregation explanation</span></summary>
                   <label className="field">
@@ -5987,12 +6052,14 @@ function ExpandedKpiEditor({
   config,
   kpi,
   onChange,
-  onEditLibrarySource
+  onEditLibrarySource,
+  onSemanticTarget
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
   onChange: (next: KpiMetric) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  onSemanticTarget: (target: FormulaSemanticTarget) => void;
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const [formulaDrag, setFormulaDrag] = useState<{ groupIndex: number; itemIndex: number } | null>(null);
@@ -6374,6 +6441,7 @@ function ExpandedKpiEditor({
                         kpi={kpi}
                         item={item}
                         priorItems={allFormulaItems.slice(0, currentFormulaIndex)}
+                        onSemanticTarget={onSemanticTarget}
                       />
                       <button
                         className="mini-icon-button danger"
@@ -6455,7 +6523,7 @@ function ExpandedKpiEditor({
           id={`scales-panel-${kpi.id}`}
           role="tabpanel"
         >
-          <SpatialScaleMatrix config={config} kpi={kpi} onChange={(spatialScales) => patch({ spatialScales })} />
+          <SpatialScaleMatrix config={config} kpi={kpi} onSemanticTarget={onSemanticTarget} onChange={(spatialScales) => patch({ spatialScales })} />
         </div>
       </section>
     </div>
@@ -6587,6 +6655,20 @@ function KpiRow({
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const stopRowToggle = (event: React.SyntheticEvent) => event.stopPropagation();
+  const [semanticHighlight, setSemanticHighlight] = useState<{ target: FormulaSemanticTarget; requestId: number }>();
+  const highlightSemanticTarget = useCallback((target: FormulaSemanticTarget) => {
+    setSemanticHighlight((current) => ({ target, requestId: (current?.requestId ?? 0) + 1 }));
+  }, []);
+  useEffect(() => {
+    if (!semanticHighlight) return undefined;
+    const requestId = semanticHighlight.requestId;
+    const timeout = window.setTimeout(() => {
+      setSemanticHighlight((current) => current?.requestId === requestId ? undefined : current);
+    }, transientSourceHighlightDurationMs);
+    return () => window.clearTimeout(timeout);
+  }, [semanticHighlight?.requestId]);
+  const highlightedSourceId = semanticHighlight?.target.kind === 'source' ? semanticHighlight.target.sourceId : undefined;
+  const highlightedFormulaIndex = semanticHighlight?.target.kind === 'formula' ? semanticHighlight.target.formulaIndex : undefined;
   const isUseCaseAssigned = hasUseCaseAssignment(kpi, useCaseAssignment);
   const focusedNote = useCaseNote(kpi, useCaseAssignment);
   const toggleUseCaseAssignment = () => {
@@ -6664,14 +6746,14 @@ function KpiRow({
         </td>
         <td>
           <div onClick={stopRowToggle}>
-            <KpiSourceEditor config={config} kpi={kpi} compact onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+            <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSourceId={highlightedSourceId} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
           </div>
         </td>
         <td>
-          <FormulaDisplay config={config} kpi={kpi} />
+          <FormulaDisplay config={config} kpi={kpi} highlightedFormulaIndex={highlightedFormulaIndex} onSemanticTarget={highlightSemanticTarget} />
         </td>
         <td>
-          <SpatialScaleBadges config={config} kpi={kpi} />
+          <SpatialScaleBadges config={config} kpi={kpi} onSemanticTarget={highlightSemanticTarget} />
         </td>
         {visibleEnumCategories.map((category) => (
           <td key={category} onClick={stopRowToggle}>
@@ -6771,7 +6853,13 @@ function KpiRow({
         <tr className="expanded-row" ref={expandedRowRef}>
           <td colSpan={tableColumnCount}>
             <div className="expanded-row-viewport" style={{ width: tableViewportWidth || '100%' }}>
-              <ExpandedKpiEditor config={config} kpi={kpi} onChange={onChange} onEditLibrarySource={onEditLibrarySource} />
+              <ExpandedKpiEditor
+                config={config}
+                kpi={kpi}
+                onChange={onChange}
+                onEditLibrarySource={onEditLibrarySource}
+                onSemanticTarget={highlightSemanticTarget}
+              />
             </div>
           </td>
         </tr>

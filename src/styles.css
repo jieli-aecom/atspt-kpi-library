@@ -3324,6 +3324,13 @@ h1 {
   white-space: nowrap;
 }
 
+.source-summary-item.is-kpi-source-highlighted {
+  background: #c8e7d7;
+  color: #164834;
+  box-shadow: 0 0 0 2px rgba(55, 126, 148, 0.58);
+  font-weight: 800;
+}
+
 .kpi-source-popover {
   position: absolute;
   z-index: 35;
@@ -4186,6 +4193,18 @@ h1 {
   transition: background-color 120ms ease, box-shadow 120ms ease;
 }
 
+.formula-semantic-token.is-actionable {
+  cursor: pointer;
+}
+
+.formula-semantic-token.is-actionable * {
+  pointer-events: none;
+}
+
+.formula-semantic-token.is-formula-origin-highlighted {
+  box-shadow: 0 0 0 2px rgba(201, 155, 38, 0.55) !important;
+}
+
 .formula-source-token {
   background: rgba(47, 145, 91, 0.12);
   color: #167044;
@@ -4264,11 +4283,16 @@ h1 {
   color: #b42318 !important;
 }
 
-.formula-semantic-token:hover,
-.formula-semantic-token:focus {
+.formula-semantic-token:not(.is-actionable):hover,
+.formula-semantic-token:not(.is-actionable):focus {
   background: #fff6ce !important;
   box-shadow: 0 0 0 2px rgba(201, 155, 38, 0.35);
   outline: none;
+}
+
+.formula-semantic-token.is-actionable:focus {
+  outline: 1px solid currentColor;
+  outline-offset: 1px;
 }
 
 .formula-group-editor.drag-over-before,
