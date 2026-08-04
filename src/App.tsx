@@ -391,6 +391,12 @@ function useCloseOnOutsideClick<T extends HTMLElement>(open: boolean, onClose: (
   return ref;
 }
 
+function useStableCallback<Args extends unknown[], Result>(callback: (...args: Args) => Result) {
+  const callbackRef = useRef(callback);
+  callbackRef.current = callback;
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
+}
+
 const downloadFile = (fileName: string, text: string, type: string) => {
   const blob = new Blob([text], { type });
   const url = URL.createObjectURL(blob);
@@ -856,12 +862,37 @@ const updateKpi = (config: KpiPoolConfig, kpiId: string, updater: (kpi: KpiMetri
   kpis: config.kpis.map((kpi) => (kpi.id === kpiId ? updater(kpi) : kpi))
 });
 
-const kpiMaterialJson = (kpi: KpiMetric) => {
-  const { lastModified: _lastModified, ...material } = kpi;
-  return JSON.stringify(material);
+const sameStructuredValue = (left: unknown, right: unknown): boolean => {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) return false;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+    return left.every((value, index) => sameStructuredValue(value, right[index]));
+  }
+
+  const leftRecord = left as Record<string, unknown>;
+  const rightRecord = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRecord);
+  const rightKeys = Object.keys(rightRecord);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key) =>
+    Object.prototype.hasOwnProperty.call(rightRecord, key) && sameStructuredValue(leftRecord[key], rightRecord[key])
+  );
 };
 
-const sameKpiMaterial = (left: KpiMetric, right: KpiMetric) => kpiMaterialJson(left) === kpiMaterialJson(right);
+const sameKpiMaterial = (left: KpiMetric, right: KpiMetric) =>
+  left.id === right.id &&
+  left.name === right.name &&
+  sameStructuredValue(left.dimensions, right.dimensions) &&
+  sameStructuredValue(left.sources, right.sources) &&
+  sameStructuredValue(left.description, right.description) &&
+  sameStructuredValue(left.prerequisite, right.prerequisite) &&
+  sameStructuredValue(left.spatialScales, right.spatialScales) &&
+  sameStructuredValue(left.previousApplication, right.previousApplication) &&
+  sameStructuredValue(left.federalRequirement, right.federalRequirement) &&
+  sameStructuredValue(left.performanceArea, right.performanceArea) &&
+  sameStructuredValue(left.performanceAreasByUseCase, right.performanceAreasByUseCase) &&
+  sameStructuredValue(left.notesByUseCase, right.notesByUseCase) &&
+  sameStructuredValue(left.userGroupUseCases, right.userGroupUseCases);
 
 const nextEditTimestamp = (previousTimestamp?: string) => {
   const previousTime = previousTimestamp ? Date.parse(previousTimestamp) : Number.NaN;
@@ -2149,10 +2180,96 @@ type AutoGrowTextareaProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaEleme
   value: string;
   onValueChange: (value: string) => void;
   preventLineBreaks?: boolean;
+  debounceMs?: number;
 };
 
-function AutoGrowTextarea({ value, onValueChange, preventLineBreaks = false, ...props }: AutoGrowTextareaProps) {
+const textInputDebounceMs = 300;
+
+function useDebouncedTextValue(value: string, onValueChange: (value: string) => void, debounceMs = textInputDebounceMs) {
+  const [draft, setDraftState] = useState(value);
+  const draftRef = useRef(value);
+  const committedValueRef = useRef(value);
+  const onValueChangeRef = useRef(onValueChange);
+  const timeoutRef = useRef<number | null>(null);
+  onValueChangeRef.current = onValueChange;
+
+  const clearPendingCommit = useCallback(() => {
+    if (timeoutRef.current !== null) {
+      window.clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }, []);
+
+  const commit = useCallback((nextValue = draftRef.current) => {
+    clearPendingCommit();
+    if (nextValue !== committedValueRef.current) onValueChangeRef.current(nextValue);
+  }, [clearPendingCommit]);
+
+  const setDraft = useCallback((nextValue: string) => {
+    draftRef.current = nextValue;
+    setDraftState(nextValue);
+    clearPendingCommit();
+    timeoutRef.current = window.setTimeout(() => commit(nextValue), debounceMs);
+  }, [clearPendingCommit, commit, debounceMs]);
+
+  useEffect(() => {
+    committedValueRef.current = value;
+    if (value !== draftRef.current && timeoutRef.current === null) {
+      draftRef.current = value;
+      setDraftState(value);
+    }
+  }, [value]);
+
+  useEffect(() => clearPendingCommit, [clearPendingCommit]);
+
+  return { draft, setDraft, commit };
+}
+
+type DebouncedInputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  debounceMs?: number;
+};
+
+function DebouncedInput({ value, onValueChange, debounceMs, onBlur, ...props }: DebouncedInputProps) {
+  const debounced = useDebouncedTextValue(value, onValueChange, debounceMs);
+  return (
+    <input
+      {...props}
+      value={debounced.draft}
+      onChange={(event) => debounced.setDraft(event.target.value)}
+      onBlur={(event) => {
+        debounced.commit(event.currentTarget.value);
+        onBlur?.(event);
+      }}
+    />
+  );
+}
+
+type DebouncedTextareaProps = Omit<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'value' | 'onChange'> & {
+  value: string;
+  onValueChange: (value: string) => void;
+  debounceMs?: number;
+};
+
+function DebouncedTextarea({ value, onValueChange, debounceMs, onBlur, ...props }: DebouncedTextareaProps) {
+  const debounced = useDebouncedTextValue(value, onValueChange, debounceMs);
+  return (
+    <textarea
+      {...props}
+      value={debounced.draft}
+      onChange={(event) => debounced.setDraft(event.target.value)}
+      onBlur={(event) => {
+        debounced.commit(event.currentTarget.value);
+        onBlur?.(event);
+      }}
+    />
+  );
+}
+
+function AutoGrowTextarea({ value, onValueChange, preventLineBreaks = false, debounceMs, onBlur, ...props }: AutoGrowTextareaProps) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const debounced = useDebouncedTextValue(value, onValueChange, debounceMs);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -2177,14 +2294,18 @@ function AutoGrowTextarea({ value, onValueChange, preventLineBreaks = false, ...
       observer?.disconnect();
       window.removeEventListener('resize', resize);
     };
-  }, [value]);
+  }, [debounced.draft]);
 
   return (
     <textarea
       {...props}
       ref={textareaRef}
-      value={value}
-      onChange={(event) => onValueChange(event.target.value)}
+      value={debounced.draft}
+      onChange={(event) => debounced.setDraft(event.target.value)}
+      onBlur={(event) => {
+        debounced.commit(event.currentTarget.value);
+        onBlur?.(event);
+      }}
       onKeyDown={(event) => {
         if (preventLineBreaks && event.key === 'Enter') {
           event.preventDefault();
@@ -5025,9 +5146,9 @@ function KpiSourceEditor({
       }}
     >
       {item.type === 'custom'
-        ? <input value={item.name} aria-label="Custom source name" onChange={(event) => updateItem(item.id, { name: event.target.value })} />
+        ? <DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />
         : <span title={sourceItemTooltip(config, item)}>{label}</span>}
-      <input className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onChange={(event) => updateItem(item.id, { latex: event.target.value })} />
+      <DebouncedInput className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
       <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={(event) => editSelectedSource(item, event.currentTarget)}><Eye size={12} /></button>
       <button className="mini-icon-button danger" type="button" title="Remove source" aria-label={`Remove source ${label}`} onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
@@ -5236,6 +5357,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const [activeSide, setActiveSide] = useState<'left' | 'right'>('right');
   const [paletteExpanded, setPaletteExpanded] = useState(false);
   const [paletteHasMore, setPaletteHasMore] = useState(false);
+  const commitTimeoutRef = useRef<number | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
   const paletteRef = useCloseOnOutsideClick<HTMLDivElement>(paletteExpanded, () => setPaletteExpanded(false));
   useEffect(() => {
     setLeftExpression(item.leftExpression);
@@ -5256,12 +5380,26 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
       window.removeEventListener('resize', resize);
     };
   }, [leftExpression, rightExpression]);
-  const updateSides = (leftExpression: string, rightExpression: string) => onChange({
+  const updateSides = (leftExpression: string, rightExpression: string) => onChangeRef.current({
     leftExpression: rightOnly ? '' : leftExpression,
     rightExpression,
     formula: rightOnly ? rightExpression : leftExpression ? `${leftExpression} = ${rightExpression}` : rightExpression
   });
-  const commitSides = () => updateSides(leftExpression, rightExpression);
+  const clearPendingCommit = () => {
+    if (commitTimeoutRef.current !== null) {
+      window.clearTimeout(commitTimeoutRef.current);
+      commitTimeoutRef.current = null;
+    }
+  };
+  const commitSides = (nextLeft = leftExpression, nextRight = rightExpression) => {
+    clearPendingCommit();
+    updateSides(nextLeft, nextRight);
+  };
+  const scheduleCommit = (nextLeft: string, nextRight: string) => {
+    clearPendingCommit();
+    commitTimeoutRef.current = window.setTimeout(() => commitSides(nextLeft, nextRight), textInputDebounceMs);
+  };
+  useEffect(() => () => clearPendingCommit(), []);
   const insertLatex = (latex: string) => {
     if (!latex.trim()) return;
     const insertionSide = rightOnly ? 'right' : activeSide;
@@ -5270,8 +5408,13 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     const start = target?.selectionStart ?? value.length;
     const end = target?.selectionEnd ?? start;
     const next = `${value.slice(0, start)}${latex}${value.slice(end)}`;
-    if (insertionSide === 'left') setLeftExpression(next);
-    else setRightExpression(next);
+    if (insertionSide === 'left') {
+      setLeftExpression(next);
+      scheduleCommit(next, rightExpression);
+    } else {
+      setRightExpression(next);
+      scheduleCommit(leftExpression, next);
+    }
     requestAnimationFrame(() => { target?.focus(); target?.setSelectionRange(start + latex.length, start + latex.length); });
   };
   const sourceFieldShortcuts = kpi.sources.filter((source) => source.type !== 'lookup' && source.type !== 'variable');
@@ -5329,10 +5472,10 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     <div className="formula-expression-workbench">
       <div className={`formula-side-editors ${rightOnly ? 'is-right-only' : ''}`}>
         {!rightOnly ? <>
-          <label className="field"><textarea ref={leftRef} className="latex-code-editor" rows={1} value={leftExpression} placeholder="v_{avg}" aria-label="Left side result LaTeX" onFocus={() => setActiveSide('left')} onChange={(event) => setLeftExpression(event.target.value)} onBlur={commitSides} /></label>
+          <label className="field"><textarea ref={leftRef} className="latex-code-editor" rows={1} value={leftExpression} placeholder="v_{avg}" aria-label="Left side result LaTeX" onFocus={() => setActiveSide('left')} onChange={(event) => { const next = event.target.value; setLeftExpression(next); scheduleCommit(next, rightExpression); }} onBlur={() => commitSides()} /></label>
           <span className="formula-equals">=</span>
         </> : null}
-        <label className="field"><textarea ref={rightRef} className="latex-code-editor" rows={1} value={rightExpression} placeholder="\frac{\sum_i x_i}{n}" aria-label="Right side calculation LaTeX" onFocus={() => setActiveSide('right')} onChange={(event) => setRightExpression(event.target.value)} onBlur={commitSides} /></label>
+        <label className="field"><textarea ref={rightRef} className="latex-code-editor" rows={1} value={rightExpression} placeholder="\frac{\sum_i x_i}{n}" aria-label="Right side calculation LaTeX" onFocus={() => setActiveSide('right')} onChange={(event) => { const next = event.target.value; setRightExpression(next); scheduleCommit(leftExpression, next); }} onBlur={() => commitSides()} /></label>
       </div>
       <div className={`formula-source-palette ${paletteExpanded ? 'has-open-dropdown' : ''}`} ref={paletteRef}>
         <div className="formula-source-palette-heading">
@@ -5446,6 +5589,7 @@ type FormulaTokenMatch = { index: number; latex: string };
 
 const formulaDecorationCache = new Map<string, DecoratedFormula>();
 const formulaHtmlCache = new Map<string, string>();
+const formulaTokenValidityCache = new Map<string, boolean>();
 const formulaCacheLimit = 500;
 
 const cacheFormulaResult = <T,>(cache: Map<string, T>, key: string, value: T) => {
@@ -5614,23 +5758,25 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
       return false;
     }
   };
-  const individuallyValidTokens = matchingTokens.filter((token) =>
-    rendersSafely(`\\htmlClass{${tokenClassNames(token)}}{${tokenMatchLatex(token)}}`)
-  );
+  const individuallyValidTokens = matchingTokens.filter((token) => {
+    const tokenLatex = tokenMatchLatex(token);
+    const cacheKey = JSON.stringify([token.kind, token.prominent, tokenLatex]);
+    const cached = formulaTokenValidityCache.get(cacheKey);
+    if (cached !== undefined) return cached;
+    return cacheFormulaResult(
+      formulaTokenValidityCache,
+      cacheKey,
+      rendersSafely(`\\htmlClass{${tokenClassNames(token)}}{${tokenLatex}}`)
+    );
+  });
   const fullyDecoratedFormula = buildDecoratedFormula(individuallyValidTokens);
-  if (rendersSafely(fullyDecoratedFormula)) {
-    return cacheFormulaResult(formulaDecorationCache, cacheKey, { decorated: fullyDecoratedFormula || formula, tokens: individuallyValidTokens });
-  }
-
-  const validTokens: typeof uniqueTokens = [];
-  for (const token of individuallyValidTokens) {
-    const candidateTokens = [...validTokens, token];
-    const candidateFormula = buildDecoratedFormula(candidateTokens);
-    if (rendersSafely(candidateFormula)) {
-      validTokens.push(token);
-    }
-  }
-  return cacheFormulaResult(formulaDecorationCache, cacheKey, { decorated: buildDecoratedFormula(validTokens) || formula, tokens: validTokens });
+  // renderFormulaHtml performs the authoritative KaTeX parse and falls back to
+  // the undecorated formula. Parsing the full expression here as well doubled
+  // the dominant cost whenever a source token changed.
+  return cacheFormulaResult(formulaDecorationCache, cacheKey, {
+    decorated: fullyDecoratedFormula || formula,
+    tokens: individuallyValidTokens
+  });
 };
 
 const renderFormulaHtml = (formula: string, decorated: string, inline: boolean) => {
@@ -6031,11 +6177,11 @@ function SpatialScaleMatrix({
                   <summary title="Show aggregation explanation"><Info size={13} aria-hidden="true" /><span>Aggregation explanation</span></summary>
                   <label className="field">
                     <span>Explanation</span>
-                    <textarea
+                    <DebouncedTextarea
                       rows={2}
                       value={scaleValue.aggregationMethod}
                       placeholder="Explain the aggregation method, assumptions, or interpretation..."
-                      onChange={(event) => updateScale(scale, { aggregationMethod: event.target.value })}
+                      onValueChange={(aggregationMethod) => updateScale(scale, { aggregationMethod })}
                     />
                   </label>
                 </details>
@@ -6070,6 +6216,7 @@ function ExpandedKpiEditor({
   } | null>(null);
   const [formulaGroupDrag, setFormulaGroupDrag] = useState<number | null>(null);
   const [formulaGroupDragOver, setFormulaGroupDragOver] = useState<{ groupIndex: number; position: DropPosition } | null>(null);
+  const [collapsedFormulaGroupIndexes, setCollapsedFormulaGroupIndexes] = useState<number[]>([]);
   const [activeExpandedPanel, setActiveExpandedPanel] = useState<'formulae' | 'scales'>('formulae');
   const updateFormulaGroups = (updater: (groups: KpiFormulaGroup[]) => KpiFormulaGroup[]) => {
     patch({
@@ -6100,11 +6247,17 @@ function ExpandedKpiEditor({
   const addFormulaGroup = (insertionIndex = kpi.description.formulas.length) => {
     updateFormulaGroups((groups) => {
       const index = Math.max(0, Math.min(insertionIndex, groups.length));
+      setCollapsedFormulaGroupIndexes((current) => current.map((collapsedIndex) =>
+        collapsedIndex >= index ? collapsedIndex + 1 : collapsedIndex
+      ));
       return [...groups.slice(0, index), createBlankFormulaGroup(groups.length), ...groups.slice(index)];
     });
   };
 
   const deleteFormulaGroup = (groupIndex: number) => {
+    setCollapsedFormulaGroupIndexes((current) => current
+      .filter((collapsedIndex) => collapsedIndex !== groupIndex)
+      .map((collapsedIndex) => collapsedIndex > groupIndex ? collapsedIndex - 1 : collapsedIndex));
     updateFormulaGroups((groups) => groups.filter((_, index) => index !== groupIndex));
   };
 
@@ -6120,7 +6273,14 @@ function ExpandedKpiEditor({
       if (sourceIndex < insertionIndex) {
         insertionIndex -= 1;
       }
-      nextGroups.splice(Math.max(0, Math.min(insertionIndex, nextGroups.length)), 0, moved);
+      insertionIndex = Math.max(0, Math.min(insertionIndex, nextGroups.length));
+      nextGroups.splice(insertionIndex, 0, moved);
+      setCollapsedFormulaGroupIndexes((current) => {
+        const originalIndexes = groups.map((_, index) => index);
+        const [movedOriginalIndex] = originalIndexes.splice(sourceIndex, 1);
+        originalIndexes.splice(insertionIndex, 0, movedOriginalIndex);
+        return originalIndexes.flatMap((originalIndex, index) => current.includes(originalIndex) ? [index] : []);
+      });
       return nextGroups;
     });
   };
@@ -6253,14 +6413,14 @@ function ExpandedKpiEditor({
       <section className="expanded-section wide formulae-expanded-column">
         <label className="field expanded-independent expanded-overview">
           <span>Full overview</span>
-          <textarea
+          <DebouncedTextarea
             rows={2}
             value={kpi.description.overview}
-            onChange={(event) =>
+            onValueChange={(overview) =>
               patch({
                 description: {
                   ...kpi.description,
-                  overview: event.target.value
+                  overview
                 }
               })
             }
@@ -6277,21 +6437,24 @@ function ExpandedKpiEditor({
           {!hasFormula ? (
             <label className="field formula-comment-field">
               <span>Comment when no formula is required</span>
-              <textarea
+              <DebouncedTextarea
                 rows={2}
                 value={kpi.description.formulaComment}
                 placeholder="Direct from source, reported value, analyst input…"
-                onChange={(event) => patch({
-                  description: { ...kpi.description, formulaComment: event.target.value }
+                onValueChange={(formulaComment) => patch({
+                  description: { ...kpi.description, formulaComment }
                 })}
               />
             </label>
           ) : null}
           {kpi.description.formulas.length === 0 ? <span className="subtle-text">No formula groups.</span> : null}
-          {kpi.description.formulas.flatMap((group, groupIndex) => [
+          {kpi.description.formulas.flatMap((group, groupIndex) => {
+            const isFormulaGroupExpanded = !collapsedFormulaGroupIndexes.includes(groupIndex);
+            const formulaGroupContentId = `formula-group-content-${kpi.id}-${groupIndex}`;
+            return [
             <button className="list-insert-divider formula-group-insert-divider" type="button" key={`insert-formula-group-${groupIndex}`} onClick={() => addFormulaGroup(groupIndex)}><Plus size={11} aria-hidden="true" />Add group here</button>,
             <section
-              className={`formula-group-editor ${
+              className={`formula-group-editor ${isFormulaGroupExpanded ? '' : 'is-collapsed'} ${
                 formulaGroupDragOver?.groupIndex === groupIndex && formulaGroupDragOver.position === 'before'
                   ? 'drag-over-before'
                   : ''
@@ -6324,6 +6487,19 @@ function ExpandedKpiEditor({
             >
               <div className="formula-group-header">
                 <button
+                  className="mini-icon-button formula-group-collapse-button"
+                  type="button"
+                  aria-expanded={isFormulaGroupExpanded}
+                  aria-controls={formulaGroupContentId}
+                  aria-label={`${isFormulaGroupExpanded ? 'Collapse' : 'Expand'} formula group ${groupIndex + 1}`}
+                  title={`${isFormulaGroupExpanded ? 'Collapse' : 'Expand'} formula group`}
+                  onClick={() => setCollapsedFormulaGroupIndexes((current) => current.includes(groupIndex)
+                    ? current.filter((index) => index !== groupIndex)
+                    : [...current, groupIndex])}
+                >
+                  <ChevronDown size={13} aria-hidden="true" className={isFormulaGroupExpanded ? 'rotate' : ''} />
+                </button>
+                <button
                   className="mini-icon-button drag-handle formula-group-drag-handle"
                   type="button"
                   aria-label={`Drag formula group ${groupIndex + 1}`}
@@ -6343,12 +6519,12 @@ function ExpandedKpiEditor({
                   <GripVertical size={13} aria-hidden="true" />
                 </button>
                 <label className="formula-group-name-field">
-                  <input
+                  <DebouncedInput
                     className={group.name.trim() ? '' : 'is-empty'}
                     value={group.name}
                     placeholder="Optional group name"
                     aria-label={`Formula group ${groupIndex + 1} name`}
-                    onChange={(event) => updateFormulaGroup(groupIndex, { name: event.target.value })}
+                    onValueChange={(name) => updateFormulaGroup(groupIndex, { name })}
                   />
                 </label>
                 <button
@@ -6361,6 +6537,7 @@ function ExpandedKpiEditor({
                   <Trash2 size={13} aria-hidden="true" />
                 </button>
               </div>
+              <div className="formula-group-content" id={formulaGroupContentId} hidden={!isFormulaGroupExpanded}>
               {group.items.length === 0 ? <span className="subtle-text">No formulae in this group.</span> : null}
               {group.items.map((item, itemIndex) => {
                 const currentFormulaIndex = kpi.description.formulas
@@ -6422,11 +6599,11 @@ function ExpandedKpiEditor({
                         <GripVertical size={13} aria-hidden="true" />
                       </button>
                       <label className="field formula-tag-field">
-                        <input
+                        <DebouncedInput
                           value={item.tag}
                           placeholder={`Formula ${itemIndex + 1}`}
                           aria-label={`Formula ${itemIndex + 1} tag`}
-                          onChange={(event) => updateFormulaItem(groupIndex, itemIndex, { tag: event.target.value })}
+                          onValueChange={(tag) => updateFormulaItem(groupIndex, itemIndex, { tag })}
                         />
                       </label>
                       <FormulaExpressionEditor
@@ -6458,28 +6635,28 @@ function ExpandedKpiEditor({
                       <div className="formula-explanation-row">
                         <label className="field general-explanation-field">
                           <span>General Explanation</span>
-                          <textarea rows={2} value={item.generalExplanation} placeholder="Overall meaning or interpretation..." onChange={(event) => updateFormulaItem(groupIndex, itemIndex, { generalExplanation: event.target.value })} />
+                          <DebouncedTextarea rows={2} value={item.generalExplanation} placeholder="Overall meaning or interpretation..." onValueChange={(generalExplanation) => updateFormulaItem(groupIndex, itemIndex, { generalExplanation })} />
                         </label>
                         <section className="term-explanation-panel">
                           <div className="formula-preview-title">Term-wise Explanation</div>
                         {item.terms.map((term, termIndex) => (
                           <div className="term-explanation-row" key={`formula-term-${groupIndex}-${itemIndex}-${termIndex}`}>
-                            <input
+                            <DebouncedInput
                               className="latex-code-editor"
                               value={term.term}
                               placeholder="x_i"
                               aria-label={`Term ${termIndex + 1} LaTeX`}
-                              onChange={(event) => updateFormulaTerm(groupIndex, itemIndex, termIndex, { term: event.target.value })}
+                              onValueChange={(termValue) => updateFormulaTerm(groupIndex, itemIndex, termIndex, { term: termValue })}
                             />
                             <span className="term-preview">
                               {term.term.trim() ? <InlineMath math={term.term} errorColor="#b42318" /> : <span className="muted-dash">Term</span>}
                             </span>
-                            <input
+                            <DebouncedInput
                               value={term.explanation}
                               placeholder="Meaning..."
                               aria-label={`Term ${termIndex + 1} explanation`}
-                              onChange={(event) =>
-                                updateFormulaTerm(groupIndex, itemIndex, termIndex, { explanation: event.target.value })
+                              onValueChange={(explanation) =>
+                                updateFormulaTerm(groupIndex, itemIndex, termIndex, { explanation })
                               }
                             />
                             <button
@@ -6504,8 +6681,10 @@ function ExpandedKpiEditor({
                 <Plus size={12} aria-hidden="true" />
                 Add formula
               </button>
+              </div>
             </section>
-          ])}
+            ];
+          })}
           <button className="secondary-action tiny formula-add-button" type="button" onClick={() => addFormulaGroup()}>
             <Plus size={12} aria-hidden="true" />
             Add group
@@ -6574,11 +6753,11 @@ function KpiDimensionControl({
             {kpi.dimensions.map((dimension) => (
               <section className="kpi-dimension-row" key={dimension.id}>
                 <div className="kpi-dimension-heading">
-                  <input
+                  <DebouncedInput
                     value={dimension.name}
                     aria-label="Dimension name"
                     placeholder="Dimension name"
-                    onChange={(event) => updateDimension(dimension.id, { name: event.target.value })}
+                    onValueChange={(name) => updateDimension(dimension.id, { name })}
                   />
                   <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeDimension(dimension.id)}><Trash2 size={12} /></button>
                 </div>
@@ -6913,7 +7092,51 @@ function MeasuredKpiRow({
   );
 }
 
-const MemoizedMeasuredKpiRow = memo(MeasuredKpiRow);
+const kpiCatalogChangeAffectsRow = (previous: KpiPoolConfig, next: KpiPoolConfig, rowKpiId: string) => {
+  if (
+    previous.enums !== next.enums ||
+    previous.dataSources !== next.dataSources ||
+    previous.lookups !== next.lookups ||
+    previous.lookupGroups !== next.lookupGroups ||
+    previous.variables !== next.variables ||
+    previous.variableGroups !== next.variableGroups
+  ) return true;
+  if (previous.kpis === next.kpis) return false;
+  if (previous.kpis.length !== next.kpis.length) return true;
+
+  const previousById = new Map(previous.kpis.map((kpi) => [kpi.id, kpi]));
+  for (let index = 0; index < next.kpis.length; index += 1) {
+    const nextKpi = next.kpis[index];
+    if (previous.kpis[index]?.id !== nextKpi.id) return true;
+    if (nextKpi.id === rowKpiId) continue;
+    const previousKpi = previousById.get(nextKpi.id);
+    if (!previousKpi) return true;
+    if (
+      previousKpi.name !== nextKpi.name ||
+      previousKpi.description.overview !== nextKpi.description.overview ||
+      !sameStructuredValue(previousKpi.dimensions, nextKpi.dimensions)
+    ) return true;
+  }
+  return false;
+};
+
+const sameMeasuredKpiRowProps = (
+  previous: ComponentProps<typeof MeasuredKpiRow>,
+  next: ComponentProps<typeof MeasuredKpiRow>
+) =>
+  previous.kpi === next.kpi &&
+  previous.filters === next.filters &&
+  previous.expanded === next.expanded &&
+  previous.dragPosition === next.dragPosition &&
+  previous.visibleEnumCategories === next.visibleEnumCategories &&
+  previous.tableColumnCount === next.tableColumnCount &&
+  previous.tableViewportWidth === next.tableViewportWidth &&
+  previous.useCaseAssignment === next.useCaseAssignment &&
+  previous.sortingActive === next.sortingActive &&
+  previous.onHeightChange === next.onHeightChange &&
+  !kpiCatalogChangeAffectsRow(previous.config, next.config, next.kpi.id);
+
+const MemoizedMeasuredKpiRow = memo(MeasuredKpiRow, sameMeasuredKpiRowProps);
 
 function KpiTable({
   config,
@@ -6958,6 +7181,12 @@ function KpiTable({
   const scrollFrameRequestRef = useRef<number | null>(null);
   const [scrollFrame, setScrollFrame] = useState({ top: 0, height: 0, width: 0 });
   const [rowHeights, setRowHeights] = useState<Map<string, number>>(() => new Map());
+  const stableOnToggleExpanded = useStableCallback(onToggleExpanded);
+  const stableOnKpiChange = useStableCallback(onKpiChange);
+  const stableOnDelete = useStableCallback(onDelete);
+  const stableOnDuplicate = useStableCallback(onDuplicate);
+  const stableOnReorder = useStableCallback(onReorder);
+  const stableOnAddKpi = useStableCallback(onAddKpi);
   const editLibrarySource = useCallback((target: SourceLibraryEditTarget) => {
     setSourceLibraryEditRequest((current) => ({ ...target, requestId: (current?.requestId ?? 0) + 1 }));
   }, []);
@@ -7280,7 +7509,7 @@ function KpiTable({
     const stopRowDrag = () => {
       const finalState = dragSessionRef.current;
       if (finalState?.overId && finalState.sourceId !== finalState.overId) {
-        onReorder(finalState.sourceId, finalState.overId, finalState.position ?? 'before');
+        stableOnReorder(finalState.sourceId, finalState.overId, finalState.position ?? 'before');
       }
 
       dragSessionRef.current = null;
@@ -7292,7 +7521,7 @@ function KpiTable({
 
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', stopRowDrag);
-  }, [onReorder]);
+  }, [stableOnReorder]);
 
   return (
     <section className="table-panel">
@@ -7447,11 +7676,11 @@ function KpiTable({
                 tableViewportWidth={scrollFrame.width}
                 useCaseAssignment={focusedAssignment}
                 sortingActive={Boolean(performanceAreaSort)}
-                onExpand={onToggleExpanded}
-                onChange={onKpiChange}
-                onDelete={onDelete}
-                onDuplicate={onDuplicate}
-                onInsertBefore={onAddKpi}
+                onExpand={stableOnToggleExpanded}
+                onChange={stableOnKpiChange}
+                onDelete={stableOnDelete}
+                onDuplicate={stableOnDuplicate}
+                onInsertBefore={stableOnAddKpi}
                 onDragHandleMouseDown={startRowDrag}
                 onEditLibrarySource={editLibrarySource}
                 onHeightChange={handleRowHeightChange}
@@ -7500,6 +7729,7 @@ function EditorApp({
   const [warnings, setWarnings] = useState(initialWarnings);
   const [etag, setEtag] = useState(initialEtag);
   const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(!initialRemoteExists && !exportedSnapshot);
   const [saveNotice, setSaveNotice] = useState(
     exportedSnapshot
       ? 'Offline snapshot: hosted JSON saving is disabled.'
@@ -7527,17 +7757,15 @@ function EditorApp({
   const lastSyncedLookupIdsRef = useRef(
     new Set(initialRemoteExists ? initialConfig.lookups.map((lookup) => lookup.id) : [])
   );
-  const lastSavedConfigRef = useRef(
-    initialRemoteExists || exportedSnapshot ? JSON.stringify(initialConfig) : ''
-  );
   const lastSyncedConfigRef = useRef<KpiPoolConfig | undefined>(
     initialRemoteExists ? initialConfig : undefined
   );
   const indexesCacheRef = useRef<{ config: KpiPoolConfig; indexes: AppIndexes }>();
-  const serializedConfig = useMemo(() => JSON.stringify(config), [config]);
-  const hasUnsavedChanges = serializedConfig !== lastSavedConfigRef.current;
+  const configRef = useRef(config);
+  configRef.current = config;
 
   const commitConfig = useCallback((action: KpiPoolConfig | ((current: KpiPoolConfig) => KpiPoolConfig)) => {
+    setHasUnsavedChanges(true);
     setConfig((current) => {
       const next = typeof action === 'function' ? action(current) : action;
       const currentById = new Map(current.kpis.map((kpi) => [kpi.id, kpi]));
@@ -7760,8 +7988,8 @@ function EditorApp({
     });
   };
 
-  const updateKpiFromRow = (next: KpiMetric) => {
-    const previous = config.kpis.find((entry) => entry.id === next.id);
+  const updateKpiFromRow = useCallback((next: KpiMetric) => {
+    const previous = configRef.current.kpis.find((entry) => entry.id === next.id);
     if (
       (filters.name.trim() || filters.description.trim()) &&
       previous &&
@@ -7771,7 +7999,7 @@ function EditorApp({
     }
 
     commitConfig((current) => updateKpi(current, next.id, () => next));
-  };
+  }, [commitConfig, filters.description, filters.name]);
 
   const replaceWithRemoteConfig = (result: RemoteConfigResult, notice: string) => {
     const repaired = repairConfig(result.config);
@@ -7780,9 +8008,9 @@ function EditorApp({
     lastSyncedDataSourceIdsRef.current = new Set(repaired.config.dataSources.map((source) => source.id));
     lastSyncedRelationIdsRef.current = new Set(repaired.config.tableRelations.map((relation) => relation.id));
     lastSyncedLookupIdsRef.current = new Set(repaired.config.lookups.map((lookup) => lookup.id));
-    lastSavedConfigRef.current = JSON.stringify(repaired.config);
     lastSyncedConfigRef.current = repaired.config;
     setConfig(repaired.config);
+    setHasUnsavedChanges(false);
     setEtag(result.etag);
     setWarnings([...repaired.warnings, ...(result.warnings ?? [])]);
     const validIds = new Set(repaired.config.kpis.map((kpi) => kpi.id));
@@ -7928,6 +8156,7 @@ function EditorApp({
       }
       baselineKpisRef.current = nextBaselines;
       setConfig(merged.config);
+      setHasUnsavedChanges(true);
       setWarnings([
         ...repaired.warnings,
         ...(merged.enumConflicts > 0
@@ -7976,7 +8205,7 @@ function EditorApp({
             <FileJson size={22} aria-hidden="true" />
             <label className="title-editor">
               <span>Library title</span>
-              <input value={config.title} onChange={(event) => commitConfig({ ...config, title: event.target.value })} />
+              <DebouncedInput value={config.title} onValueChange={(title) => commitConfig({ ...configRef.current, title })} />
             </label>
           </div>
           <div className="topbar-actions topbar-actions-right">

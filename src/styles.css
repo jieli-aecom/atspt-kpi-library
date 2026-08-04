@@ -3880,9 +3880,26 @@ h1 {
 
 .formula-group-header {
   display: grid;
-  grid-template-columns: 28px minmax(150px, 1fr) 28px;
+  grid-template-columns: 28px 28px minmax(150px, 1fr) 28px;
   gap: 6px;
   align-items: center;
+}
+
+.formula-group-content {
+  display: grid;
+  gap: 10px;
+}
+
+.formula-group-content[hidden] {
+  display: none;
+}
+
+.formula-group-editor.is-collapsed {
+  gap: 0;
+}
+
+.formula-group-collapse-button svg {
+  transition: transform 140ms ease;
 }
 
 .formula-group-name-field input {
