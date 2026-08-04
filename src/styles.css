@@ -2741,6 +2741,19 @@ h1 {
   min-width: 0;
   flex-wrap: wrap;
   gap: 3px;
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.kpi-dimension-summary:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid #4d8492;
+  outline-offset: 2px;
 }
 
 .kpi-dimension-summary > span {
@@ -2756,6 +2769,11 @@ h1 {
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.kpi-dimension-summary:hover > span {
+  border-color: #78a3af;
+  background: #dcebed;
 }
 
 .kpi-dimension-control {

@@ -6711,14 +6711,18 @@ function ExpandedKpiEditor({
 
 function KpiDimensionControl({
   kpi,
+  open,
+  onOpenChange,
   onChange
 }: {
   kpi: KpiMetric;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onChange: (dimensions: DataSourceFieldDimension[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [dimensionDraft, setDimensionDraft] = useState('');
-  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => onOpenChange(false));
+  const popoverId = `kpi-dimension-popover-${kpi.id}`;
   const addDimension = () => {
     const name = dimensionDraft.trim();
     if (!name || kpi.dimensions.some((dimension) => dimension.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) return;
@@ -6738,14 +6742,16 @@ function KpiDimensionControl({
         className={`mini-icon-button kpi-dimension-trigger ${kpi.dimensions.length ? 'is-active' : ''}`}
         type="button"
         aria-label={`Manage dimensions for ${kpi.name}`}
+        aria-controls={popoverId}
+        aria-expanded={open}
         title="Manage KPI dimensions"
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => onOpenChange(!open)}
       >
         <Settings2 size={13} aria-hidden="true" />
         {kpi.dimensions.length ? <span>{kpi.dimensions.length}</span> : null}
       </button>
       {open ? (
-        <div className="kpi-dimension-popover" role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
+        <div className="kpi-dimension-popover" id={popoverId} role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
           <div className="popover-title">KPI dimensions</div>
           <p>Dimensions and their options become formula shortcuts in this KPI and in KPIs that use it as a source.</p>
           <div className="kpi-dimension-list">
@@ -6834,6 +6840,7 @@ function KpiRow({
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const stopRowToggle = (event: React.SyntheticEvent) => event.stopPropagation();
+  const [dimensionControlOpen, setDimensionControlOpen] = useState(false);
   const [semanticHighlight, setSemanticHighlight] = useState<{ target: FormulaSemanticTarget; requestId: number }>();
   const highlightSemanticTarget = useCallback((target: FormulaSemanticTarget) => {
     setSemanticHighlight((current) => ({ target, requestId: (current?.requestId ?? 0) + 1 }));
@@ -6897,13 +6904,28 @@ function KpiRow({
                 {kpi.dimensions.length ? (
                   <span className="kpi-dimension-line" title={kpi.dimensions.map((dimension) => `${dimension.name}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join('\n')}>
                     <span className="kpi-dimension-by">by</span>
-                    <span className="kpi-dimension-summary">
+                    <button
+                      className="kpi-dimension-summary"
+                      type="button"
+                      aria-label={`Manage dimensions for ${kpi.name}`}
+                      aria-controls={`kpi-dimension-popover-${kpi.id}`}
+                      aria-expanded={dimensionControlOpen}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setDimensionControlOpen(true);
+                      }}
+                    >
                       {kpi.dimensions.map((dimension) => <span key={dimension.id}>{dimension.name || 'Untitled'}{dimension.options.length ? ` (${dimension.options.length})` : ''}</span>)}
-                    </span>
+                    </button>
                   </span>
                 ) : null}
               </div>
-              <KpiDimensionControl kpi={kpi} onChange={(dimensions) => patch({ dimensions })} />
+              <KpiDimensionControl
+                kpi={kpi}
+                open={dimensionControlOpen}
+                onOpenChange={setDimensionControlOpen}
+                onChange={(dimensions) => patch({ dimensions })}
+              />
             </div>
             <AutoGrowTextarea
               className="inline-textarea description-input"
