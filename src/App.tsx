@@ -2170,6 +2170,94 @@ function AutoGrowTextarea({ value, onValueChange, preventLineBreaks = false, ...
   );
 }
 
+function EnumOptionEditor({
+  options,
+  label,
+  onChange,
+  required = false
+}: {
+  options: string[];
+  label: string;
+  onChange: (options: string[]) => void;
+  required?: boolean;
+}) {
+  const [draft, setDraft] = useState('');
+
+  const addOption = () => {
+    const option = draft.trim();
+    if (!option) return;
+    if (!options.some((entry) => entry.trim().toLocaleLowerCase() === option.toLocaleLowerCase())) {
+      onChange([...options, option]);
+    }
+    setDraft('');
+  };
+
+  const updateOption = (optionIndex: number, value: string) => {
+    onChange(options.map((option, index) => index === optionIndex ? value : option));
+  };
+
+  const confirmOption = (optionIndex: number, value: string) => {
+    const option = value.trim();
+    if (!option) {
+      onChange(options.filter((_, index) => index !== optionIndex));
+      return;
+    }
+    if (option !== value) updateOption(optionIndex, option);
+  };
+
+  return (
+    <div className="enum-option-editor">
+      <div className="enum-option-list">
+        {options.map((option, optionIndex) => (
+          <span className="enum-option-chip" key={optionIndex}>
+            <input
+              value={option}
+              size={Math.max(1, Math.min(32, option.length || 1))}
+              aria-label={`${label} option ${optionIndex + 1}`}
+              onBlur={(event) => confirmOption(optionIndex, event.target.value)}
+              onChange={(event) => updateOption(optionIndex, event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }
+              }}
+            />
+            <button
+              type="button"
+              title={`Remove ${option || 'option'}`}
+              aria-label={`Remove ${label} option ${optionIndex + 1}`}
+              onClick={() => onChange(options.filter((_, index) => index !== optionIndex))}
+            ><X size={10} /></button>
+          </span>
+        ))}
+        <span className="enum-option-adder">
+          <input
+            value={draft}
+            size={Math.max(8, Math.min(32, draft.length || 8))}
+            aria-label={`New ${label} option`}
+            placeholder="Add option"
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              addOption();
+            }}
+          />
+          <button
+            type="button"
+            title="Add option"
+            aria-label={`Add ${label} option`}
+            disabled={!draft.trim()}
+            onClick={addOption}
+          ><Plus size={11} /></button>
+        </span>
+      </div>
+      {required && options.length === 0 ? <span className="enum-options-required">Add at least one option for this enum.</span> : null}
+    </div>
+  );
+}
+
 const markdownInlinePattern = /(`(?:\\.|[^\\`\n])+`|\[(?:\\.|[^\\\]\n])+\]\([^)\n]+\)|\*\*(?:\\.|(?!\*\*)[^\\\n])+\*\*|__(?:\\.|(?!__)[^\\\n])+__|~~(?:\\.|(?!~~)[^\\\n])+~~|\*(?:\\.|[^\\*\n])+\*|_(?:\\.|[^\\_\n])+_)/g;
 const markdownEscapableCharacterPattern = /[\\`*_[\]{}()<>#+\-.!|>~]/g;
 const markdownEscapeSequencePattern = /\\([\\`*_[\]{}()<>#+\-.!|>~])/g;
@@ -2806,7 +2894,6 @@ function DataSourceHeader({
     anchor: 'primaryKey' | 'table';
   } | null>(null);
   const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
-  const [dimensionOptionDrafts, setDimensionOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
@@ -3197,12 +3284,6 @@ function DataSourceHeader({
     const lookup = config.lookups[lookupIndex];
     updateLookup(lookupIndex, { inputs: lookup.inputs.filter((_, index) => index !== inputIndex) });
   };
-  const nextLookupOption = (options: string[]) => {
-    const existing = new Set(options.map((option) => option.trim().toLocaleLowerCase()));
-    let index = options.length + 1;
-    while (existing.has(`option ${index}`)) index += 1;
-    return `Option ${index}`;
-  };
   const renderLookupEnumOptions = (
     options: string[],
     label: string,
@@ -3210,28 +3291,7 @@ function DataSourceHeader({
   ) => (
     <div className="lookup-enum-options">
       <span className="lookup-enum-options-label">Enum options</span>
-      <div className="lookup-enum-option-list">
-        {options.map((option, optionIndex) => (
-          <span className="lookup-enum-option" key={optionIndex}>
-            <input
-              value={option}
-              aria-label={`${label} enum option ${optionIndex + 1}`}
-              onChange={(event) => onChange(options.map((entry, index) => index === optionIndex ? event.target.value : entry))}
-            />
-            <button
-              className="mini-icon-button danger"
-              type="button"
-              title={`Remove ${option || 'option'}`}
-              aria-label={`Remove ${label} enum option ${optionIndex + 1}`}
-              onClick={() => onChange(options.filter((_, index) => index !== optionIndex))}
-            ><X size={10} /></button>
-          </span>
-        ))}
-        <button className="secondary-action tiny" type="button" onClick={() => onChange([...options, nextLookupOption(options)])}>
-          <Plus size={10} /> Add option
-        </button>
-      </div>
-      {options.length === 0 ? <span className="lookup-enum-options-required">Add at least one option for this enum.</span> : null}
+      <EnumOptionEditor options={options} label={`${label} enum`} onChange={onChange} required />
     </div>
   );
   const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
@@ -3541,31 +3601,6 @@ function DataSourceHeader({
     const group = source.fieldGroups.find((entry) => entry.id === groupId);
     if (!group) return;
     updateFieldGroup(sourceIndex, groupId, { dimensions: group.dimensions.filter((dimension) => dimension.id !== dimensionId) });
-    setDimensionOptionDrafts((current) => {
-      const { [dimensionId]: _removedDraft, ...remaining } = current;
-      return remaining;
-    });
-  };
-  const addDimensionOption = (sourceIndex: number, groupId: string, dimensionId: string) => {
-    const value = (dimensionOptionDrafts[dimensionId] ?? '').trim();
-    if (!value) return;
-    const source = config.dataSources[sourceIndex];
-    const group = source.fieldGroups.find((entry) => entry.id === groupId);
-    const dimension = group?.dimensions.find((entry) => entry.id === dimensionId);
-    if (!dimension) return;
-    if (!dimension.options.some((option) => option.toLocaleLowerCase() === value.toLocaleLowerCase())) {
-      updateFieldGroupDimension(sourceIndex, groupId, dimensionId, { options: [...dimension.options, value] });
-    }
-    setDimensionOptionDrafts((current) => ({ ...current, [dimensionId]: '' }));
-  };
-  const removeDimensionOption = (sourceIndex: number, groupId: string, dimensionId: string, option: string) => {
-    const source = config.dataSources[sourceIndex];
-    const group = source.fieldGroups.find((entry) => entry.id === groupId);
-    const dimension = group?.dimensions.find((entry) => entry.id === dimensionId);
-    if (!dimension) return;
-    updateFieldGroupDimension(sourceIndex, groupId, dimensionId, {
-      options: dimension.options.filter((entry) => entry !== option)
-    });
   };
   const assignFieldToGroup = (sourceIndex: number, fieldId: string, groupId?: string) => {
     const source = config.dataSources[sourceIndex];
@@ -3586,10 +3621,6 @@ function DataSourceHeader({
       const { [groupId]: _removedDraft, ...remaining } = current;
       return remaining;
     });
-    const removedDimensionIds = new Set(source.fieldGroups.find((group) => group.id === groupId)?.dimensions.map((dimension) => dimension.id) ?? []);
-    setDimensionOptionDrafts((current) => Object.fromEntries(
-      Object.entries(current).filter(([dimensionId]) => !removedDimensionIds.has(dimensionId))
-    ));
     updateDataSource(sourceIndex, { fieldGroups: source.fieldGroups.filter((group) => group.id !== groupId) });
   };
   const moveField = (sourceIndex: number, targetIndex: number, position: DropPosition, groupId?: string, shiftGroupsAtTarget = true) => {
@@ -4395,26 +4426,11 @@ function DataSourceHeader({
                               <div className="data-source-field-group-control">
                                 <small>Options:</small>
                                 <div className="field-group-dimension-options">
-                                  {dimension.options.map((option) => (
-                                    <span className="field-group-dimension-chip" key={option}>
-                                      <span>{option}</span>
-                                      <button type="button" title={`Remove ${option}`} aria-label={`Remove dimension option ${option}`} onClick={() => removeDimensionOption(sourceIndex, group.id, dimension.id, option)}><X size={10} /></button>
-                                    </span>
-                                  ))}
-                                  <span className="field-group-dimension-adder">
-                                    <input
-                                      value={dimensionOptionDrafts[dimension.id] ?? ''}
-                                      aria-label={`New option for ${dimension.name || 'dimension'}`}
-                                      placeholder="Add option"
-                                      onChange={(event) => setDimensionOptionDrafts((current) => ({ ...current, [dimension.id]: event.target.value }))}
-                                      onKeyDown={(event) => {
-                                        if (event.key !== 'Enter') return;
-                                        event.preventDefault();
-                                        addDimensionOption(sourceIndex, group.id, dimension.id);
-                                      }}
-                                    />
-                                    <button type="button" title="Add dimension option" aria-label="Add dimension option" disabled={!(dimensionOptionDrafts[dimension.id] ?? '').trim()} onClick={() => addDimensionOption(sourceIndex, group.id, dimension.id)}><Plus size={11} /></button>
-                                  </span>
+                                  <EnumOptionEditor
+                                    options={dimension.options}
+                                    label={`${dimension.name || 'dimension'} dimension`}
+                                    onChange={(options) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { options })}
+                                  />
                                 </div>
                               </div>
                               <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeFieldGroupDimension(sourceIndex, group.id, dimension.id)}><Trash2 size={12} /></button>
@@ -6394,7 +6410,6 @@ function KpiDimensionControl({
 }) {
   const [open, setOpen] = useState(false);
   const [dimensionDraft, setDimensionDraft] = useState('');
-  const [optionDrafts, setOptionDrafts] = useState<Record<string, string>>({});
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
   const addDimension = () => {
     const name = dimensionDraft.trim();
@@ -6407,18 +6422,6 @@ function KpiDimensionControl({
   };
   const removeDimension = (id: string) => {
     onChange(kpi.dimensions.filter((dimension) => dimension.id !== id));
-    setOptionDrafts((current) => {
-      const { [id]: _removed, ...remaining } = current;
-      return remaining;
-    });
-  };
-  const addOption = (dimension: DataSourceFieldDimension) => {
-    const option = (optionDrafts[dimension.id] ?? '').trim();
-    if (!option) return;
-    if (!dimension.options.some((entry) => entry.toLocaleLowerCase() === option.toLocaleLowerCase())) {
-      updateDimension(dimension.id, { options: [...dimension.options, option] });
-    }
-    setOptionDrafts((current) => ({ ...current, [dimension.id]: '' }));
   };
 
   return (
@@ -6451,26 +6454,11 @@ function KpiDimensionControl({
                   <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeDimension(dimension.id)}><Trash2 size={12} /></button>
                 </div>
                 <div className="kpi-dimension-options">
-                  {dimension.options.map((option) => (
-                    <span className="kpi-dimension-chip" key={option}>
-                      {option}
-                      <button type="button" title={`Remove ${option}`} aria-label={`Remove dimension option ${option}`} onClick={() => updateDimension(dimension.id, { options: dimension.options.filter((entry) => entry !== option) })}><X size={10} /></button>
-                    </span>
-                  ))}
-                  <span className="kpi-dimension-option-adder">
-                    <input
-                      value={optionDrafts[dimension.id] ?? ''}
-                      placeholder="Add option"
-                      aria-label={`New option for ${dimension.name || 'dimension'}`}
-                      onChange={(event) => setOptionDrafts((current) => ({ ...current, [dimension.id]: event.target.value }))}
-                      onKeyDown={(event) => {
-                        if (event.key !== 'Enter') return;
-                        event.preventDefault();
-                        addOption(dimension);
-                      }}
-                    />
-                    <button type="button" title="Add option" aria-label="Add dimension option" disabled={!(optionDrafts[dimension.id] ?? '').trim()} onClick={() => addOption(dimension)}><Plus size={11} /></button>
-                  </span>
+                  <EnumOptionEditor
+                    options={dimension.options}
+                    label={`${dimension.name || 'dimension'} dimension`}
+                    onChange={(options) => updateDimension(dimension.id, { options })}
+                  />
                 </div>
               </section>
             ))}

@@ -1474,27 +1474,82 @@ h1 {
   font-weight: 800;
 }
 
-.lookup-enum-option-list {
+.enum-option-editor {
+  min-width: 0;
+}
+
+.enum-option-list {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
 }
 
-.lookup-enum-option {
-  display: inline-grid;
-  grid-template-columns: minmax(70px, 140px) 22px;
+.enum-option-chip,
+.enum-option-adder {
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-}
-
-.lookup-enum-option input {
+  max-width: 100%;
   min-height: 25px;
-  padding: 3px 6px;
-  font-size: 10px;
+  overflow: hidden;
+  border: 1px solid #bfd0d7;
+  border-radius: 7px;
+  background: #fff;
+  color: #315a6c;
 }
 
-.lookup-enum-options-required {
+.enum-option-chip input,
+.enum-option-adder input {
+  field-sizing: content;
+  min-width: 5ch;
+  max-width: min(32ch, calc(100vw - 120px));
+  min-height: 23px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  padding: 3px 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.enum-option-adder input {
+  min-width: 8ch;
+  color: #44545c;
+  font-weight: 500;
+}
+
+.enum-option-chip button,
+.enum-option-adder button {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 22px;
+  min-height: 23px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #6b7b83;
+  padding: 0;
+}
+
+.enum-option-chip button:hover {
+  color: #b42318;
+}
+
+.enum-option-chip:focus-within,
+.enum-option-adder:focus-within {
+  border-color: #527b8b;
+  box-shadow: 0 0 0 2px rgba(82, 123, 139, 0.14);
+}
+
+.enum-option-adder button:disabled {
+  opacity: 0.35;
+}
+
+.enum-options-required {
+  display: block;
+  margin-top: 4px;
   color: #9a4f39;
   font-size: 9px;
 }
@@ -2131,67 +2186,12 @@ h1 {
 }
 
 .field-group-dimension-options {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 3px;
   min-height: 28px;
 }
 
-.field-group-dimension-chip,
-.field-group-dimension-adder {
-  display: inline-flex;
-  align-items: center;
-  min-height: 26px;
-  border: 1px solid #bfd0d7;
-  border-radius: 5px;
-  background: #fff;
-}
-
-.field-group-dimension-chip {
-  gap: 3px;
-  padding-left: 7px;
-  color: #315a6c;
+.field-group-dimension-options .enum-option-chip input,
+.field-group-dimension-options .enum-option-adder input {
   font-size: 11px;
-  font-weight: 700;
-}
-
-.field-group-dimension-chip button,
-.field-group-dimension-adder button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 23px;
-  min-height: 24px;
-  border: 0;
-  background: transparent;
-  color: #6b7b83;
-  padding: 0;
-}
-
-.field-group-dimension-chip button:hover {
-  color: #b42318;
-}
-
-.field-group-dimension-adder input {
-  width: 86px;
-  min-height: 24px;
-  border: 0;
-  padding: 3px 5px;
-  font-size: 11px;
-}
-
-.field-group-dimension-adder input:focus {
-  outline: none;
-}
-
-.field-group-dimension-adder:focus-within {
-  border-color: #527b8b;
-  box-shadow: 0 0 0 2px rgba(82, 123, 139, 0.14);
-}
-
-.field-group-dimension-adder button:disabled {
-  opacity: 0.35;
 }
 
 .data-source-dimension-dropzone {
@@ -2722,52 +2722,27 @@ h1 {
 }
 
 .kpi-dimension-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
+  min-width: 0;
 }
 
-.kpi-dimension-chip,
-.kpi-dimension-option-adder {
-  display: inline-flex;
-  align-items: center;
-  border: 1px solid #c5d7dc;
+.kpi-dimension-options .enum-option-chip,
+.kpi-dimension-options .enum-option-adder {
+  min-height: 21px;
   border-radius: 9px;
   background: #eaf3f5;
-  color: #315d6b;
+}
+
+.kpi-dimension-options .enum-option-chip input,
+.kpi-dimension-options .enum-option-adder input {
+  min-height: 19px;
+  padding-block: 3px;
   font-size: 9px;
-  line-height: 1;
 }
 
-.kpi-dimension-chip {
-  gap: 3px;
-  padding-left: 6px;
-}
-
-.kpi-dimension-chip button,
-.kpi-dimension-option-adder button {
-  display: inline-grid;
+.kpi-dimension-options .enum-option-chip button,
+.kpi-dimension-options .enum-option-adder button {
   width: 19px;
-  height: 19px;
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  padding: 0;
-}
-
-.kpi-dimension-option-adder input {
-  width: 74px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  padding: 4px 0 4px 6px;
-  font: inherit;
-  font-size: 9px;
-}
-
-.kpi-dimension-option-adder button:disabled {
-  opacity: 0.35;
+  min-height: 19px;
 }
 
 .kpi-dimension-add {
