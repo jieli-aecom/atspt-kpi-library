@@ -120,6 +120,10 @@ type SourceLibraryEditTarget =
 type SourceLibraryEditRequest = SourceLibraryEditTarget & { requestId: number };
 const transientSourceHighlightDurationMs = 2500;
 
+type FormulaSemanticTarget =
+  | { kind: 'source'; sourceId: string }
+  | { kind: 'formula'; formulaIndex: number };
+
 const sourceLibraryTargetKey = (target: SourceLibraryEditTarget) => target.kind === 'dataField'
   ? `field:${target.fieldId}`
   : target.kind === 'lookup'
@@ -2840,16 +2844,20 @@ const dataSourceFieldTypeLabels: Record<DataSourceFieldType, string> = {
 const fieldGroupDimensionLabel = (group?: DataSourceFieldGroup) =>
   group?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
 
-const sourceDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFieldDimension[] => {
+const formulaDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFieldDimension[] => {
   const combined = new Map<string, DataSourceFieldDimension>();
-  kpi.sources.flatMap((source) => {
-    if (source.type === 'kpi') {
-      return config.kpis.find((entry) => entry.id === source.kpiId)?.dimensions ?? [];
-    }
-    if (source.type !== 'dataField') return [];
-    const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
-    return dataSource?.fieldGroups.find((group) => group.fieldIds.includes(source.fieldId))?.dimensions ?? [];
-  }).forEach((dimension) => {
+  const dimensions = [
+    ...kpi.dimensions,
+    ...kpi.sources.flatMap((source) => {
+      if (source.type === 'kpi') {
+        return config.kpis.find((entry) => entry.id === source.kpiId)?.dimensions ?? [];
+      }
+      if (source.type !== 'dataField') return [];
+      const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
+      return dataSource?.fieldGroups.find((group) => group.fieldIds.includes(source.fieldId))?.dimensions ?? [];
+    })
+  ];
+  dimensions.forEach((dimension) => {
     const key = dimension.name.trim().toLocaleLowerCase();
     if (!key) return;
     const existing = combined.get(key);
@@ -5197,10 +5205,16 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const leftRef = useRef<HTMLTextAreaElement | null>(null);
   const rightRef = useRef<HTMLTextAreaElement | null>(null);
   const paletteOptionsRef = useRef<HTMLDivElement | null>(null);
+  const [leftExpression, setLeftExpression] = useState(item.leftExpression);
+  const [rightExpression, setRightExpression] = useState(item.rightExpression);
   const [activeSide, setActiveSide] = useState<'left' | 'right'>('right');
   const [paletteExpanded, setPaletteExpanded] = useState(false);
   const [paletteHasMore, setPaletteHasMore] = useState(false);
   const paletteRef = useCloseOnOutsideClick<HTMLDivElement>(paletteExpanded, () => setPaletteExpanded(false));
+  useEffect(() => {
+    setLeftExpression(item.leftExpression);
+    setRightExpression(item.rightExpression);
+  }, [item.leftExpression, item.rightExpression]);
   useEffect(() => {
     const textareas = [leftRef.current, rightRef.current].filter((textarea): textarea is HTMLTextAreaElement => Boolean(textarea));
     const resize = () => textareas.forEach((textarea) => {
@@ -5215,21 +5229,23 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
       observer?.disconnect();
       window.removeEventListener('resize', resize);
     };
-  }, [item.leftExpression, item.rightExpression]);
+  }, [leftExpression, rightExpression]);
   const updateSides = (leftExpression: string, rightExpression: string) => onChange({
     leftExpression: rightOnly ? '' : leftExpression,
     rightExpression,
     formula: rightOnly ? rightExpression : leftExpression ? `${leftExpression} = ${rightExpression}` : rightExpression
   });
+  const commitSides = () => updateSides(leftExpression, rightExpression);
   const insertLatex = (latex: string) => {
     if (!latex.trim()) return;
     const insertionSide = rightOnly ? 'right' : activeSide;
     const target = insertionSide === 'left' ? leftRef.current : rightRef.current;
-    const value = insertionSide === 'left' ? item.leftExpression : item.rightExpression;
+    const value = insertionSide === 'left' ? leftExpression : rightExpression;
     const start = target?.selectionStart ?? value.length;
     const end = target?.selectionEnd ?? start;
     const next = `${value.slice(0, start)}${latex}${value.slice(end)}`;
-    updateSides(insertionSide === 'left' ? next : item.leftExpression, insertionSide === 'right' ? next : item.rightExpression);
+    if (insertionSide === 'left') setLeftExpression(next);
+    else setRightExpression(next);
     requestAnimationFrame(() => { target?.focus(); target?.setSelectionRange(start + latex.length, start + latex.length); });
   };
   const sourceFieldShortcuts = kpi.sources.filter((source) => source.type !== 'lookup' && source.type !== 'variable');
@@ -5243,7 +5259,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     : '';
   const dimensionShortcuts = useMemo(() => {
     const shortcuts = new Map<string, { latex: string; label: string; kind: 'Dimension' | 'Option' | 'Set' }>();
-    sourceDimensions(config, kpi).forEach((dimension) => {
+    formulaDimensions(config, kpi).forEach((dimension) => {
         const dimensionLatex = latexIdentifier(dimension.name);
         if (!dimensionLatex) return;
         shortcuts.set(`dimension:${dimensionLatex}`, {
@@ -5287,10 +5303,10 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     <div className="formula-expression-workbench">
       <div className={`formula-side-editors ${rightOnly ? 'is-right-only' : ''}`}>
         {!rightOnly ? <>
-          <label className="field"><textarea ref={leftRef} className="latex-code-editor" rows={1} value={item.leftExpression} placeholder="v_{avg}" aria-label="Left side result LaTeX" onFocus={() => setActiveSide('left')} onChange={(event) => updateSides(event.target.value, item.rightExpression)} /></label>
+          <label className="field"><textarea ref={leftRef} className="latex-code-editor" rows={1} value={leftExpression} placeholder="v_{avg}" aria-label="Left side result LaTeX" onFocus={() => setActiveSide('left')} onChange={(event) => setLeftExpression(event.target.value)} onBlur={commitSides} /></label>
           <span className="formula-equals">=</span>
         </> : null}
-        <label className="field"><textarea ref={rightRef} className="latex-code-editor" rows={1} value={item.rightExpression} placeholder="\frac{\sum_i x_i}{n}" aria-label="Right side calculation LaTeX" onFocus={() => setActiveSide('right')} onChange={(event) => updateSides(item.leftExpression, event.target.value)} /></label>
+        <label className="field"><textarea ref={rightRef} className="latex-code-editor" rows={1} value={rightExpression} placeholder="\frac{\sum_i x_i}{n}" aria-label="Right side calculation LaTeX" onFocus={() => setActiveSide('right')} onChange={(event) => setRightExpression(event.target.value)} onBlur={commitSides} /></label>
       </div>
       <div className={`formula-source-palette ${paletteExpanded ? 'has-open-dropdown' : ''}`} ref={paletteRef}>
         <div className="formula-source-palette-heading">
@@ -5336,7 +5352,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             </div>
           </section> : null}
           {dimensionShortcuts.length ? <section className="formula-shortcut-group">
-            <span className="formula-shortcut-group-label">Source dimensions</span>
+            <span className="formula-shortcut-group-label">Dimensions</span>
             <div className="formula-shortcut-group-options">
               {dimensionShortcuts.map((shortcut) => <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
                 <span className="formula-shortcut-kind">{shortcut.kind}</span>
@@ -5616,7 +5632,7 @@ const renderFormulaHtml = (formula: string, decorated: string, inline: boolean) 
 
 function InteractiveFormulaPreview({ config, kpi, item, priorItems, inline = false }: { config: KpiPoolConfig; kpi: KpiMetric; item: KpiFormulaItem; priorItems: KpiFormulaItem[]; inline?: boolean }) {
   const previewRef = useRef<HTMLDivElement | null>(null);
-  const dimensionTokens = useMemo(() => sourceDimensions(config, kpi).flatMap((dimension): FormulaSemanticToken[] => [
+  const dimensionTokens = useMemo(() => formulaDimensions(config, kpi).flatMap((dimension): FormulaSemanticToken[] => [
       {
         latex: latexIdentifier(dimension.name),
         kind: 'dimension',
@@ -6464,7 +6480,7 @@ function KpiDimensionControl({
       {open ? (
         <div className="kpi-dimension-popover" role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
           <div className="popover-title">KPI dimensions</div>
-          <p>Dimensions and their options become formula shortcuts when this KPI is used as a source.</p>
+          <p>Dimensions and their options become formula shortcuts in this KPI and in KPIs that use it as a source.</p>
           <div className="kpi-dimension-list">
             {kpi.dimensions.length === 0 ? <span className="empty-option">This KPI has no dimensions.</span> : null}
             {kpi.dimensions.map((dimension) => (
