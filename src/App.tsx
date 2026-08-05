@@ -363,7 +363,11 @@ const compileFilters = (filters: ColumnFilters, indexes: AppIndexes): CompiledFi
   };
 };
 
-function useCloseOnOutsideClick<T extends HTMLElement>(open: boolean, onClose: () => void) {
+function useCloseOnOutsideClick<T extends HTMLElement>(
+  open: boolean,
+  onClose: () => void,
+  additionalRef?: { current: HTMLElement | null }
+) {
   const ref = useRef<T | null>(null);
 
   useEffect(() => {
@@ -373,7 +377,7 @@ function useCloseOnOutsideClick<T extends HTMLElement>(open: boolean, onClose: (
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Node && ref.current?.contains(target)) {
+      if (target instanceof Node && (ref.current?.contains(target) || additionalRef?.current?.contains(target))) {
         return;
       }
 
@@ -392,7 +396,7 @@ function useCloseOnOutsideClick<T extends HTMLElement>(open: boolean, onClose: (
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, onClose]);
+  }, [additionalRef, open, onClose]);
 
   return ref;
 }
@@ -2438,14 +2442,103 @@ function ViewDomainButton({
   );
 }
 
+type DomainChoiceSection = {
+  id: string;
+  label?: string;
+  definitions: ValueEnumDefinition[];
+};
+
+const domainChoiceSections = (
+  definitions: ValueEnumDefinition[],
+  groups: DataLibraryGroup[]
+): DomainChoiceSection[] => {
+  const availableIds = new Set(definitions.map((definition) => definition.id));
+  const groupedIds = new Set(groups.flatMap((group) => group.itemIds));
+  const groupedSections = [...groups]
+    .sort((first, second) => first.position - second.position)
+    .map((group) => ({
+      id: group.id,
+      label: group.name || 'Untitled group',
+      definitions: group.itemIds
+        .filter((id) => availableIds.has(id))
+        .map((id) => definitions.find((definition) => definition.id === id))
+        .filter((definition): definition is ValueEnumDefinition => Boolean(definition))
+    }))
+    .filter((section) => section.definitions.length > 0);
+  const ungrouped = definitions.filter((definition) => !groupedIds.has(definition.id));
+
+  if (groupedSections.length === 0) {
+    return [{ id: 'all-domains', definitions }];
+  }
+  return [
+    ...groupedSections,
+    ...(ungrouped.length ? [{ id: 'ungrouped-domains', label: 'Ungrouped', definitions: ungrouped }] : [])
+  ];
+};
+
+function GroupedDomainSelect({
+  definitions,
+  groups,
+  value,
+  label,
+  onChange
+}: {
+  definitions: ValueEnumDefinition[];
+  groups: DataLibraryGroup[];
+  value: string;
+  label: string;
+  onChange: (domainId: string) => void;
+}) {
+  const sections = domainChoiceSections(definitions, groups);
+  const showGroups = sections.some((section) => section.label);
+  return (
+    <div className="grouped-domain-select">
+      <ListFilter size={13} aria-hidden="true" />
+      <select value={value} aria-label={label} onChange={(event) => onChange(event.target.value)}>
+        {showGroups ? sections.map((section) => (
+          <optgroup label={section.label ?? 'Ungrouped'} key={section.id}>
+            {section.definitions.map((definition) => <option value={definition.id} key={definition.id}>{definition.name || 'Untitled domain'}</option>)}
+          </optgroup>
+        )) : definitions.map((definition) => <option value={definition.id} key={definition.id}>{definition.name || 'Untitled domain'}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function GroupedDomainPickerOptions({
+  definitions,
+  groups,
+  onSelect
+}: {
+  definitions: ValueEnumDefinition[];
+  groups: DataLibraryGroup[];
+  onSelect: (domainId: string) => void;
+}) {
+  const sections = domainChoiceSections(definitions, groups);
+  const showGroups = sections.some((section) => section.label);
+  return <>{sections.map((section) => (
+    <div className="global-domain-picker-section" key={section.id}>
+      {showGroups ? <div className="global-domain-picker-heading"><ListFilter size={11} aria-hidden="true" />{section.label ?? 'Ungrouped'}</div> : null}
+      {section.definitions.map((definition) => (
+        <button type="button" role="menuitem" key={definition.id} onClick={() => onSelect(definition.id)}>
+          <strong>{definition.name || 'Untitled domain'}</strong>
+          <small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small>
+        </button>
+      ))}
+    </div>
+  ))}</>;
+}
+
 function ValueEnumModeControl({
   definitions,
+  groups,
   enumId,
   label,
   onEnumChange,
   onViewDomain
 }: {
   definitions: ValueEnumDefinition[];
+  groups: DataLibraryGroup[];
   enumId?: string;
   label: string;
   onEnumChange: (enumId?: string) => void;
@@ -2468,9 +2561,7 @@ function ValueEnumModeControl({
         <span>Global domain</span>
       </label>
       {selected ? <>
-        <select value={selected.id} aria-label={`Global domain for ${label}`} onChange={(event) => onEnumChange(event.target.value)}>
-          {definitions.map((definition) => <option value={definition.id} key={definition.id}>{definition.name || 'Untitled domain'}</option>)}
-        </select>
+        <GroupedDomainSelect definitions={definitions} groups={groups} value={selected.id} label={`Global domain for ${label}`} onChange={onEnumChange} />
         <ViewDomainButton domainId={selected.id} domainName={selected.name} onView={onViewDomain} />
         <small className="value-enum-mode-summary">{selected.options.length ? selected.options.join(', ') : 'No options defined'}</small>
       </> : definitions.length === 0 ? <small className="value-enum-mode-summary">Create a domain in the Domains tray to enable global mode.</small> : null}
@@ -3671,6 +3762,7 @@ function DataSourceHeader({
     <div className="lookup-enum-options">
       {onEnumChange ? <ValueEnumModeControl
         definitions={config.valueEnums}
+        groups={config.valueEnumGroups}
         enumId={enumId}
         label={label}
         onEnumChange={onEnumChange}
@@ -5067,7 +5159,11 @@ function DataSourceHeader({
                             <div className="global-domain-add-control">
                               <button className="secondary-action tiny" type="button" disabled={config.valueEnums.length === 0} aria-expanded={fieldGroupDomainPickerId === group.id} onClick={() => setFieldGroupDomainPickerId((current) => current === group.id ? undefined : group.id)}><Plus size={11} /> Add global domain</button>
                               {fieldGroupDomainPickerId === group.id ? <div className="global-domain-picker" role="menu">
-                                {config.valueEnums.filter((definition) => !group.dimensions.some((entry) => entry.enumId === definition.id)).map((definition) => <button type="button" role="menuitem" key={definition.id} onClick={() => addFieldGroupEnumDimension(sourceIndex, group.id, definition.id)}><strong>{definition.name || 'Untitled domain'}</strong><small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small></button>)}
+                                <GroupedDomainPickerOptions
+                                  definitions={config.valueEnums.filter((definition) => !group.dimensions.some((entry) => entry.enumId === definition.id))}
+                                  groups={config.valueEnumGroups}
+                                  onSelect={(domainId) => addFieldGroupEnumDimension(sourceIndex, group.id, domainId)}
+                                />
                                 {config.valueEnums.every((definition) => group.dimensions.some((entry) => entry.enumId === definition.id)) ? <span className="empty-option">All global domains are already used.</span> : null}
                               </div> : null}
                             </div>
@@ -7296,8 +7392,42 @@ function KpiDimensionControl({
   onChange: (dimensions: DataSourceFieldDimension[]) => void;
 }) {
   const [domainPickerOpen, setDomainPickerOpen] = useState(false);
-  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => onOpenChange(false));
+  const [domainPickerPosition, setDomainPickerPosition] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number }>();
+  const domainPickerButtonRef = useRef<HTMLButtonElement | null>(null);
+  const domainPickerRef = useRef<HTMLDivElement | null>(null);
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => onOpenChange(false), domainPickerRef);
   const popoverId = `kpi-dimension-popover-${kpi.id}`;
+  useEffect(() => {
+    if (!open) setDomainPickerOpen(false);
+  }, [open]);
+  useLayoutEffect(() => {
+    if (!domainPickerOpen) {
+      setDomainPickerPosition(undefined);
+      return undefined;
+    }
+    const updatePosition = () => {
+      const anchor = domainPickerButtonRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const width = Math.min(310, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+      const spaceBelow = window.innerHeight - rect.bottom - 8;
+      const spaceAbove = rect.top - 8;
+      const opensAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
+      const availableHeight = Math.max(100, (opensAbove ? spaceAbove : spaceBelow) - 4);
+      const maxHeight = Math.min(260, availableHeight);
+      setDomainPickerPosition(opensAbove
+        ? { bottom: window.innerHeight - rect.top + 4, left, width, maxHeight }
+        : { top: rect.bottom + 4, left, width, maxHeight });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [domainPickerOpen]);
   const addDimension = () => {
     const existingNames = new Set(kpi.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase()));
     let name = 'New dimension';
@@ -7374,12 +7504,21 @@ function KpiDimensionControl({
           </div>
           <div className="dimension-add-actions kpi-dimension-add-actions">
             <button className="primary-action tiny" type="button" onClick={() => { setDomainPickerOpen(false); addDimension(); }}><Plus size={11} /> Add custom dimension</button>
-            <div className="global-domain-add-control">
-              <button className="secondary-action tiny" type="button" disabled={config.valueEnums.length === 0} aria-expanded={domainPickerOpen} onClick={() => setDomainPickerOpen((current) => !current)}><Plus size={11} /> Add global domain</button>
-              {domainPickerOpen ? <div className="global-domain-picker" role="menu">
-                {config.valueEnums.filter((definition) => !kpi.dimensions.some((dimension) => dimension.enumId === definition.id)).map((definition) => <button type="button" role="menuitem" key={definition.id} onClick={() => addEnumDimension(definition.id)}><strong>{definition.name || 'Untitled domain'}</strong><small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small></button>)}
+            <div className="global-domain-add-control global-domain-dropdown-wrapper">
+              <button ref={domainPickerButtonRef} className="secondary-action tiny" type="button" disabled={config.valueEnums.length === 0} aria-expanded={domainPickerOpen} onClick={() => setDomainPickerOpen((current) => !current)}><Plus size={11} /> Add global domain</button>
+              {domainPickerOpen && domainPickerPosition ? createPortal(<div
+                className="global-domain-picker is-floating"
+                ref={domainPickerRef}
+                role="menu"
+                style={domainPickerPosition}
+              >
+                <GroupedDomainPickerOptions
+                  definitions={config.valueEnums.filter((definition) => !kpi.dimensions.some((dimension) => dimension.enumId === definition.id))}
+                  groups={config.valueEnumGroups}
+                  onSelect={addEnumDimension}
+                />
                 {config.valueEnums.every((definition) => kpi.dimensions.some((dimension) => dimension.enumId === definition.id)) ? <span className="empty-option">All global domains are already used.</span> : null}
-              </div> : null}
+              </div>, document.body) : null}
             </div>
           </div>
         </div>

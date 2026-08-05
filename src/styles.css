@@ -918,7 +918,7 @@ h1 {
 .value-enum-row {
   display: grid;
   grid-template-columns: 26px minmax(130px, 0.55fr) minmax(260px, 1.45fr) 56px;
-  align-items: end;
+  align-items: start;
   gap: 6px;
   border: 1px solid #cfe0d9;
   border-radius: 6px;
@@ -1003,12 +1003,37 @@ h1 {
   opacity: 0.55;
 }
 
-.value-enum-mode-control > select {
+.grouped-domain-select {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #b9cbc4;
+  border-radius: 6px;
+  background: #f7fbf9;
+  color: #4a7767;
+}
+
+.grouped-domain-select > svg {
+  justify-self: center;
+}
+
+.grouped-domain-select > select {
   min-width: 0;
   min-height: 29px;
+  border: 0;
+  border-left: 1px solid #d7e3de;
+  border-radius: 0;
+  background: #fff;
   padding: 4px 7px;
   font-size: 11px;
   font-weight: 700;
+}
+
+.grouped-domain-select > select:focus {
+  outline: 2px solid rgba(74, 126, 109, 0.32);
+  outline-offset: -2px;
 }
 
 .value-enum-mode-summary {
@@ -2545,7 +2570,37 @@ h1 {
   padding: 5px;
 }
 
-.global-domain-picker > button {
+.global-domain-picker.is-floating {
+  position: fixed;
+  z-index: 100;
+  top: auto;
+  left: auto;
+}
+
+.global-domain-picker-section {
+  display: grid;
+  gap: 2px;
+}
+
+.global-domain-picker-section + .global-domain-picker-section {
+  border-top: 1px solid #e0e9e5;
+  margin-top: 3px;
+  padding-top: 4px;
+}
+
+.global-domain-picker-heading {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px 2px;
+  color: #668076;
+  font-size: 9px;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.global-domain-picker-section > button {
   display: grid;
   gap: 2px;
   border: 0;
@@ -2556,15 +2611,16 @@ h1 {
   text-align: left;
 }
 
-.global-domain-picker > button:hover {
+.global-domain-picker-section > button:hover,
+.global-domain-picker-section > button:focus-visible {
   background: #edf6f2;
 }
 
-.global-domain-picker > button strong {
+.global-domain-picker-section > button strong {
   font-size: 11px;
 }
 
-.global-domain-picker > button small {
+.global-domain-picker-section > button small {
   overflow: hidden;
   color: #6c7772;
   font-size: 9px;
