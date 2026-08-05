@@ -3932,7 +3932,13 @@ function DataSourceHeader({
           <label className="lookup-summary-title" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
             <span>Lookup Name</span>
             <span className="lookup-summary-title-main">
-              <input value={lookup.outputName} placeholder="Untitled lookup" aria-label="Lookup Name" onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })} />
+              <input
+                value={lookup.outputName}
+                size={Math.min(36, Math.max(12, lookup.outputName.length || 'Untitled lookup'.length))}
+                placeholder="Untitled lookup"
+                aria-label="Lookup Name"
+                onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })}
+              />
               <small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small>
             </span>
           </label>
