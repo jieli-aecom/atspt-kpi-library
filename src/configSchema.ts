@@ -5,9 +5,11 @@ import {
   type EnumCategoryKey,
   type EnumDefinitions,
   type EnumOption,
+  type ValueEnumDefinition,
   type DataSource,
   type DataSourceField,
   type DataSourceFieldDimension,
+  dataSourceCollectionItemTypes,
   dataSourceFieldTypes,
   type DataSourceFieldType,
   type DataSourceFieldGroup,
@@ -72,8 +74,10 @@ const dataSourceFieldSchema = z.object({
   name: z.string(),
   meaning: z.string(),
   dataType: z.enum(dataSourceFieldTypes),
+  collectionItemType: z.enum(dataSourceCollectionItemTypes).optional(),
   valueUnit: z.string(),
   options: z.array(z.string()),
+  enumId: z.string().min(1).optional(),
   generatedRelationId: z.string().min(1).optional(),
   generatedRelationRole: z.enum(['oneCollection', 'manyForeignKey', 'sourceCollection', 'targetCollection']).optional()
 });
@@ -81,7 +85,8 @@ const dataSourceFieldSchema = z.object({
 const dataSourceFieldDimensionSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
-  options: z.array(z.string())
+  options: z.array(z.string()),
+  enumId: z.string().min(1).optional()
 });
 
 const dataSourceSchema = z.object({
@@ -113,13 +118,15 @@ const lookupSchema = z.object({
   outputExplanation: z.string(),
   outputValueType: z.enum(lookupValueTypes),
   outputOptions: z.array(z.string()),
+  outputEnumId: z.string().min(1).optional(),
   text: z.string(),
   inputs: z.array(z.object({
     id: z.string().min(1),
     representation: z.string(),
     explanation: z.string(),
     valueType: z.enum(lookupValueTypes),
-    options: z.array(z.string())
+    options: z.array(z.string()),
+    enumId: z.string().min(1).optional()
   }))
 });
 
@@ -128,6 +135,12 @@ const variableSchema = z.object({
   name: z.string(),
   explanation: z.string(),
   unit: z.string()
+});
+
+const valueEnumSchema = z.object({
+  id: z.string().min(1),
+  name: z.string(),
+  options: z.array(z.string())
 });
 
 const dataLibraryGroupSchema = z.object({
@@ -242,6 +255,8 @@ export const kpiPoolConfigSchema = z.object({
     performanceArea: z.array(enumOptionSchema),
     useCase: z.array(enumOptionSchema)
   }),
+  valueEnums: z.array(valueEnumSchema),
+  valueEnumGroups: z.array(dataLibraryGroupSchema),
   dataSources: z.array(dataSourceSchema),
   tableRelations: z.array(tableRelationSchema),
   lookups: z.array(lookupSchema),
@@ -314,7 +329,8 @@ const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
     isRecord(dimension) &&
     typeof dimension.id === 'string' &&
     typeof dimension.name === 'string' &&
-    isStringArray(dimension.options)
+    isStringArray(dimension.options) &&
+    (dimension.enumId === undefined || typeof dimension.enumId === 'string')
   ) &&
   Array.isArray(value.sources) &&
   value.sources.every(
@@ -367,6 +383,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     typeof input.title !== 'string' ||
     (input.updatedAt !== undefined && typeof input.updatedAt !== 'string') ||
     !isRecord(input.enums) ||
+    !Array.isArray(input.valueEnums) ||
+    !Array.isArray(input.valueEnumGroups) ||
     !Array.isArray(input.dataSources) ||
     !Array.isArray(input.tableRelations) ||
     !Array.isArray(input.lookups) ||
@@ -404,7 +422,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
               isRecord(dimension) &&
               typeof dimension.id === 'string' &&
               typeof dimension.name === 'string' &&
-              isStringArray(dimension.options)
+              isStringArray(dimension.options) &&
+              (dimension.enumId === undefined || typeof dimension.enumId === 'string')
             ) &&
             isStringArray(group.fieldIds) &&
             typeof group.position === 'number' &&
@@ -419,9 +438,16 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
             typeof field.name === 'string' &&
             typeof field.meaning === 'string' &&
             dataSourceFieldTypes.some((type) => type === field.dataType) &&
+            (field.dataType === 'collection'
+              ? dataSourceCollectionItemTypes.some((type) => type === field.collectionItemType)
+              : field.collectionItemType === undefined) &&
             typeof field.valueUnit === 'string' &&
             isStringArray(field.options) &&
-            (field.dataType === 'number' || !field.valueUnit) &&
+            (field.enumId === undefined || (
+              typeof field.enumId === 'string' &&
+              (field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum'))
+            )) &&
+            (field.dataType === 'number' || (field.dataType === 'collection' && field.collectionItemType === 'number') || !field.valueUnit) &&
             (field.generatedRelationId === undefined || typeof field.generatedRelationId === 'string') &&
             (field.generatedRelationRole === undefined ||
               field.generatedRelationRole === 'oneCollection' ||
@@ -442,6 +468,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       typeof lookup.outputExplanation === 'string' &&
       lookupValueTypes.some((valueType) => valueType === lookup.outputValueType) &&
       isStringArray(lookup.outputOptions) &&
+      (lookup.outputEnumId === undefined || typeof lookup.outputEnumId === 'string') &&
       typeof lookup.text === 'string' &&
       Array.isArray(lookup.inputs) &&
       lookup.inputs.every((entry) =>
@@ -450,7 +477,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
         typeof entry.representation === 'string' &&
         typeof entry.explanation === 'string' &&
         lookupValueTypes.some((valueType) => valueType === entry.valueType) &&
-        isStringArray(entry.options)
+        isStringArray(entry.options) &&
+        (entry.enumId === undefined || typeof entry.enumId === 'string')
       )
     )
   ) {
@@ -468,6 +496,27 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   ) {
     return false;
   }
+  const currentValueEnums = input.valueEnums as unknown[];
+  if (!currentValueEnums.every((valueEnum) =>
+    isRecord(valueEnum) &&
+    typeof valueEnum.id === 'string' &&
+    typeof valueEnum.name === 'string' &&
+    isStringArray(valueEnum.options)
+  )) {
+    return false;
+  }
+  const typedValueEnums = input.valueEnums as ValueEnumDefinition[];
+  if (hasDuplicate(typedValueEnums.map((valueEnum) => valueEnum.id))) return false;
+  const validValueEnumIds = new Set(typedValueEnums.map((valueEnum) => valueEnum.id));
+  const valueEnumById = new Map(typedValueEnums.map((valueEnum) => [valueEnum.id, valueEnum]));
+  const currentValueEnumGroups = input.valueEnumGroups as DataLibraryGroup[];
+  const groupedValueEnumIds = currentValueEnumGroups.flatMap((group) => group.itemIds);
+  if (
+    !currentValueEnumGroups.every((group) => isCurrentDataLibraryGroup(group, typedValueEnums.length)) ||
+    hasDuplicate(currentValueEnumGroups.map((group) => group.id)) ||
+    hasDuplicate(groupedValueEnumIds) ||
+    currentValueEnumGroups.some((group) => !group.itemIds.every((id) => validValueEnumIds.has(id)))
+  ) return false;
   const enumIdSets = Object.fromEntries(
     enumCategoryKeys.map((category) => [category, new Set(typedEnums[category].map((option) => option.id))])
   ) as Record<EnumCategoryKey, Set<string>>;
@@ -546,6 +595,11 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       const fieldIds = new Set(source.fields.map((field) => field.id));
       const groupedFieldIds = source.fieldGroups.flatMap((group) => group.fieldIds);
       return hasDuplicate(source.fields.map((field) => field.id)) ||
+        source.fields.some((field) => field.enumId !== undefined && (
+          !validValueEnumIds.has(field.enumId) ||
+          (field.dataType === 'enum' && field.name !== valueEnumById.get(field.enumId)?.name) ||
+          JSON.stringify(field.options) !== JSON.stringify(valueEnumById.get(field.enumId)?.options)
+        )) ||
         (source.primaryKeyFieldId !== undefined && (
           !fieldIds.has(source.primaryKeyFieldId) ||
           groupedFieldIds.includes(source.primaryKeyFieldId) ||
@@ -556,7 +610,11 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
         source.fieldGroups.some((group) =>
           !group.fieldIds.every((fieldId) => fieldIds.has(fieldId)) ||
           hasDuplicate(group.dimensions.map((dimension) => dimension.id)) ||
-          hasDuplicate(group.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase())) ||
+          group.dimensions.some((dimension) => dimension.enumId !== undefined && (
+            !validValueEnumIds.has(dimension.enumId) ||
+            dimension.name !== valueEnumById.get(dimension.enumId)?.name ||
+            JSON.stringify(dimension.options) !== JSON.stringify(valueEnumById.get(dimension.enumId)?.options)
+          )) ||
           group.dimensions.some((dimension) => hasDuplicate(dimension.options.map((option) => option.toLocaleLowerCase())))
         );
     })
@@ -609,7 +667,11 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   return input.kpis.every((kpi) => {
     if (
       hasDuplicate(kpi.dimensions.map((dimension) => dimension.id)) ||
-      hasDuplicate(kpi.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase())) ||
+      kpi.dimensions.some((dimension) => dimension.enumId !== undefined && (
+        !validValueEnumIds.has(dimension.enumId) ||
+        dimension.name !== valueEnumById.get(dimension.enumId)?.name ||
+        JSON.stringify(dimension.options) !== JSON.stringify(valueEnumById.get(dimension.enumId)?.options)
+      )) ||
       kpi.dimensions.some((dimension) => hasDuplicate(dimension.options.map((option) => option.toLocaleLowerCase())))
     ) {
       return false;
@@ -635,6 +697,18 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
             : source.type === 'variable'
               ? validVariables.has(source.variableId)
             : true
+      ) &&
+      currentLookups.every((lookup) =>
+        (lookup.outputEnumId === undefined || (
+          validValueEnumIds.has(lookup.outputEnumId) &&
+          lookup.outputName === valueEnumById.get(lookup.outputEnumId)?.name &&
+          JSON.stringify(lookup.outputOptions) === JSON.stringify(valueEnumById.get(lookup.outputEnumId)?.options)
+        )) &&
+        lookup.inputs.every((entry) => entry.enumId === undefined || (
+          validValueEnumIds.has(entry.enumId) &&
+          entry.representation === valueEnumById.get(entry.enumId)?.name &&
+          JSON.stringify(entry.options) === JSON.stringify(valueEnumById.get(entry.enumId)?.options)
+        ))
       ) &&
       kpi.prerequisite.modules.every((id) => enumIdSets.prerequisiteModule.has(id)) &&
       kpi.prerequisite.kpis.every((id) => id !== kpi.id && validKpis.has(id)) &&
@@ -759,7 +833,7 @@ const ensureUniqueId = (rawId: unknown, prefix: string, usedIds: Set<string>, wa
 const repairEnums = (rawConfig: Record<string, unknown>, warnings: string[]): EnumDefinitions => {
   const rawEnums = isRecord(rawConfig.enums) ? rawConfig.enums : {};
   if (!isRecord(rawConfig.enums)) {
-    warnings.push('Missing or invalid enums object; initialized empty enum definitions.');
+    warnings.push('Missing or invalid domains object; initialized empty domain definitions.');
   }
 
   const enums = {} as EnumDefinitions;
@@ -768,7 +842,7 @@ const repairEnums = (rawConfig: Record<string, unknown>, warnings: string[]): En
     const rawOptions = readCategory(rawEnums, category);
     const options = Array.isArray(rawOptions) ? rawOptions : [];
     if (!Array.isArray(rawOptions)) {
-      warnings.push(`Missing enum category ${category}; initialized it as an empty list.`);
+      warnings.push(`Missing domain category ${category}; initialized it as an empty list.`);
     }
 
     const usedIds = new Set<string>();
@@ -848,7 +922,7 @@ const repairEnumReferences = (
     if (matchedId) {
       repaired.add(matchedId);
     } else {
-      warnings.push(`${kpiName}: ${category} reference "${reference}" did not match an enum option and was removed.`);
+      warnings.push(`${kpiName}: ${category} reference "${reference}" did not match a domain option and was removed.`);
     }
   }
 
@@ -889,7 +963,7 @@ const repairPerformanceAreaReferencesForUseCase = (
       repaired.add(matched.id);
     } else {
       warnings.push(
-        `${kpiName}: performanceArea reference "${reference}" did not match an enum option for this use case and was removed.`
+        `${kpiName}: performanceArea reference "${reference}" did not match a domain option for this use case and was removed.`
       );
     }
   }
@@ -923,7 +997,7 @@ const ensureEnumOptionByLabel = (
   }
 
   enums[category] = [...enums[category], { id, label }];
-  warnings.push(`${context}: added ${category} enum option "${label}".`);
+  warnings.push(`${context}: added ${category} domain option "${label}".`);
   return id;
 };
 
@@ -964,7 +1038,7 @@ const repairPrerequisiteModules = (
         : [stringValue(rawValue).trim()].filter(Boolean);
 
   if (rawValue !== undefined && rawValue !== null && !Array.isArray(rawValue) && typeof rawValue !== 'string') {
-    warnings.push(`${kpiName}: prerequisite module was not a list or string; converted it to text before matching enum options.`);
+    warnings.push(`${kpiName}: prerequisite module was not a list or string; converted it to text before matching domain options.`);
   }
 
   const repaired = new Set<string>();
@@ -1012,7 +1086,7 @@ const repairUserGroupReferences = (
         : [rawValue];
 
   if (rawValue !== undefined && rawValue !== null && !Array.isArray(rawValue) && typeof rawValue !== 'string') {
-    warnings.push(`${kpiName}: userGroup was not a list or string; converted it to text before matching enum options.`);
+    warnings.push(`${kpiName}: userGroup was not a list or string; converted it to text before matching domain options.`);
   }
 
   const lookup = enumLabelLookup(enums, 'userGroup');
@@ -1027,7 +1101,7 @@ const repairUserGroupReferences = (
     if (matchedId) {
       repaired.add(matchedId);
     } else {
-      warnings.push(`${kpiName}: userGroup reference "${reference}" did not match an enum option and was removed.`);
+      warnings.push(`${kpiName}: userGroup reference "${reference}" did not match a domain option and was removed.`);
     }
   }
 
@@ -1527,7 +1601,7 @@ const repairPerformanceAreaOwnership = (
   const scopedIdFor = (performanceAreaId: string, useCase: string, kpiName: string) => {
     const option = optionById.get(performanceAreaId);
     if (!option) {
-      warnings.push(`${kpiName}: performanceArea reference "${performanceAreaId}" did not match an enum option and was removed.`);
+      warnings.push(`${kpiName}: performanceArea reference "${performanceAreaId}" did not match a domain option and was removed.`);
       return undefined;
     }
 
@@ -1870,7 +1944,7 @@ const normalizeDataSourceFieldType = (value: unknown, legacyUnit: string): DataS
   return legacyUnit.trim() ? 'number' : 'text';
 };
 
-const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] => {
+const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[], warnings: string[]): DataSource[] => {
   if (rawValue == null) {
     return [];
   }
@@ -1880,6 +1954,7 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
   }
 
   const usedSourceIds = new Set<string>();
+  const valueEnumById = new Map(valueEnums.map((definition) => [definition.id, definition]));
   return rawValue.flatMap((rawSource, sourceIndex) => {
     if (!isRecord(rawSource)) {
       warnings.push(`Data source ${sourceIndex + 1} was not readable and was removed.`);
@@ -1914,13 +1989,25 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
         rawField.generatedRelationRole === 'targetCollection'
         ? rawField.generatedRelationRole
         : undefined;
+      const enumId = stringValue(rawField.enumId).trim();
+      const valueEnum = valueEnumById.get(enumId);
+      const rawCollectionItemType = stringValue(rawField.collectionItemType);
+      const collectionItemType = dataType === 'collection'
+        ? dataSourceCollectionItemTypes.find((type) => type === rawCollectionItemType) ??
+          (valueEnum ? 'enum' : generatedRelationRole ? 'id' : 'number')
+        : undefined;
+      const applicableValueEnum = dataType === 'enum' || (dataType === 'collection' && collectionItemType === 'enum')
+        ? valueEnum
+        : undefined;
       return [{
         id: ensureUniqueId(rawField.id, 'field', usedFieldIds, warnings, `${name}: field "${fieldName}"`),
-        name: fieldName,
+        name: dataType === 'enum' ? applicableValueEnum?.name ?? fieldName : fieldName,
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
         dataType,
-        valueUnit: dataType === 'number' ? legacyUnit : '',
-        options,
+        ...(collectionItemType ? { collectionItemType } : {}),
+        valueUnit: dataType === 'number' || (dataType === 'collection' && collectionItemType === 'number') ? legacyUnit : '',
+        options: applicableValueEnum ? [...applicableValueEnum.options] : options,
+        ...(applicableValueEnum ? { enumId } : {}),
         ...(generatedRelationId ? { generatedRelationId } : {}),
         ...(generatedRelationRole ? { generatedRelationRole } : {})
       }];
@@ -1947,7 +2034,9 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
       const seenDimensionNames = new Set<string>();
       const dimensions = rawDimensions.flatMap((rawDimension, dimensionIndex) => {
         const dimensionRecord = isRecord(rawDimension) ? rawDimension : undefined;
-        const dimensionName = stringValue(
+        const enumId = stringValue(dimensionRecord?.enumId).trim();
+        const valueEnum = valueEnumById.get(enumId);
+        const dimensionName = valueEnum?.name ?? stringValue(
           dimensionRecord?.name ?? dimensionRecord?.dimensionName ?? dimensionRecord?.label ?? rawDimension
         ).trim();
         const normalizedName = dimensionName.toLocaleLowerCase();
@@ -1971,8 +2060,9 @@ const repairDataSources = (rawValue: unknown, warnings: string[]): DataSource[] 
             warnings,
             `${name}: field group ${groupIndex + 1}, dimension ${dimensionIndex + 1}`
           ),
-          name: dimensionName,
-          options
+          name: valueEnum?.name ?? dimensionName,
+          options: valueEnum ? [...valueEnum.options] : options,
+          ...(valueEnum ? { enumId } : {})
         }];
       });
       return [{
@@ -2076,18 +2166,18 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
       seenGeneratedRoles.add(generatedKey);
       if (relation.cardinality === 'oneToMany') {
         if (field.generatedRelationRole === 'oneCollection' && relation.sourceDataSourceId === source.id) {
-          return [{ ...field, dataType: 'collection', valueUnit: '' }];
+          return [{ ...field, dataType: 'collection', collectionItemType: 'id', valueUnit: '', enumId: undefined, options: [] }];
         }
         if (field.generatedRelationRole === 'manyForeignKey' && relation.targetDataSourceId === source.id) {
-          return [{ ...field, dataType: 'id', valueUnit: '' }];
+          return [{ ...field, dataType: 'id', collectionItemType: undefined, valueUnit: '', enumId: undefined, options: [] }];
         }
       }
       if (relation.cardinality === 'manyToMany') {
         if (field.generatedRelationRole === 'sourceCollection' && relation.sourceDataSourceId === source.id) {
-          return [{ ...field, dataType: 'collection', valueUnit: '' }];
+          return [{ ...field, dataType: 'collection', collectionItemType: 'id', valueUnit: '', enumId: undefined, options: [] }];
         }
         if (field.generatedRelationRole === 'targetCollection' && relation.targetDataSourceId === source.id) {
-          return [{ ...field, dataType: 'collection', valueUnit: '' }];
+          return [{ ...field, dataType: 'collection', collectionItemType: 'id', valueUnit: '', enumId: undefined, options: [] }];
         }
       }
       return [];
@@ -2104,6 +2194,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           name: collectionRelationFieldName(targetPrimaryKey?.name || fallbackRelationKeyName(target)),
           meaning: `Related ${target?.name ?? 'table'} record IDs`,
           dataType: 'collection',
+          collectionItemType: 'id',
           valueUnit: '',
           options: [],
           generatedRelationId: relation.id,
@@ -2128,6 +2219,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           name: collectionRelationFieldName(targetPrimaryKey?.name || fallbackRelationKeyName(target)),
           meaning: `Related ${target?.name ?? 'table'} record IDs`,
           dataType: 'collection',
+          collectionItemType: 'id',
           valueUnit: '',
           options: [],
           generatedRelationId: relation.id,
@@ -2140,6 +2232,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           name: collectionRelationFieldName(sourcePrimaryKey?.name || fallbackRelationKeyName(relationSource)),
           meaning: `Related ${relationSource?.name ?? 'table'} record IDs`,
           dataType: 'collection',
+          collectionItemType: 'id',
           valueUnit: '',
           options: [],
           generatedRelationId: relation.id,
@@ -2156,13 +2249,14 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
   });
 };
 
-const repairLookups = (rawValue: unknown, warnings: string[]): LookupDefinition[] => {
+const repairLookups = (rawValue: unknown, valueEnums: ValueEnumDefinition[], warnings: string[]): LookupDefinition[] => {
   if (rawValue == null) return [];
   if (!Array.isArray(rawValue)) {
     warnings.push('Lookups were not a list and were initialized empty.');
     return [];
   }
   const usedLookupIds = new Set<string>();
+  const validValueEnumIds = new Set(valueEnums.map((definition) => definition.id));
   return rawValue.flatMap((rawLookup, lookupIndex): LookupDefinition[] => {
     if (!isRecord(rawLookup)) {
       warnings.push(`Lookup ${lookupIndex + 1} was not readable and was removed.`);
@@ -2180,18 +2274,23 @@ const repairLookups = (rawValue: unknown, warnings: string[]): LookupDefinition[
       if (!isRecord(rawInput)) return [];
       return [{
         id: ensureUniqueId(rawInput.id, 'lookup-input', usedInputIds, warnings, `${outputName}: input ${inputIndex + 1}`),
-        representation: stringValue(rawInput.representation ?? rawInput.name ?? rawInput.variable),
+        representation: valueEnums.find((definition) => definition.id === stringValue(rawInput.enumId).trim())?.name ?? stringValue(rawInput.representation ?? rawInput.name ?? rawInput.variable),
         explanation: stringValue(rawInput.explanation ?? rawInput.description),
         valueType: repairValueType(rawInput.valueType ?? rawInput.dataType ?? rawInput.type),
-        options: repairOptions(rawInput.options ?? rawInput.enumOptions)
+        options: (() => {
+          const enumId = stringValue(rawInput.enumId).trim();
+          return valueEnums.find((definition) => definition.id === enumId)?.options.slice() ?? repairOptions(rawInput.options ?? rawInput.enumOptions);
+        })(),
+        ...(validValueEnumIds.has(stringValue(rawInput.enumId).trim()) ? { enumId: stringValue(rawInput.enumId).trim() } : {})
       }];
     });
     return [{
       id,
-      outputName,
+      outputName: valueEnums.find((definition) => definition.id === stringValue(rawLookup.outputEnumId).trim())?.name ?? outputName,
       outputExplanation: stringValue(rawLookup.outputExplanation ?? rawLookup.explanation ?? rawLookup.description),
       outputValueType: repairValueType(rawLookup.outputValueType ?? rawLookup.outputType),
-      outputOptions: repairOptions(rawLookup.outputOptions ?? rawLookup.enumOptions),
+      outputOptions: valueEnums.find((definition) => definition.id === stringValue(rawLookup.outputEnumId).trim())?.options.slice() ?? repairOptions(rawLookup.outputOptions ?? rawLookup.enumOptions),
+      ...(validValueEnumIds.has(stringValue(rawLookup.outputEnumId).trim()) ? { outputEnumId: stringValue(rawLookup.outputEnumId).trim() } : {}),
       text: stringValue(rawLookup.text ?? rawLookup.lookupText ?? rawLookup.longDescription),
       inputs
     }];
@@ -2220,15 +2319,43 @@ const repairVariables = (rawValue: unknown, warnings: string[]): VariableDefinit
   });
 };
 
+const repairValueEnums = (rawValue: unknown, warnings: string[]): ValueEnumDefinition[] => {
+  if (rawValue == null) return [];
+  if (!Array.isArray(rawValue)) {
+    warnings.push('Global domains were not a list and were initialized empty.');
+    return [];
+  }
+  const usedIds = new Set<string>();
+  return rawValue.flatMap((rawEnum, enumIndex): ValueEnumDefinition[] => {
+    if (!isRecord(rawEnum)) return [];
+    const name = stringValue(rawEnum.name ?? rawEnum.label).trim() || `Domain ${enumIndex + 1}`;
+    const seenOptions = new Set<string>();
+    const rawOptions = rawEnum.options ?? rawEnum.values;
+    const options = (Array.isArray(rawOptions) ? rawOptions : stringValue(rawOptions).split(','))
+      .map((option) => stringValue(option).trim())
+      .filter((option) => {
+        const normalizedOption = option.toLocaleLowerCase();
+        if (!option || seenOptions.has(normalizedOption)) return false;
+        seenOptions.add(normalizedOption);
+        return true;
+      });
+    return [{
+      id: ensureUniqueId(rawEnum.id, 'value-enum', usedIds, warnings, `Global domain "${name}"`),
+      name,
+      options
+    }];
+  });
+};
+
 const repairDataLibraryGroups = (
   rawValue: unknown,
   items: readonly { id: string }[],
-  collectionName: 'lookup' | 'variable',
+  collectionName: 'lookup' | 'variable' | 'enum',
   warnings: string[]
 ): DataLibraryGroup[] => {
   if (rawValue == null) return [];
   if (!Array.isArray(rawValue)) {
-    warnings.push(`${collectionName === 'lookup' ? 'Lookup' : 'Variable'} groups were not a list and were initialized empty.`);
+    warnings.push(`${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Variable' : 'Domain'} groups were not a list and were initialized empty.`);
     return [];
   }
   const usedGroupIds = new Set<string>();
@@ -2237,7 +2364,7 @@ const repairDataLibraryGroups = (
   return rawValue.flatMap((rawGroup, groupIndex): DataLibraryGroup[] => {
     if (!isRecord(rawGroup)) return [];
     const rawItemIds = rawGroup.itemIds ??
-      (collectionName === 'lookup' ? rawGroup.lookupIds : rawGroup.variableIds);
+      (collectionName === 'lookup' ? rawGroup.lookupIds : collectionName === 'variable' ? rawGroup.variableIds : rawGroup.enumIds);
     const itemIds = (Array.isArray(rawItemIds) ? rawItemIds : [])
       .map((id) => stringValue(id).trim())
       .filter((id) => {
@@ -2252,7 +2379,7 @@ const repairDataLibraryGroups = (
         `${collectionName}-group`,
         usedGroupIds,
         warnings,
-        `${collectionName === 'lookup' ? 'Lookup' : 'Variable'} group ${groupIndex + 1}`
+        `${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Variable' : 'Domain'} group ${groupIndex + 1}`
       ),
       name: stringValue(rawGroup.name ?? rawGroup.label).trim() || `Group ${groupIndex + 1}`,
       itemIds,
@@ -2320,7 +2447,7 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
   });
 };
 
-const repairKpiDimensions = (rawValue: unknown, warnings: string[], kpiName: string): DataSourceFieldDimension[] => {
+const repairKpiDimensions = (rawValue: unknown, valueEnums: ValueEnumDefinition[], warnings: string[], kpiName: string): DataSourceFieldDimension[] => {
   if (rawValue == null) return [];
   if (!Array.isArray(rawValue)) {
     warnings.push(`${kpiName}: dimensions were not a list and were initialized empty.`);
@@ -2328,10 +2455,13 @@ const repairKpiDimensions = (rawValue: unknown, warnings: string[], kpiName: str
   }
 
   const usedIds = new Set<string>();
+  const valueEnumById = new Map(valueEnums.map((definition) => [definition.id, definition]));
   const seenNames = new Set<string>();
   return rawValue.flatMap((rawDimension, index): DataSourceFieldDimension[] => {
     const record = isRecord(rawDimension) ? rawDimension : undefined;
-    const name = stringValue(record?.name ?? record?.label ?? rawDimension).trim();
+    const enumId = stringValue(record?.enumId).trim();
+    const valueEnum = valueEnumById.get(enumId);
+    const name = valueEnum?.name ?? stringValue(record?.name ?? record?.label ?? rawDimension).trim();
     const normalizedName = name.toLocaleLowerCase();
     if (!name || seenNames.has(normalizedName)) return [];
     seenNames.add(normalizedName);
@@ -2349,8 +2479,9 @@ const repairKpiDimensions = (rawValue: unknown, warnings: string[], kpiName: str
 
     return [{
       id: ensureUniqueId(record?.id, 'kpi-dimension', usedIds, warnings, `${kpiName}: dimension ${index + 1}`),
-      name,
-      options
+      name: valueEnum?.name ?? name,
+      options: valueEnum ? [...valueEnum.options] : options,
+      ...(valueEnum ? { enumId } : {})
     }];
   });
 };
@@ -2367,6 +2498,8 @@ export const createBlankConfig = (): KpiPoolConfig => ({
     performanceArea: [],
     useCase: []
   },
+  valueEnums: [],
+  valueEnumGroups: [],
   dataSources: [],
   tableRelations: [],
   lookups: [],
@@ -2454,10 +2587,12 @@ export const repairConfig = (input: unknown): RepairResult => {
   const legacyPerformanceAreas = isLegacyPerformanceAreaSchema(rawConfig);
 
   const enums = repairEnums(rawConfig, warnings);
-  const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, warnings);
+  const valueEnums = repairValueEnums(rawConfig.valueEnums ?? rawConfig.reusableEnums, warnings);
+  const valueEnumGroups = repairDataLibraryGroups(rawConfig.valueEnumGroups ?? rawConfig.enumGroups, valueEnums, 'enum', warnings);
+  const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, valueEnums, warnings);
   const tableRelations = repairTableRelations(rawConfig.tableRelations ?? rawConfig.relations, repairedDataSources, warnings);
   const dataSources = reconcileRelationFields(repairedDataSources, tableRelations);
-  const lookups = repairLookups(rawConfig.lookups, warnings);
+  const lookups = repairLookups(rawConfig.lookups, valueEnums, warnings);
   const lookupGroups = repairDataLibraryGroups(rawConfig.lookupGroups, lookups, 'lookup', warnings);
   const variables = repairVariables(rawConfig.variables, warnings);
   const variableGroups = repairDataLibraryGroups(rawConfig.variableGroups, variables, 'variable', warnings);
@@ -2488,7 +2623,7 @@ export const repairConfig = (input: unknown): RepairResult => {
         return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : importTimestamp;
       })(),
       name,
-      dimensions: repairKpiDimensions(record.dimensions, warnings, name),
+      dimensions: repairKpiDimensions(record.dimensions, valueEnums, warnings, name),
       sources: repairKpiSources(record.sources ?? record.source ?? record.Source, warnings, name),
       description: {
         overview: stringValue(description.overview ?? description.Overview),
@@ -2677,6 +2812,8 @@ export const repairConfig = (input: unknown): RepairResult => {
     updatedAt: stringValue(rawConfig.updatedAt) || new Date().toISOString(),
     defaultFocus,
     enums: scopedEnums,
+    valueEnums,
+    valueEnumGroups,
     dataSources,
     tableRelations,
     lookups,

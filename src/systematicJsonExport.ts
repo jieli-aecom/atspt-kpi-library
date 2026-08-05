@@ -8,7 +8,8 @@ import {
 const unique = (values: string[]) => [...new Set(values)];
 
 export const buildSystematicJsonExport = (config: KpiPoolConfig, kpis: readonly KpiMetric[]) => ({
-  'Enum Definitions': {
+  'Domain Definitions': {
+    'Global Domains': config.valueEnums,
     'Spatial Scales': spatialScaleKeys.map((id) => ({ id, label: spatialScaleLabels[id] })),
     'Performance Areas': config.enums.performanceArea,
     'User Group': config.enums.userGroup,

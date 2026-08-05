@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 31 as const;
+export const CURRENT_SCHEMA_VERSION = 33 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -38,6 +38,12 @@ export type EnumOption = {
 };
 
 export type EnumDefinitions = Record<EnumCategoryKey, EnumOption[]>;
+
+export type ValueEnumDefinition = {
+  id: string;
+  name: string;
+  options: string[];
+};
 
 export type KpiFormulaTerm = {
   term: string;
@@ -58,19 +64,24 @@ export type DataSourceField = {
   name: string;
   meaning: string;
   dataType: DataSourceFieldType;
+  collectionItemType?: DataSourceCollectionItemType;
   valueUnit: string;
   options: string[];
+  enumId?: string;
   generatedRelationId?: string;
   generatedRelationRole?: 'oneCollection' | 'manyForeignKey' | 'sourceCollection' | 'targetCollection';
 };
 
 export const dataSourceFieldTypes = ['id', 'number', 'boolean', 'text', 'enum', 'collection'] as const;
 export type DataSourceFieldType = (typeof dataSourceFieldTypes)[number];
+export const dataSourceCollectionItemTypes = ['number', 'enum', 'id', 'boolean', 'text'] as const;
+export type DataSourceCollectionItemType = (typeof dataSourceCollectionItemTypes)[number];
 
 export type DataSourceFieldDimension = {
   id: string;
   name: string;
   options: string[];
+  enumId?: string;
 };
 
 export type DataSourceFieldGroup = {
@@ -105,6 +116,7 @@ export type LookupInput = {
   explanation: string;
   valueType: LookupValueType;
   options: string[];
+  enumId?: string;
 };
 
 export type LookupDefinition = {
@@ -113,6 +125,7 @@ export type LookupDefinition = {
   outputExplanation: string;
   outputValueType: LookupValueType;
   outputOptions: string[];
+  outputEnumId?: string;
   text: string;
   inputs: LookupInput[];
 };
@@ -238,6 +251,8 @@ export type KpiPoolConfig = {
   updatedAt?: string;
   defaultFocus?: KpiDefaultFocus;
   enums: EnumDefinitions;
+  valueEnums: ValueEnumDefinition[];
+  valueEnumGroups: DataLibraryGroup[];
   dataSources: DataSource[];
   tableRelations: TableRelation[];
   lookups: LookupDefinition[];

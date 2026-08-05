@@ -60,8 +60,11 @@ import {
   genericSpatialUnits,
   type EnumOption,
   type EnumCategoryKey,
+  type ValueEnumDefinition,
   type DataSource,
   type DataSourceField,
+  dataSourceCollectionItemTypes,
+  type DataSourceCollectionItemType,
   dataSourceFieldTypes,
   type DataSourceFieldType,
   type DataSourceFieldDimension,
@@ -115,7 +118,8 @@ type PerformanceAreaSortOrder = 'asc' | 'desc' | undefined;
 type SourceLibraryEditTarget =
   | { kind: 'dataField'; dataSourceId: string; fieldId: string }
   | { kind: 'lookup'; lookupId: string }
-  | { kind: 'variable'; variableId: string };
+  | { kind: 'variable'; variableId: string }
+  | { kind: 'domain'; domainId: string };
 
 type SourceLibraryEditRequest = SourceLibraryEditTarget & { requestId: number };
 const transientSourceHighlightDurationMs = 2500;
@@ -128,7 +132,9 @@ const sourceLibraryTargetKey = (target: SourceLibraryEditTarget) => target.kind 
   ? `field:${target.fieldId}`
   : target.kind === 'lookup'
     ? `lookup:${target.lookupId}`
-    : `variable:${target.variableId}`;
+    : target.kind === 'variable'
+      ? `variable:${target.variableId}`
+      : `domain:${target.domainId}`;
 
 type UseCaseAssignment = {
   userGroup: string;
@@ -1733,7 +1739,7 @@ function EnumHeader({
                       className="mini-icon-button danger"
                       type="button"
                       aria-label={`Delete ${option.label}`}
-                      title="Delete enum option"
+                      title="Delete domain option"
                       onClick={() => deleteOption(option)}
                     >
                       <Trash2 size={13} aria-hidden="true" />
@@ -2319,12 +2325,14 @@ function EnumOptionEditor({
   options,
   label,
   onChange,
-  required = false
+  required = false,
+  disabled = false
 }: {
   options: string[];
   label: string;
   onChange: (options: string[]) => void;
   required?: boolean;
+  disabled?: boolean;
 }) {
   const [draft, setDraft] = useState('');
 
@@ -2356,6 +2364,7 @@ function EnumOptionEditor({
         {options.map((option, optionIndex) => (
           <span className="enum-option-chip" key={optionIndex}>
             <input
+              disabled={disabled}
               value={option}
               size={Math.max(1, Math.min(32, option.length || 1))}
               aria-label={`${label} option ${optionIndex + 1}`}
@@ -2369,6 +2378,7 @@ function EnumOptionEditor({
               }}
             />
             <button
+              disabled={disabled}
               type="button"
               title={`Remove ${option || 'option'}`}
               aria-label={`Remove ${label} option ${optionIndex + 1}`}
@@ -2376,7 +2386,7 @@ function EnumOptionEditor({
             ><X size={10} /></button>
           </span>
         ))}
-        <span className="enum-option-adder">
+        {!disabled ? <span className="enum-option-adder">
           <input
             value={draft}
             size={Math.max(8, Math.min(32, draft.length || 8))}
@@ -2396,9 +2406,74 @@ function EnumOptionEditor({
             disabled={!draft.trim()}
             onClick={addOption}
           ><Plus size={11} /></button>
-        </span>
+        </span> : null}
       </div>
-      {required && options.length === 0 ? <span className="enum-options-required">Add at least one option for this enum.</span> : null}
+      {required && options.length === 0 ? <span className="enum-options-required">{disabled ? 'This global domain has no options. Add them in Domains.' : 'Add at least one option for this domain.'}</span> : null}
+    </div>
+  );
+}
+
+function ViewDomainButton({
+  domainId,
+  domainName,
+  onView
+}: {
+  domainId: string;
+  domainName: string;
+  onView: (domainId: string) => void;
+}) {
+  return (
+    <button
+      className="mini-icon-button domain-view-button"
+      type="button"
+      title={`View ${domainName || 'domain'} in Domains`}
+      aria-label={`View ${domainName || 'domain'} in Domains`}
+      onClick={(event) => {
+        event.stopPropagation();
+        onView(domainId);
+      }}
+    >
+      <Eye size={12} aria-hidden="true" />
+    </button>
+  );
+}
+
+function ValueEnumModeControl({
+  definitions,
+  enumId,
+  label,
+  onEnumChange,
+  onViewDomain
+}: {
+  definitions: ValueEnumDefinition[];
+  enumId?: string;
+  label: string;
+  onEnumChange: (enumId?: string) => void;
+  onViewDomain: (domainId: string) => void;
+}) {
+  const selected = definitions.find((definition) => definition.id === enumId);
+  const globalMode = Boolean(selected);
+  return (
+    <div className={`value-enum-mode-control ${globalMode ? 'is-global' : 'is-custom'}`}>
+      <label className="value-enum-mode-toggle">
+        <span>Custom</span>
+        <input
+          type="checkbox"
+          role="switch"
+          checked={globalMode}
+          disabled={!globalMode && definitions.length === 0}
+          aria-label={`Use a global domain for ${label}`}
+          onChange={(event) => onEnumChange(event.target.checked ? definitions[0]?.id : undefined)}
+        />
+        <span>Global domain</span>
+      </label>
+      {selected ? <>
+        <select value={selected.id} aria-label={`Global domain for ${label}`} onChange={(event) => onEnumChange(event.target.value)}>
+          {definitions.map((definition) => <option value={definition.id} key={definition.id}>{definition.name || 'Untitled domain'}</option>)}
+        </select>
+        <ViewDomainButton domainId={selected.id} domainName={selected.name} onView={onViewDomain} />
+        <small className="value-enum-mode-summary">{selected.options.length ? selected.options.join(', ') : 'No options defined'}</small>
+      </> : definitions.length === 0 ? <small className="value-enum-mode-summary">Create a domain in the Domains tray to enable global mode.</small> : null}
     </div>
   );
 }
@@ -2923,7 +2998,7 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
     const lookup = config.lookups.find((entry) => entry.id === item.lookupId);
     if (!lookup) return label;
     const type = lookup.outputValueType === 'enum'
-      ? `Type: Enum${lookup.outputOptions.length ? ` (${lookup.outputOptions.join(', ')})` : ''}`
+      ? `Type: Domain${lookup.outputOptions.length ? ` (${lookup.outputOptions.join(', ')})` : ''}`
       : 'Type: Number';
     return [label, type, lookup.outputExplanation.trim()].filter(Boolean).join('\n');
   }
@@ -2977,8 +3052,16 @@ const dataSourceFieldTypeLabels: Record<DataSourceFieldType, string> = {
   number: 'Number',
   boolean: 'Boolean',
   text: 'Text',
-  enum: 'Enum',
+  enum: 'Domain',
   collection: 'Collection'
+};
+
+const dataSourceCollectionItemTypeLabels: Record<DataSourceCollectionItemType, string> = {
+  number: 'Numbers',
+  enum: 'Domains',
+  id: 'IDs',
+  boolean: 'Booleans',
+  text: 'Text values'
 };
 
 const fieldGroupDimensionLabel = (group?: DataSourceFieldGroup) =>
@@ -3016,28 +3099,52 @@ const formulaDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFie
   return [...combined.values()];
 };
 
+type FormulaCollectionDomain = {
+  key: string;
+  name: string;
+  options: string[];
+};
+
+const formulaCollectionDomains = (config: KpiPoolConfig, kpi: KpiMetric): FormulaCollectionDomain[] => {
+  const domains = new Map<string, FormulaCollectionDomain>();
+  kpi.sources.forEach((source) => {
+    if (source.type !== 'dataField') return;
+    const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
+    const field = dataSource?.fields.find((entry) => entry.id === source.fieldId);
+    if (!field || field.dataType !== 'collection' || field.collectionItemType !== 'enum') return;
+    const globalDomain = field.enumId
+      ? config.valueEnums.find((definition) => definition.id === field.enumId)
+      : undefined;
+    const key = globalDomain ? `global:${globalDomain.id}` : `field:${dataSource?.id ?? source.dataSourceId}:${field.id}`;
+    domains.set(key, {
+      key,
+      name: globalDomain?.name.trim() || field.name.trim() || 'Domain',
+      options: [...(globalDomain?.options ?? field.options)]
+    });
+  });
+  return [...domains.values()];
+};
+
 function DataSourceHeader({
   config,
-  filter,
-  onFilterChange,
   onConfigChange,
-  editRequest
+  editRequest,
+  onEditLibrarySource
 }: {
   config: KpiPoolConfig;
-  filter: string;
-  onFilterChange: (value: string) => void;
   onConfigChange: (next: KpiPoolConfig) => void;
   editRequest?: SourceLibraryEditRequest;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
   const [collapsedFieldGroupIds, setCollapsedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [expandedLookupGroupIds, setExpandedLookupGroupIds] = useState<string[]>([]);
-  const [lookupsExpanded, setLookupsExpanded] = useState(false);
   const [lookupDetailsSourceIds, setLookupDetailsSourceIds] = useState<string[]>([]);
-  const [variablesExpanded, setVariablesExpanded] = useState(false);
   const [expandedVariableGroupIds, setExpandedVariableGroupIds] = useState<string[]>([]);
+  const [expandedValueEnumGroupIds, setExpandedValueEnumGroupIds] = useState<string[]>([]);
+  const [activeLibrarySection, setActiveLibrarySection] = useState<'variables' | 'enums' | 'lookups' | 'tables'>('variables');
   const [relationEditor, setRelationEditor] = useState<{
     sourceDataSourceId: string;
     targetDataSourceId: string;
@@ -3045,7 +3152,7 @@ function DataSourceHeader({
     direction: 'one' | 'many';
     anchor: 'primaryKey' | 'table';
   } | null>(null);
-  const [fieldGroupDimensionDrafts, setFieldGroupDimensionDrafts] = useState<Record<string, string>>({});
+  const [fieldGroupDomainPickerId, setFieldGroupDomainPickerId] = useState<string>();
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const navigatedEditRequestIdRef = useRef<number>();
@@ -3055,10 +3162,10 @@ function DataSourceHeader({
   const [fieldDragOver, setFieldDragOver] = useState<{ sourceIndex: number; fieldIndex: number; position: DropPosition } | null>(null);
   const [fieldInsertDragOver, setFieldInsertDragOver] = useState<{ sourceIndex: number; targetKey: string } | null>(null);
   const [fieldGroupDragOver, setFieldGroupDragOver] = useState<{ sourceIndex: number; groupId?: string } | null>(null);
-  const [libraryItemDrag, setLibraryItemDrag] = useState<{ kind: 'lookup' | 'variable'; itemIndex: number } | null>(null);
-  const [libraryItemDragOver, setLibraryItemDragOver] = useState<{ kind: 'lookup' | 'variable'; itemIndex: number; position: DropPosition } | null>(null);
-  const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: 'lookup' | 'variable'; groupId?: string; position?: DropPosition } | null>(null);
-  const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: 'lookup' | 'variable'; key: string } | null>(null);
+  const [libraryItemDrag, setLibraryItemDrag] = useState<{ kind: 'lookup' | 'variable' | 'enum'; itemIndex: number } | null>(null);
+  const [libraryItemDragOver, setLibraryItemDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; itemIndex: number; position: DropPosition } | null>(null);
+  const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; groupId?: string; position?: DropPosition } | null>(null);
+  const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; key: string } | null>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const [focusedEditRequest, setFocusedEditRequest] = useState<SourceLibraryEditRequest>();
   useEffect(() => {
@@ -3066,6 +3173,7 @@ function DataSourceHeader({
     setFocusedEditRequest(editRequest);
     setOpen(true);
     if (editRequest.kind === 'dataField') {
+      setActiveLibrarySection('tables');
       setExpandedSourceIds((current) => [...new Set([...current, editRequest.dataSourceId])]);
       const source = config.dataSources.find((entry) => entry.id === editRequest.dataSourceId);
       const group = source?.fieldGroups.find((entry) => entry.fieldIds.includes(editRequest.fieldId));
@@ -3075,7 +3183,7 @@ function DataSourceHeader({
       return;
     }
     if (editRequest.kind === 'lookup') {
-      setLookupsExpanded(true);
+      setActiveLibrarySection('lookups');
       setExpandedLookupIds((current) => [...new Set([...current, editRequest.lookupId])]);
       const group = config.lookupGroups.find((entry) => entry.itemIds.includes(editRequest.lookupId));
       if (group) {
@@ -3083,7 +3191,15 @@ function DataSourceHeader({
       }
       return;
     }
-    setVariablesExpanded(true);
+    if (editRequest.kind === 'domain') {
+      setActiveLibrarySection('enums');
+      const group = config.valueEnumGroups.find((entry) => entry.itemIds.includes(editRequest.domainId));
+      if (group) {
+        setExpandedValueEnumGroupIds((current) => [...new Set([...current, group.id])]);
+      }
+      return;
+    }
+    setActiveLibrarySection('variables');
     const group = config.variableGroups.find((entry) => entry.itemIds.includes(editRequest.variableId));
     if (group) {
       setExpandedVariableGroupIds((current) => [...new Set([...current, group.id])]);
@@ -3100,7 +3216,9 @@ function DataSourceHeader({
       if (!target) return;
       navigatedEditRequestIdRef.current = focusedEditRequest.requestId;
       target.scrollIntoView({ block: 'center' });
-      target.querySelector<HTMLInputElement>('input:not([type="checkbox"])')?.focus();
+      if (focusedEditRequest.kind !== 'domain') {
+        target.querySelector<HTMLInputElement>('input:not([type="checkbox"])')?.focus();
+      }
     });
     return () => window.cancelAnimationFrame(frame);
   }, [focusedEditRequest, open, popoverPosition]);
@@ -3168,6 +3286,91 @@ function DataSourceHeader({
     onConfigChange({ ...config, lookups, lookupGroups });
   const patchVariables = (variables: VariableDefinition[], variableGroups = config.variableGroups) =>
     onConfigChange({ ...config, variables, variableGroups });
+  const patchValueEnums = (valueEnums: ValueEnumDefinition[], valueEnumGroups = config.valueEnumGroups) =>
+    onConfigChange({ ...config, valueEnums, valueEnumGroups });
+  const addValueEnum = (insertionIndex = config.valueEnums.length, groupId?: string) => {
+    const definition: ValueEnumDefinition = { id: createLocalId('value-enum'), name: 'New domain', options: [] };
+    const index = Math.max(0, Math.min(insertionIndex, config.valueEnums.length));
+    patchValueEnums(
+      [...config.valueEnums.slice(0, index), definition, ...config.valueEnums.slice(index)],
+      config.valueEnumGroups.map((group) => ({
+        ...group,
+        position: group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
+        itemIds: group.id === groupId ? [...group.itemIds, definition.id] : group.itemIds
+      }))
+    );
+  };
+  const updateValueEnum = (enumIndex: number, partial: Partial<ValueEnumDefinition>) => {
+    const current = config.valueEnums[enumIndex];
+    if (!current) return;
+    const updated = { ...current, ...partial };
+    const syncDimension = (dimension: DataSourceFieldDimension) => dimension.enumId === current.id
+      ? { ...dimension, name: updated.name, options: [...updated.options] }
+      : dimension;
+    onConfigChange({
+      ...config,
+      valueEnums: config.valueEnums.map((definition, index) => index === enumIndex ? updated : definition),
+      dataSources: config.dataSources.map((source) => ({
+        ...source,
+        fields: source.fields.map((field) => field.enumId === current.id
+          ? { ...field, ...(field.dataType === 'enum' ? { name: updated.name } : {}), options: [...updated.options] }
+          : field),
+        fieldGroups: source.fieldGroups.map((group) => ({ ...group, dimensions: group.dimensions.map(syncDimension) }))
+      })),
+      lookups: config.lookups.map((lookup) => ({
+        ...lookup,
+        outputName: lookup.outputEnumId === current.id ? updated.name : lookup.outputName,
+        outputOptions: lookup.outputEnumId === current.id ? [...updated.options] : lookup.outputOptions,
+        inputs: lookup.inputs.map((input) => input.enumId === current.id ? { ...input, representation: updated.name, options: [...updated.options] } : input)
+      })),
+      kpis: config.kpis.map((kpi) => ({ ...kpi, dimensions: kpi.dimensions.map(syncDimension) }))
+    });
+  };
+  const duplicateValueEnum = (enumIndex: number) => {
+    const definition = config.valueEnums[enumIndex];
+    if (!definition) return;
+    const duplicate = { ...definition, id: createLocalId('value-enum'), name: `${definition.name || 'Untitled domain'} copy`, options: [...definition.options] };
+    const containingGroup = config.valueEnumGroups.find((group) => group.itemIds.includes(definition.id));
+    patchValueEnums(
+      [...config.valueEnums.slice(0, enumIndex + 1), duplicate, ...config.valueEnums.slice(enumIndex + 1)],
+      config.valueEnumGroups.map((group) => {
+        const memberIndex = group.itemIds.indexOf(definition.id);
+        return {
+          ...group,
+          position: group.position > enumIndex ? group.position + 1 : group.position,
+          itemIds: memberIndex < 0 ? group.itemIds : [...group.itemIds.slice(0, memberIndex + 1), duplicate.id, ...group.itemIds.slice(memberIndex + 1)]
+        };
+      })
+    );
+    if (containingGroup) setExpandedValueEnumGroupIds((currentIds) => [...new Set([...currentIds, containingGroup.id])]);
+  };
+  const deleteValueEnum = (enumIndex: number) => {
+    const enumId = config.valueEnums[enumIndex]?.id;
+    if (!enumId) return;
+    const clearDimension = (dimension: DataSourceFieldDimension) => dimension.enumId === enumId
+      ? { ...dimension, enumId: undefined }
+      : dimension;
+    onConfigChange({
+      ...config,
+      valueEnums: config.valueEnums.filter((_, index) => index !== enumIndex),
+      valueEnumGroups: config.valueEnumGroups.map((group) => ({
+        ...group,
+        position: group.position > enumIndex ? group.position - 1 : group.position,
+        itemIds: group.itemIds.filter((id) => id !== enumId)
+      })),
+      dataSources: config.dataSources.map((source) => ({
+        ...source,
+        fields: source.fields.map((field) => field.enumId === enumId ? { ...field, enumId: undefined } : field),
+        fieldGroups: source.fieldGroups.map((group) => ({ ...group, dimensions: group.dimensions.map(clearDimension) }))
+      })),
+      lookups: config.lookups.map((lookup) => ({
+        ...lookup,
+        outputEnumId: lookup.outputEnumId === enumId ? undefined : lookup.outputEnumId,
+        inputs: lookup.inputs.map((input) => input.enumId === enumId ? { ...input, enumId: undefined } : input)
+      })),
+      kpis: config.kpis.map((kpi) => ({ ...kpi, dimensions: kpi.dimensions.map(clearDimension) }))
+    });
+  };
   const addLookup = (insertionIndex = config.lookups.length, groupId?: string) => {
     const lookup: LookupDefinition = {
       id: createLocalId('lookup'),
@@ -3187,7 +3390,6 @@ function DataSourceHeader({
         itemIds: group.id === groupId ? [...group.itemIds, lookup.id] : group.itemIds
       }))
     );
-    setLookupsExpanded(true);
     setExpandedLookupIds((current) => [...new Set([...current, lookup.id])]);
   };
   const updateLookup = (lookupIndex: number, partial: Partial<LookupDefinition>) =>
@@ -3253,7 +3455,6 @@ function DataSourceHeader({
         itemIds: group.id === groupId ? [...group.itemIds, variable.id] : group.itemIds
       }))
     );
-    setVariablesExpanded(true);
   };
   const updateVariable = (variableIndex: number, partial: Partial<VariableDefinition>) =>
     patchVariables(config.variables.map((variable, index) => index === variableIndex ? { ...variable, ...partial } : variable));
@@ -3280,7 +3481,6 @@ function DataSourceHeader({
       })
     );
     if (containingGroup) setExpandedVariableGroupIds((current) => [...new Set([...current, containingGroup.id])]);
-    setVariablesExpanded(true);
   };
   const deleteVariable = (variableIndex: number) => {
     const variableId = config.variables[variableIndex]?.id;
@@ -3299,7 +3499,7 @@ function DataSourceHeader({
       }))
     });
   };
-  const addLibraryGroup = (kind: 'lookup' | 'variable', position: number) => {
+  const addLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', position: number) => {
     const group: DataLibraryGroup = {
       id: createLocalId(`${kind}-group`),
       name: 'New group',
@@ -3308,36 +3508,45 @@ function DataSourceHeader({
     };
     if (kind === 'lookup') {
       onConfigChange({ ...config, lookupGroups: [...config.lookupGroups, group] });
-      setLookupsExpanded(true);
-    } else {
+    } else if (kind === 'variable') {
       onConfigChange({ ...config, variableGroups: [...config.variableGroups, group] });
-      setVariablesExpanded(true);
+    } else {
+      onConfigChange({ ...config, valueEnumGroups: [...config.valueEnumGroups, group] });
+      setExpandedValueEnumGroupIds((current) => [...current, group.id]);
     }
   };
-  const updateLibraryGroup = (kind: 'lookup' | 'variable', groupId: string, partial: Partial<DataLibraryGroup>) => {
+  const updateLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', groupId: string, partial: Partial<DataLibraryGroup>) => {
     if (kind === 'lookup') {
       onConfigChange({
         ...config,
         lookupGroups: config.lookupGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
       });
-    } else {
+    } else if (kind === 'variable') {
       onConfigChange({
         ...config,
         variableGroups: config.variableGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
       });
+    } else {
+      onConfigChange({
+        ...config,
+        valueEnumGroups: config.valueEnumGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
+      });
     }
   };
-  const deleteLibraryGroup = (kind: 'lookup' | 'variable', groupId: string) => {
+  const deleteLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', groupId: string) => {
     if (kind === 'lookup') {
       setExpandedLookupGroupIds((current) => current.filter((id) => id !== groupId));
       onConfigChange({ ...config, lookupGroups: config.lookupGroups.filter((group) => group.id !== groupId) });
-    } else {
+    } else if (kind === 'variable') {
       setExpandedVariableGroupIds((current) => current.filter((id) => id !== groupId));
       onConfigChange({ ...config, variableGroups: config.variableGroups.filter((group) => group.id !== groupId) });
+    } else {
+      setExpandedValueEnumGroupIds((current) => current.filter((id) => id !== groupId));
+      onConfigChange({ ...config, valueEnumGroups: config.valueEnumGroups.filter((group) => group.id !== groupId) });
     }
   };
-  const assignLibraryItemToGroup = (kind: 'lookup' | 'variable', itemId: string, groupId?: string) => {
-    const groups = kind === 'lookup' ? config.lookupGroups : config.variableGroups;
+  const assignLibraryItemToGroup = (kind: 'lookup' | 'variable' | 'enum', itemId: string, groupId?: string) => {
+    const groups = kind === 'lookup' ? config.lookupGroups : kind === 'variable' ? config.variableGroups : config.valueEnumGroups;
     const nextGroups = groups.map((group) => ({
       ...group,
       itemIds: group.id === groupId
@@ -3345,7 +3554,8 @@ function DataSourceHeader({
         : group.itemIds.filter((id) => id !== itemId)
     }));
     if (kind === 'lookup') onConfigChange({ ...config, lookupGroups: nextGroups });
-    else onConfigChange({ ...config, variableGroups: nextGroups });
+    else if (kind === 'variable') onConfigChange({ ...config, variableGroups: nextGroups });
+    else onConfigChange({ ...config, valueEnumGroups: nextGroups });
   };
   const moveLibraryCollection = <T extends { id: string },>(
     items: T[],
@@ -3382,7 +3592,7 @@ function DataSourceHeader({
     };
   };
   const moveLibraryItem = (
-    kind: 'lookup' | 'variable',
+    kind: 'lookup' | 'variable' | 'enum',
     targetIndex: number,
     position: DropPosition,
     groupId?: string,
@@ -3400,7 +3610,7 @@ function DataSourceHeader({
         shiftGroupsAtTarget
       );
       onConfigChange({ ...config, lookups: result.items, lookupGroups: result.groups });
-    } else {
+    } else if (kind === 'variable') {
       const result = moveLibraryCollection(
         config.variables,
         config.variableGroups,
@@ -3411,6 +3621,17 @@ function DataSourceHeader({
         shiftGroupsAtTarget
       );
       onConfigChange({ ...config, variables: result.items, variableGroups: result.groups });
+    } else {
+      const result = moveLibraryCollection(
+        config.valueEnums,
+        config.valueEnumGroups,
+        libraryItemDrag.itemIndex,
+        targetIndex,
+        position,
+        groupId,
+        shiftGroupsAtTarget
+      );
+      onConfigChange({ ...config, valueEnums: result.items, valueEnumGroups: result.groups });
     }
   };
   const addLookupInput = (lookupIndex: number, insertionIndex?: number) => {
@@ -3443,11 +3664,22 @@ function DataSourceHeader({
   const renderLookupEnumOptions = (
     options: string[],
     label: string,
-    onChange: (options: string[]) => void
+    onChange: (options: string[]) => void,
+    enumId?: string,
+    onEnumChange?: (enumId?: string) => void
   ) => (
     <div className="lookup-enum-options">
-      <span className="lookup-enum-options-label">Enum options</span>
-      <EnumOptionEditor options={options} label={`${label} enum`} onChange={onChange} required />
+      {onEnumChange ? <ValueEnumModeControl
+        definitions={config.valueEnums}
+        enumId={enumId}
+        label={label}
+        onEnumChange={onEnumChange}
+        onViewDomain={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })}
+      /> : null}
+      {!enumId ? <>
+        <span className="lookup-enum-options-label">Custom options</span>
+        <EnumOptionEditor options={options} label={`${label} domain`} onChange={onChange} required />
+      </> : null}
     </div>
   );
   const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
@@ -3549,6 +3781,7 @@ function DataSourceHeader({
         name: collectionFieldName,
         meaning: `Related ${target.name || 'table'} keys`,
         dataType: 'collection',
+        collectionItemType: 'id',
         valueUnit: '',
         options: [],
         generatedRelationId: relation.id,
@@ -3572,6 +3805,7 @@ function DataSourceHeader({
         name: collectionFieldName,
         meaning: `Related ${target.name || 'table'} keys`,
         dataType: 'collection',
+        collectionItemType: 'id',
         valueUnit: '',
         options: [],
         generatedRelationId: relation.id,
@@ -3582,6 +3816,7 @@ function DataSourceHeader({
         name: targetCollectionFieldName,
         meaning: `Related ${source.name || 'table'} keys`,
         dataType: 'collection',
+        collectionItemType: 'id',
         valueUnit: '',
         options: [],
         generatedRelationId: relation.id,
@@ -3660,7 +3895,30 @@ function DataSourceHeader({
       ? { ...(partial.name !== undefined ? { name: partial.name } : {}), ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}) }
       : partial;
     const next = { ...current, ...editablePartial };
-    if (partial.dataType && partial.dataType !== 'number') next.valueUnit = '';
+    if (partial.dataType) {
+      if (partial.dataType === 'collection') {
+        next.collectionItemType = current.dataType === 'enum'
+          ? 'enum'
+          : current.collectionItemType ?? 'number';
+      } else {
+        next.collectionItemType = undefined;
+      }
+      if (partial.dataType === 'enum' && current.enumId) {
+        const definition = config.valueEnums.find((entry) => entry.id === current.enumId);
+        if (definition) next.name = definition.name;
+      }
+      if (partial.dataType !== 'enum' && partial.dataType !== 'collection') {
+        next.enumId = undefined;
+        next.options = [];
+      }
+    }
+    if (partial.collectionItemType && partial.collectionItemType !== 'enum') {
+      next.enumId = undefined;
+      next.options = [];
+    }
+    if (next.dataType !== 'number' && !(next.dataType === 'collection' && next.collectionItemType === 'number')) {
+      next.valueUnit = '';
+    }
     updateDataSource(sourceIndex, {
       fields: source.fields.map((field, index) => index === fieldIndex ? next : field)
     });
@@ -3674,14 +3932,14 @@ function DataSourceHeader({
     updateDataSource(sourceIndex, {
       primaryKeyFieldId: nextPrimaryKeyFieldId,
       fields: source.fields.map((entry) => entry.id === nextPrimaryKeyFieldId
-        ? { ...entry, dataType: 'id', valueUnit: '', options: [] }
+        ? { ...entry, dataType: 'id', collectionItemType: undefined, valueUnit: '', options: [], enumId: undefined }
         : entry)
     });
   };
   const addField = (sourceIndex: number, insertionIndex?: number, groupId?: string, shiftGroupsAtPosition = false) => {
     const source = config.dataSources[sourceIndex];
     const index = Math.max(0, Math.min(insertionIndex ?? source.fields.length, source.fields.length));
-    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', dataType: 'text', valueUnit: '', options: [] };
+    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', dataType: 'number', valueUnit: '', options: [] };
     updateDataSource(sourceIndex, {
       fields: [...source.fields.slice(0, index), field, ...source.fields.slice(index)],
       fieldGroups: source.fieldGroups.map((group) => ({
@@ -3732,17 +3990,34 @@ function DataSourceHeader({
     });
   };
   const addFieldGroupDimension = (sourceIndex: number, groupId: string) => {
-    const value = (fieldGroupDimensionDrafts[groupId] ?? '').trim();
-    if (!value) return;
     const source = config.dataSources[sourceIndex];
     const group = source.fieldGroups.find((entry) => entry.id === groupId);
     if (!group) return;
-    if (!group.dimensions.some((dimension) => dimension.name.toLocaleLowerCase() === value.toLocaleLowerCase())) {
-      updateFieldGroup(sourceIndex, groupId, {
-        dimensions: [...group.dimensions, { id: createLocalId('dimension'), name: value, options: [] }]
-      });
+    const existingNames = new Set(group.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase()));
+    let name = 'New dimension';
+    let suffix = 2;
+    while (existingNames.has(name.toLocaleLowerCase())) {
+      name = `New dimension ${suffix}`;
+      suffix += 1;
     }
-    setFieldGroupDimensionDrafts((current) => ({ ...current, [groupId]: '' }));
+    updateFieldGroup(sourceIndex, groupId, {
+      dimensions: [...group.dimensions, { id: createLocalId('dimension'), name, options: [] }]
+    });
+  };
+  const addFieldGroupEnumDimension = (sourceIndex: number, groupId: string, enumId: string) => {
+    const source = config.dataSources[sourceIndex];
+    const group = source.fieldGroups.find((entry) => entry.id === groupId);
+    const definition = config.valueEnums.find((entry) => entry.id === enumId);
+    if (!group || !definition || group.dimensions.some((dimension) => dimension.enumId === enumId)) return;
+    updateFieldGroup(sourceIndex, groupId, {
+      dimensions: [...group.dimensions, {
+        id: createLocalId('dimension'),
+        name: definition.name,
+        options: [...definition.options],
+        enumId: definition.id
+      }]
+    });
+    setFieldGroupDomainPickerId(undefined);
   };
   const updateFieldGroupDimension = (sourceIndex: number, groupId: string, dimensionId: string, partial: Partial<DataSourceFieldDimension>) => {
     const source = config.dataSources[sourceIndex];
@@ -3773,10 +4048,7 @@ function DataSourceHeader({
   const deleteFieldGroup = (sourceIndex: number, groupId: string) => {
     const source = config.dataSources[sourceIndex];
     setCollapsedFieldGroupIds((current) => current.filter((id) => id !== groupId));
-    setFieldGroupDimensionDrafts((current) => {
-      const { [groupId]: _removedDraft, ...remaining } = current;
-      return remaining;
-    });
+    setFieldGroupDomainPickerId((current) => current === groupId ? undefined : current);
     updateDataSource(sourceIndex, { fieldGroups: source.fieldGroups.filter((group) => group.id !== groupId) });
   };
   const moveField = (sourceIndex: number, targetIndex: number, position: DropPosition, groupId?: string, shiftGroupsAtTarget = true) => {
@@ -3845,7 +4117,7 @@ function DataSourceHeader({
     setLibraryInsertDragOver(null);
   };
   const renderLibraryInsertActions = (
-    kind: 'lookup' | 'variable',
+    kind: 'lookup' | 'variable' | 'enum',
     position: number,
     key: string,
     groupId?: string,
@@ -3874,7 +4146,7 @@ function DataSourceHeader({
       <button
         className="list-insert-divider"
         type="button"
-        onClick={() => kind === 'lookup' ? addLookup(position, groupId) : addVariable(position, groupId)}
+        onClick={() => kind === 'lookup' ? addLookup(position, groupId) : kind === 'variable' ? addVariable(position, groupId) : addValueEnum(position, groupId)}
       ><Plus size={11} aria-hidden="true" />Add {kind} here</button>
       <button
         className="list-insert-divider field-group-insert-divider"
@@ -3932,6 +4204,7 @@ function DataSourceHeader({
             <span>Lookup Name</span>
             <span className="lookup-summary-title-main">
               <input
+                disabled={Boolean(lookup.outputEnumId)}
                 value={lookup.outputName}
                 size={Math.min(36, Math.max(12, lookup.outputName.length || 'Untitled lookup'.length))}
                 placeholder="Untitled lookup"
@@ -3962,13 +4235,18 @@ function DataSourceHeader({
               <span><strong>Lookup output</strong><small>The value returned by this lookup</small></span>
             </div>
             <div className="lookup-output-fields">
-              <label className="field"><span>Output type</span><select value={lookup.outputValueType} onChange={(event) => updateLookup(lookupIndex, { outputValueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select></label>
+              <label className="field"><span>Output type</span><select value={lookup.outputValueType} onChange={(event) => updateLookup(lookupIndex, { outputValueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Domain</option></select></label>
               <label className="field"><span>Output explanation</span><input value={lookup.outputExplanation} placeholder="What the lookup returns" onChange={(event) => updateLookup(lookupIndex, { outputExplanation: event.target.value })} /></label>
             </div>
             {lookup.outputValueType === 'enum' ? renderLookupEnumOptions(
               lookup.outputOptions,
               `${lookup.outputName || 'Lookup'} output`,
-              (outputOptions) => updateLookup(lookupIndex, { outputOptions })
+              (outputOptions) => updateLookup(lookupIndex, { outputOptions }),
+              lookup.outputEnumId,
+              (enumId) => {
+                const definition = config.valueEnums.find((entry) => entry.id === enumId);
+                updateLookup(lookupIndex, { outputEnumId: enumId, ...(definition ? { outputName: definition.name, outputOptions: [...definition.options] } : {}) });
+              }
             ) : null}
           </section>
           <section className="lookup-inputs-section" aria-label="Lookup inputs">
@@ -3983,8 +4261,8 @@ function DataSourceHeader({
               <div className="lookup-input-card" key={input.id}>
                 <div className="lookup-input-card-heading">Input {inputIndex + 1}</div>
                 <div className="lookup-input-row">
-                  <input value={input.representation} aria-label={`Input ${inputIndex + 1} representation`} placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
-                  <select value={input.valueType} aria-label={`Input ${inputIndex + 1} value type`} onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { valueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Enum</option></select>
+                  <input disabled={Boolean(input.enumId)} value={input.representation} aria-label={`Input ${inputIndex + 1} representation`} placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
+                  <select value={input.valueType} aria-label={`Input ${inputIndex + 1} value type`} onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { valueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Domain</option></select>
                   <input value={input.explanation} aria-label={`Input ${inputIndex + 1} explanation`} placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
                   <div className="lookup-definition-actions">
                     <button className="mini-icon-button" type="button" title="Copy input" aria-label={`Copy input ${inputIndex + 1}`} onClick={() => duplicateLookupInput(lookupIndex, inputIndex)}><Copy size={11} /></button>
@@ -3994,7 +4272,12 @@ function DataSourceHeader({
                 {input.valueType === 'enum' ? renderLookupEnumOptions(
                   input.options,
                   input.representation || `Input ${inputIndex + 1}`,
-                  (options) => updateLookupInput(lookupIndex, inputIndex, { options })
+                  (options) => updateLookupInput(lookupIndex, inputIndex, { options }),
+                  input.enumId,
+                  (enumId) => {
+                    const definition = config.valueEnums.find((entry) => entry.id === enumId);
+                    updateLookupInput(lookupIndex, inputIndex, { enumId, ...(definition ? { representation: definition.name, options: [...definition.options] } : {}) });
+                  }
                 ) : null}
               </div>
             ])}
@@ -4216,55 +4499,160 @@ function DataSourceHeader({
       </div>
     );
   };
+  const renderValueEnumItem = (definition: ValueEnumDefinition, enumIndex: number, groupId?: string) => (
+    <section
+      className={`value-enum-row ${libraryItemDragOver?.kind === 'enum' && libraryItemDragOver.itemIndex === enumIndex ? `is-drag-over-${libraryItemDragOver.position}` : ''} ${focusedEditRequest?.kind === 'domain' && focusedEditRequest.domainId === definition.id ? 'is-library-edit-target' : ''}`}
+      data-library-target={`domain:${definition.id}`}
+      key={definition.id}
+      onDragOver={(event) => {
+        if (libraryItemDrag?.kind !== 'enum') return;
+        event.preventDefault();
+        event.stopPropagation();
+        setLibraryInsertDragOver(null);
+        const rect = event.currentTarget.getBoundingClientRect();
+        setLibraryItemDragOver({ kind: 'enum', itemIndex: enumIndex, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
+        setLibraryGroupDragOver({ kind: 'enum', groupId });
+      }}
+      onDrop={(event) => {
+        if (libraryItemDrag?.kind !== 'enum') return;
+        event.preventDefault();
+        event.stopPropagation();
+        moveLibraryItem('enum', enumIndex, libraryItemDragOver?.position ?? 'before', groupId);
+        clearLibraryDrag();
+      }}
+    >
+      <button
+        className="mini-icon-button drag-handle library-item-drag"
+        type="button"
+        draggable
+        title="Drag to reorder or move into a group"
+        aria-label={`Drag ${definition.name || 'domain'} to reorder or move into a group`}
+        onDragStart={(event) => {
+          setLibraryItemDrag({ kind: 'enum', itemIndex: enumIndex });
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', definition.id);
+        }}
+        onDragEnd={clearLibraryDrag}
+      ><GripVertical size={13} aria-hidden="true" /></button>
+      <label className="field value-enum-name"><span>Domain name</span><input value={definition.name} placeholder="Domain name" onChange={(event) => updateValueEnum(enumIndex, { name: event.target.value })} /></label>
+      <div className="field value-enum-options"><span>Options</span><EnumOptionEditor options={definition.options} label={definition.name || 'domain'} onChange={(options) => updateValueEnum(enumIndex, { options })} /></div>
+      <div className="lookup-definition-actions">
+        <button className="mini-icon-button" type="button" title="Copy domain" onClick={() => duplicateValueEnum(enumIndex)}><Copy size={11} /></button>
+        <button className="mini-icon-button danger" type="button" title="Delete domain" onClick={() => deleteValueEnum(enumIndex)}><Trash2 size={11} /></button>
+      </div>
+    </section>
+  );
+  const renderValueEnumGroup = (group: DataLibraryGroup) => {
+    const groupItems = config.valueEnums.map((definition, enumIndex) => ({ definition, enumIndex })).filter(({ definition }) => group.itemIds.includes(definition.id));
+    const expanded = expandedValueEnumGroupIds.includes(group.id);
+    const groupDragPosition = libraryGroupDragOver?.kind === 'enum' && libraryGroupDragOver.groupId === group.id ? libraryGroupDragOver.position : undefined;
+    const groupDropPosition = (element: HTMLDivElement, clientY: number): DropPosition | undefined => {
+      const rect = element.getBoundingClientRect();
+      const edgeSize = Math.min(28, Math.max(10, rect.height * 0.2));
+      if (clientY < rect.top + edgeSize) return 'before';
+      if (clientY > rect.bottom - edgeSize) return 'after';
+      return undefined;
+    };
+    return <div
+      className={`library-group is-enum ${libraryGroupDragOver?.kind === 'enum' && libraryGroupDragOver.groupId === group.id ? groupDragPosition ? `is-drag-over-${groupDragPosition}` : 'is-drag-over' : ''}`}
+      key={group.id}
+      onDragOver={(event) => {
+        if (libraryItemDrag?.kind !== 'enum') return;
+        event.preventDefault();
+        event.stopPropagation();
+        const position = groupDropPosition(event.currentTarget, event.clientY);
+        setLibraryItemDragOver(null);
+        setLibraryInsertDragOver(null);
+        setLibraryGroupDragOver({ kind: 'enum', groupId: group.id, position });
+        if (!position) setExpandedValueEnumGroupIds((current) => [...new Set([...current, group.id])]);
+      }}
+      onDrop={(event) => {
+        if (libraryItemDrag?.kind !== 'enum') return;
+        event.preventDefault();
+        event.stopPropagation();
+        const position = groupDropPosition(event.currentTarget, event.clientY);
+        if (position === 'before') moveLibraryItem('enum', group.position, 'before', undefined, true);
+        else if (position === 'after') moveLibraryItem('enum', group.position, 'before', undefined, false);
+        else {
+          const dragged = config.valueEnums[libraryItemDrag.itemIndex];
+          if (dragged) assignLibraryItemToGroup('enum', dragged.id, group.id);
+        }
+        clearLibraryDrag();
+      }}
+    >
+      <button className="library-group-heading" type="button" aria-expanded={expanded} onClick={() => setExpandedValueEnumGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}>
+        <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
+        <strong>{group.name.trim() || 'Untitled group'}</strong>
+        <small>{group.itemIds.length} {group.itemIds.length === 1 ? 'domain' : 'domains'}</small>
+      </button>
+      {expanded ? <div className="library-group-body">
+        <div className="library-group-settings">
+          <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('enum', group.id, { name: event.target.value })} /></label>
+          <button className="mini-icon-button danger" type="button" title="Delete domain group" onClick={() => deleteLibraryGroup('enum', group.id)}><Trash2 size={12} /></button>
+        </div>
+        {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag domains here</span> : null}
+        {groupItems.flatMap(({ definition, enumIndex }) => [
+          renderLibraryInsertActions('enum', enumIndex, `insert-group-enum-${definition.id}`, group.id),
+          renderValueEnumItem(definition, enumIndex, group.id)
+        ])}
+        <div className="library-final-actions">
+          <button className="secondary-action tiny library-group-add-item" type="button" onClick={() => addValueEnum(config.valueEnums.length, group.id)}><Plus size={11} /> Add domain</button>
+          <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('enum', group.position)}><Plus size={11} /> Add group</button>
+        </div>
+      </div> : null}
+    </div>;
+  };
   const groupedLookupIds = new Set(config.lookupGroups.flatMap((group) => group.itemIds));
   const groupedVariableIds = new Set(config.variableGroups.flatMap((group) => group.itemIds));
+  const groupedValueEnumIds = new Set(config.valueEnumGroups.flatMap((group) => group.itemIds));
   return (
-    <div className="source-header-control" ref={controlRef}>
-      <div className="header-title">
-        <span>Source</span>
-        <strong>{config.dataSources.length + config.lookups.length + config.variables.length}</strong>
-        <button className="mini-icon-button" type="button" title="Manage data sources" aria-label="Manage data sources" onClick={() => setOpen((value) => !value)}>
-          <Database size={13} aria-hidden="true" />
-        </button>
+    <div className="library-manager-control" ref={controlRef}>
+      <div className="library-manager-tray" aria-label="Shared definition libraries">
+        {([
+          ['variables', 'Variables', VariableIcon],
+          ['enums', 'Domains', ListFilter],
+          ['lookups', 'Lookups', BookOpen],
+          ['tables', 'Source Tables', Table2]
+        ] as const).map(([section, label, Icon]) => <button
+          className={`secondary-action small library-manager-trigger ${open && activeLibrarySection === section ? 'is-active' : ''}`}
+          type="button"
+          aria-label={label}
+          aria-expanded={open && activeLibrarySection === section}
+          title={label}
+          key={section}
+          onClick={() => {
+            if (open && activeLibrarySection === section) {
+              setOpen(false);
+              return;
+            }
+            setActiveLibrarySection(section);
+            setOpen(true);
+          }}
+        ><Icon size={14} aria-hidden="true" /><span className="library-manager-trigger-label">{label}</span></button>)}
       </div>
-      <label className="header-search">
-        <Search size={13} aria-hidden="true" />
-        <input value={filter} placeholder="Search sources..." onChange={(event) => onFilterChange(event.target.value)} />
-      </label>
       {open && popoverPosition ? createPortal(
         <div
           className="data-source-popover"
           ref={popoverRef}
           role="dialog"
-          aria-label="Data source library"
+          aria-label="Variables, domains, lookups, and source tables"
           style={popoverPosition}
         >
           <div className="data-source-popover-heading">
             <div>
-              <strong>Data source library</strong>
-              <span>Define table sources, fields, reusable lookups, and variables.</span>
+              <strong>Shared definitions</strong>
+              <span>Define reusable variables, global domains, lookups, and source tables.</span>
             </div>
             <div className="data-source-library-actions">
-              <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add table source</button>
+              {activeLibrarySection === 'variables' ? <button className="primary-action tiny" type="button" onClick={() => addVariable()}><Plus size={12} /> Add variable</button> : null}
+              {activeLibrarySection === 'enums' ? <button className="primary-action tiny" type="button" onClick={() => addValueEnum()}><Plus size={12} /> Add domain</button> : null}
+              {activeLibrarySection === 'lookups' ? <button className="primary-action tiny" type="button" onClick={() => addLookup()}><Plus size={12} /> Add lookup</button> : null}
+              {activeLibrarySection === 'tables' ? <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add source table</button> : null}
             </div>
           </div>
           <div className="data-source-list">
-            <section className="lookup-library">
-              <div className="lookup-library-heading">
-                <button
-                  className="lookup-library-toggle"
-                  type="button"
-                  aria-expanded={lookupsExpanded}
-                  aria-controls="lookup-library-list"
-                  onClick={() => setLookupsExpanded((value) => !value)}
-                >
-                  <ChevronDown className={`lookup-library-chevron ${lookupsExpanded ? 'is-expanded' : ''}`} size={13} aria-hidden="true" />
-                  <BookOpen size={14} aria-hidden="true" />
-                  <strong>Lookups</strong>
-                  <small>{config.lookups.length}</small>
-                </button>
-              </div>
-              {lookupsExpanded ? <div
+            {activeLibrarySection === 'lookups' ? <section className="lookup-library is-direct-library">
+              <div
                 className={`lookup-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
                 id="lookup-library-list"
                 onDragOver={(event) => {
@@ -4307,24 +4695,10 @@ function DataSourceHeader({
                   <button className="secondary-action tiny" type="button" onClick={() => addLookup()}><Plus size={11} /> Add lookup</button>
                   <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('lookup', config.lookups.length)}><Plus size={11} /> Add group</button>
                 </div>
-              </div> : null}
-            </section>
-            <section className="variable-library">
-              <div className="lookup-library-heading">
-                <button
-                  className="lookup-library-toggle"
-                  type="button"
-                  aria-expanded={variablesExpanded}
-                  aria-controls="variable-library-list"
-                  onClick={() => setVariablesExpanded((value) => !value)}
-                >
-                  <ChevronDown className={`lookup-library-chevron ${variablesExpanded ? 'is-expanded' : ''}`} size={13} aria-hidden="true" />
-                  <VariableIcon size={14} aria-hidden="true" />
-                  <strong>Variables</strong>
-                  <small>{config.variables.length}</small>
-                </button>
               </div>
-              {variablesExpanded ? <div
+            </section> : null}
+            {activeLibrarySection === 'variables' ? <section className="variable-library is-direct-library">
+              <div
                 className={`variable-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
                 id="variable-library-list"
                 onDragOver={(event) => {
@@ -4369,9 +4743,43 @@ function DataSourceHeader({
                   <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button>
                   <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('variable', config.variables.length)}><Plus size={11} /> Add group</button>
                 </div>
-              </div> : null}
-            </section>
-            {config.dataSources.length === 0 ? <span className="empty-option">No data sources defined.</span> : null}
+              </div>
+            </section> : null}
+            {activeLibrarySection === 'enums' ? <section className="value-enum-library library-ungrouped-dropzone" onDragOver={(event) => {
+              if (libraryItemDrag?.kind !== 'enum') return;
+              event.preventDefault();
+              setLibraryItemDragOver(null);
+              setLibraryInsertDragOver(null);
+              setLibraryGroupDragOver({ kind: 'enum' });
+            }} onDrop={(event) => {
+              if (libraryItemDrag?.kind !== 'enum') return;
+              event.preventDefault();
+              const dragged = config.valueEnums[libraryItemDrag.itemIndex];
+              if (dragged) assignLibraryItemToGroup('enum', dragged.id);
+              clearLibraryDrag();
+            }}>
+              {config.valueEnums.length === 0 ? <span className="empty-option">No global domains defined.</span> : null}
+              {config.valueEnums.flatMap((definition, enumIndex) => {
+                const groupsAtPosition = config.valueEnumGroups.filter((group) => group.position === enumIndex);
+                const isUngrouped = !groupedValueEnumIds.has(definition.id);
+                return [
+                  ...(groupsAtPosition.length > 0 ? [renderLibraryInsertActions('enum', enumIndex, `before-enum-groups-${definition.id}`, undefined, true)] : []),
+                  ...groupsAtPosition.map(renderValueEnumGroup),
+                  ...(isUngrouped ? [
+                    ...(groupsAtPosition.length > 0 ? [renderLibraryInsertActions('enum', enumIndex, `after-enum-groups-${definition.id}`)] : [renderLibraryInsertActions('enum', enumIndex, `insert-enum-${definition.id}`)]),
+                    renderValueEnumItem(definition, enumIndex)
+                  ] : [])
+                ];
+              })}
+              {config.valueEnumGroups.some((group) => group.position === config.valueEnums.length) ? renderLibraryInsertActions('enum', config.valueEnums.length, 'before-final-enum-groups', undefined, true) : null}
+              {config.valueEnumGroups.filter((group) => group.position === config.valueEnums.length).map(renderValueEnumGroup)}
+              <div className="library-final-actions">
+                <button className="secondary-action tiny" type="button" onClick={() => addValueEnum()}><Plus size={11} /> Add domain</button>
+                <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('enum', config.valueEnums.length)}><Plus size={11} /> Add group</button>
+              </div>
+            </section> : null}
+            {activeLibrarySection === 'tables' ? <div className="source-table-library">
+            {config.dataSources.length === 0 ? <span className="empty-option">No source tables defined.</span> : null}
             {config.dataSources.map((source, sourceIndex) => {
               const expanded = expandedSourceIds.includes(source.id);
               const sourceRelations = config.tableRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.targetDataSourceId === source.id);
@@ -4520,14 +4928,24 @@ function DataSourceHeader({
                       <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationIsDuplicate} onClick={addTableRelation}>{relationIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
                     </div> : null}
                   </div>
-                  <input value={field.name} aria-label="Field name" onChange={(event) => updateField(sourceIndex, fieldIndex, { name: event.target.value })} />
-                  <select value={field.dataType} disabled={Boolean(field.generatedRelationId || source.primaryKeyFieldId === field.id)} aria-label="Field data type" onChange={(event) => updateField(sourceIndex, fieldIndex, { dataType: event.target.value as DataSourceFieldType })}>
+                  <input disabled={field.dataType === 'enum' && Boolean(field.enumId)} value={field.name} aria-label="Field name" onChange={(event) => updateField(sourceIndex, fieldIndex, { name: event.target.value })} />
+                  <select className="data-source-field-type" value={field.dataType} disabled={Boolean(field.generatedRelationId || source.primaryKeyFieldId === field.id)} aria-label="Field data type" onChange={(event) => updateField(sourceIndex, fieldIndex, { dataType: event.target.value as DataSourceFieldType })}>
                     {dataSourceFieldTypes.map((type) => <option value={type} key={type}>{dataSourceFieldTypeLabels[type]}</option>)}
                   </select>
-                  <input value={field.meaning} aria-label="Field meaning" placeholder="What the field represents" onChange={(event) => updateField(sourceIndex, fieldIndex, { meaning: event.target.value })} />
-                  {field.dataType === 'number'
+                  {field.dataType === 'collection' ? <select
+                    className="data-source-collection-item-type"
+                    value={field.collectionItemType ?? 'number'}
+                    disabled={Boolean(field.generatedRelationId)}
+                    aria-label="Collection item data type"
+                    title={field.generatedRelationId ? 'Relationship collections always contain IDs' : 'Type of each item in this collection'}
+                    onChange={(event) => updateField(sourceIndex, fieldIndex, { collectionItemType: event.target.value as DataSourceCollectionItemType })}
+                  >
+                    {dataSourceCollectionItemTypes.map((type) => <option value={type} key={type}>{dataSourceCollectionItemTypeLabels[type]}</option>)}
+                  </select> : null}
+                  <input className={`data-source-field-meaning ${field.dataType === 'collection' ? '' : 'is-wide'}`} value={field.meaning} aria-label="Field meaning" placeholder="What the field represents" onChange={(event) => updateField(sourceIndex, fieldIndex, { meaning: event.target.value })} />
+                  {field.dataType === 'number' || (field.dataType === 'collection' && field.collectionItemType === 'number')
                     ? <input value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onChange={(event) => updateField(sourceIndex, fieldIndex, { valueUnit: event.target.value })} />
-                    : <span className="data-source-field-unit-na" title="Units apply only to number fields">—</span>}
+                    : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
                     {field.generatedRelationId ? <><span className="relation-field-badge">Linked</span><button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <><button
                       className="mini-icon-button"
@@ -4545,11 +4963,22 @@ function DataSourceHeader({
                     ><Trash2 size={12} /></button>
                     </>}
                   </div>
-                  {field.dataType === 'enum' ? <div className="data-source-field-enum-options">
+                  {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="data-source-field-enum-options">
                     {renderLookupEnumOptions(
                       field.options,
-                      field.name || `Field ${fieldIndex + 1}`,
-                      (options) => updateField(sourceIndex, fieldIndex, { options })
+                      field.dataType === 'collection' ? `${field.name || `Field ${fieldIndex + 1}`} items` : field.name || `Field ${fieldIndex + 1}`,
+                      (options) => updateField(sourceIndex, fieldIndex, { options }),
+                      field.enumId,
+                      (enumId) => {
+                        const definition = config.valueEnums.find((entry) => entry.id === enumId);
+                        updateField(sourceIndex, fieldIndex, {
+                          enumId,
+                          ...(definition ? {
+                            ...(field.dataType === 'enum' ? { name: definition.name } : {}),
+                            options: [...definition.options]
+                          } : {})
+                        });
+                      }
                     )}
                   </div> : null}
                 </div>
@@ -4610,12 +5039,17 @@ function DataSourceHeader({
                       <div className="data-source-field-group-settings">
                         <div className="field-group-dimension-list">
                           {group.dimensions.map((dimension) => (
-                            <div className="field-group-dimension-row" key={dimension.id}>
-                              <label className="data-source-field-group-control">
-                                <small>By:</small>
+                            <div className={`field-group-dimension-row ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
+                              {dimension.enumId ? <div className="global-domain-definition">
+                                <small>Global domain</small>
+                                <strong>{dimension.name || 'Untitled domain'}</strong>
+                                <span>{dimension.options.length ? dimension.options.join(', ') : 'No options defined'}</span>
+                                <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })} />
+                              </div> : <label className="data-source-field-group-control">
+                                <small>Name:</small>
                                 <input value={dimension.name} aria-label="Dimension name" placeholder="Mode" onChange={(event) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { name: event.target.value })} />
-                              </label>
-                              <div className="data-source-field-group-control">
+                              </label>}
+                              {!dimension.enumId ? <div className="data-source-field-group-control">
                                 <small>Options:</small>
                                 <div className="field-group-dimension-options">
                                   <EnumOptionEditor
@@ -4624,23 +5058,19 @@ function DataSourceHeader({
                                     onChange={(options) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { options })}
                                   />
                                 </div>
-                              </div>
+                              </div> : null}
                               <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeFieldGroupDimension(sourceIndex, group.id, dimension.id)}><Trash2 size={12} /></button>
                             </div>
                           ))}
-                          <div className="field-group-dimension-add">
-                            <input
-                              value={fieldGroupDimensionDrafts[group.id] ?? ''}
-                              aria-label="New dimension name"
-                              placeholder="Mode, distance band, cost band..."
-                              onChange={(event) => setFieldGroupDimensionDrafts((current) => ({ ...current, [group.id]: event.target.value }))}
-                              onKeyDown={(event) => {
-                                if (event.key !== 'Enter') return;
-                                event.preventDefault();
-                                addFieldGroupDimension(sourceIndex, group.id);
-                              }}
-                            />
-                            <button className="secondary-action tiny" type="button" disabled={!(fieldGroupDimensionDrafts[group.id] ?? '').trim()} onClick={() => addFieldGroupDimension(sourceIndex, group.id)}><Plus size={11} /> Add dimension</button>
+                          <div className="dimension-add-actions">
+                            <button className="secondary-action tiny" type="button" onClick={() => { setFieldGroupDomainPickerId(undefined); addFieldGroupDimension(sourceIndex, group.id); }}><Plus size={11} /> Add custom dimension</button>
+                            <div className="global-domain-add-control">
+                              <button className="secondary-action tiny" type="button" disabled={config.valueEnums.length === 0} aria-expanded={fieldGroupDomainPickerId === group.id} onClick={() => setFieldGroupDomainPickerId((current) => current === group.id ? undefined : group.id)}><Plus size={11} /> Add global domain</button>
+                              {fieldGroupDomainPickerId === group.id ? <div className="global-domain-picker" role="menu">
+                                {config.valueEnums.filter((definition) => !group.dimensions.some((entry) => entry.enumId === definition.id)).map((definition) => <button type="button" role="menuitem" key={definition.id} onClick={() => addFieldGroupEnumDimension(sourceIndex, group.id, definition.id)}><strong>{definition.name || 'Untitled domain'}</strong><small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small></button>)}
+                                {config.valueEnums.every((definition) => group.dimensions.some((entry) => entry.enumId === definition.id)) ? <span className="empty-option">All global domains are already used.</span> : null}
+                              </div> : null}
+                            </div>
                           </div>
                         </div>
                         <button className="mini-icon-button danger" type="button" title="Delete dimensioned field set" aria-label="Delete dimensioned field set" onClick={() => deleteFieldGroup(sourceIndex, group.id)}><Trash2 size={12} /></button>
@@ -4746,7 +5176,7 @@ function DataSourceHeader({
                           setFieldGroupDragOver(null);
                         }}
                       >
-                        <div className="data-source-field-heading"><span /><span>PK</span><span>Fields without dimensions</span><span>Type</span><span>Meaning</span><span>Unit</span><span>Actions</span></div>
+                        <div className="data-source-field-heading"><span /><span>PK</span><span>Fields without dimensions</span><span>Type</span><span className="data-source-field-meaning-heading">Meaning</span><span>Unit</span><span>Actions</span></div>
                         {source.fields.length === 0 ? <span className="empty-option">No fields in this data source.</span> : null}
                         {source.fields.length > 0 && groupedFieldIds.size === source.fields.length ? <span className="data-source-ungroup-drop-hint">Drag a field here to remove it from a dimensioned set.</span> : null}
                         {source.fields.flatMap((field, fieldIndex) => {
@@ -4821,6 +5251,7 @@ function DataSourceHeader({
                 </section>
               ];
             })}
+            </div> : null}
           </div>
         </div>,
         document.body
@@ -5170,7 +5601,7 @@ function KpiSourceEditor({
   const renderLookupChoice = (lookup: LookupDefinition) => (
     <label className="source-choice-row" key={lookup.id}>
       <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'lookup' && item.lookupId === lookup.id)} onChange={() => toggleLookup(lookup.id)} />
-      <span><strong>{lookup.outputName}</strong><small>{lookup.outputValueType === 'enum' ? 'Enum output' : 'Number output'}{lookup.outputExplanation ? ` · ${lookup.outputExplanation}` : ''}{lookup.inputs.length ? ` · ${lookup.inputs.length} ${lookup.inputs.length === 1 ? 'input' : 'inputs'}` : ''}</small></span>
+      <span><strong>{lookup.outputName}</strong><small>{lookup.outputValueType === 'enum' ? 'Domain output' : 'Number output'}{lookup.outputExplanation ? ` · ${lookup.outputExplanation}` : ''}{lookup.inputs.length ? ` · ${lookup.inputs.length} ${lookup.inputs.length === 1 ? 'input' : 'inputs'}` : ''}</small></span>
     </label>
   );
   const renderVariableChoice = (variable: VariableDefinition) => (
@@ -5433,6 +5864,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const aggregationShortcut = spatialScale
     ? `\\sum_{${basicUnitScale ? latexIdentifier(spatialScaleLabels[basicUnitScale]) : ''} \\in ${latexIdentifier(spatialScaleLabels[spatialScale])}}`
     : '';
+  const collectionDomains = useMemo(() => formulaCollectionDomains(config, kpi), [config, kpi]);
   const dimensionShortcuts = useMemo(() => {
     const shortcuts = new Map<string, { latex: string; label: string; kind: 'Dimension' | 'Option' | 'Set' }>();
     formulaDimensions(config, kpi).forEach((dimension) => {
@@ -5458,8 +5890,18 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
           });
         }
     });
+    collectionDomains.forEach((domain) => {
+      domain.options
+        .map((option) => ({ option, latex: latexIdentifier(option) }))
+        .filter((option) => option.latex)
+        .forEach(({ option, latex }) => shortcuts.set(`collection-domain-option:${domain.key}:${latex}`, {
+          latex,
+          label: `${domain.name} option: ${option}`,
+          kind: 'Option'
+        }));
+    });
     return [...shortcuts.values()];
-  }, [config, kpi]);
+  }, [collectionDomains, config, kpi]);
   useLayoutEffect(() => {
     const container = paletteOptionsRef.current;
     if (!container || paletteExpanded) return undefined;
@@ -5528,7 +5970,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             </div>
           </section> : null}
           {dimensionShortcuts.length ? <section className="formula-shortcut-group">
-            <span className="formula-shortcut-group-label">Dimensions</span>
+            <span className="formula-shortcut-group-label">{collectionDomains.some((domain) => domain.options.some((option) => latexIdentifier(option))) ? 'Dimensions & domain options' : 'Dimensions'}</span>
             <div className="formula-shortcut-group-options">
               {dimensionShortcuts.map((shortcut) => <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
                 <span className="formula-shortcut-kind">{shortcut.kind}</span>
@@ -5904,6 +6346,16 @@ function InteractiveFormulaPreview({
         label: `${dimension.name} option: ${option}`
       }))
     ]), [config, kpi]);
+  const collectionDomainTokens = useMemo(() => formulaCollectionDomains(config, kpi).flatMap((domain): FormulaSemanticToken[] =>
+    domain.options.flatMap((option) => {
+      const latex = latexIdentifier(option);
+      return latex ? [{
+        latex,
+        kind: 'dimension' as const,
+        label: `${domain.name} option: ${option}`
+      }] : [];
+    })
+  ), [config, kpi]);
   const referencedKpiNames = JSON.stringify(kpi.sources
     .filter((source) => source.type === 'kpi')
     .map((source) => {
@@ -5942,6 +6394,7 @@ function InteractiveFormulaPreview({
     () => decorateFormulaTokens(item.formula, [
       ...sourceTokens,
       ...dimensionTokens,
+      ...collectionDomainTokens,
       ...spatialScaleFormulaKeywords.map((keyword) => ({
         latex: keyword,
         kind: 'scale' as const,
@@ -5956,7 +6409,7 @@ function InteractiveFormulaPreview({
         originFormulaIndex: currentFormulaIndex >= 0 ? currentFormulaIndex : undefined
       }
     ]),
-    [currentFormulaIndex, dimensionTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
+    [collectionDomainTokens, currentFormulaIndex, dimensionTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
   const renderedHtml = useMemo(
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),
@@ -6828,24 +7281,43 @@ function ExpandedKpiEditor({
 }
 
 function KpiDimensionControl({
+  config,
   kpi,
   open,
   onOpenChange,
+  onViewDomain,
   onChange
 }: {
+  config: KpiPoolConfig;
   kpi: KpiMetric;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onViewDomain: (domainId: string) => void;
   onChange: (dimensions: DataSourceFieldDimension[]) => void;
 }) {
-  const [dimensionDraft, setDimensionDraft] = useState('');
+  const [domainPickerOpen, setDomainPickerOpen] = useState(false);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => onOpenChange(false));
   const popoverId = `kpi-dimension-popover-${kpi.id}`;
   const addDimension = () => {
-    const name = dimensionDraft.trim();
-    if (!name || kpi.dimensions.some((dimension) => dimension.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())) return;
+    const existingNames = new Set(kpi.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase()));
+    let name = 'New dimension';
+    let suffix = 2;
+    while (existingNames.has(name.toLocaleLowerCase())) {
+      name = `New dimension ${suffix}`;
+      suffix += 1;
+    }
     onChange([...kpi.dimensions, { id: createLocalId('kpi-dimension'), name, options: [] }]);
-    setDimensionDraft('');
+  };
+  const addEnumDimension = (enumId: string) => {
+    const definition = config.valueEnums.find((entry) => entry.id === enumId);
+    if (!definition || kpi.dimensions.some((dimension) => dimension.enumId === enumId)) return;
+    onChange([...kpi.dimensions, {
+      id: createLocalId('kpi-dimension'),
+      name: definition.name,
+      options: [...definition.options],
+      enumId: definition.id
+    }]);
+    setDomainPickerOpen(false);
   };
   const updateDimension = (id: string, partial: Partial<DataSourceFieldDimension>) => {
     onChange(kpi.dimensions.map((dimension) => dimension.id === id ? { ...dimension, ...partial } : dimension));
@@ -6875,39 +7347,40 @@ function KpiDimensionControl({
           <div className="kpi-dimension-list">
             {kpi.dimensions.length === 0 ? <span className="empty-option">This KPI has no dimensions.</span> : null}
             {kpi.dimensions.map((dimension) => (
-              <section className="kpi-dimension-row" key={dimension.id}>
+              <section className={`kpi-dimension-row ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
                 <div className="kpi-dimension-heading">
-                  <DebouncedInput
+                  {dimension.enumId ? <div className="global-domain-definition">
+                    <small>Global domain</small>
+                    <strong>{dimension.name || 'Untitled domain'}</strong>
+                    <span>{dimension.options.length ? dimension.options.join(', ') : 'No options defined'}</span>
+                    <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={onViewDomain} />
+                  </div> : <DebouncedInput
                     value={dimension.name}
                     aria-label="Dimension name"
                     placeholder="Dimension name"
                     onValueChange={(name) => updateDimension(dimension.id, { name })}
-                  />
+                  />}
                   <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeDimension(dimension.id)}><Trash2 size={12} /></button>
                 </div>
-                <div className="kpi-dimension-options">
+                {!dimension.enumId ? <div className="kpi-dimension-options">
                   <EnumOptionEditor
                     options={dimension.options}
                     label={`${dimension.name || 'dimension'} dimension`}
                     onChange={(options) => updateDimension(dimension.id, { options })}
                   />
-                </div>
+                </div> : null}
               </section>
             ))}
           </div>
-          <div className="kpi-dimension-add">
-            <input
-              value={dimensionDraft}
-              placeholder="New dimension"
-              aria-label="New KPI dimension"
-              onChange={(event) => setDimensionDraft(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key !== 'Enter') return;
-                event.preventDefault();
-                addDimension();
-              }}
-            />
-            <button className="primary-action tiny" type="button" disabled={!dimensionDraft.trim()} onClick={addDimension}><Plus size={11} /> Add</button>
+          <div className="dimension-add-actions kpi-dimension-add-actions">
+            <button className="primary-action tiny" type="button" onClick={() => { setDomainPickerOpen(false); addDimension(); }}><Plus size={11} /> Add custom dimension</button>
+            <div className="global-domain-add-control">
+              <button className="secondary-action tiny" type="button" disabled={config.valueEnums.length === 0} aria-expanded={domainPickerOpen} onClick={() => setDomainPickerOpen((current) => !current)}><Plus size={11} /> Add global domain</button>
+              {domainPickerOpen ? <div className="global-domain-picker" role="menu">
+                {config.valueEnums.filter((definition) => !kpi.dimensions.some((dimension) => dimension.enumId === definition.id)).map((definition) => <button type="button" role="menuitem" key={definition.id} onClick={() => addEnumDimension(definition.id)}><strong>{definition.name || 'Untitled domain'}</strong><small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small></button>)}
+                {config.valueEnums.every((definition) => kpi.dimensions.some((dimension) => dimension.enumId === definition.id)) ? <span className="empty-option">All global domains are already used.</span> : null}
+              </div> : null}
+            </div>
           </div>
         </div>
       ) : null}
@@ -7039,9 +7512,11 @@ function KpiRow({
                 ) : null}
               </div>
               <KpiDimensionControl
+                config={config}
                 kpi={kpi}
                 open={dimensionControlOpen}
                 onOpenChange={setDimensionControlOpen}
+                onViewDomain={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })}
                 onChange={(dimensions) => patch({ dimensions })}
               />
             </div>
@@ -7291,6 +7766,7 @@ function KpiTable({
   onDuplicate,
   onReorder,
   onAddKpi,
+  onEditLibrarySource,
   focusedAssignment,
   performanceAreaSort,
   onPerformanceAreaSortChange
@@ -7307,6 +7783,7 @@ function KpiTable({
   onDuplicate: (id: string) => void;
   onReorder: (sourceId: string, targetId: string, position: DropPosition) => void;
   onAddKpi: (beforeKpiId?: string) => void;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
   focusedAssignment?: UseCaseAssignment;
   performanceAreaSort: PerformanceAreaSortOrder;
   onPerformanceAreaSortChange: (next: PerformanceAreaSortOrder) => void;
@@ -7315,7 +7792,6 @@ function KpiTable({
   const [hiddenEnumColumns, setHiddenEnumColumns] = useState<KpiEnumCategoryKey[]>(defaultHiddenEnumColumns);
   const [resizingColumn, setResizingColumn] = useState<number | null>(null);
   const [dragState, setDragState] = useState<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
-  const [sourceLibraryEditRequest, setSourceLibraryEditRequest] = useState<SourceLibraryEditRequest>();
   const dragSessionRef = useRef<{ sourceId: string; overId?: string; position?: DropPosition } | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRequestRef = useRef<number | null>(null);
@@ -7327,9 +7803,6 @@ function KpiTable({
   const stableOnDuplicate = useStableCallback(onDuplicate);
   const stableOnReorder = useStableCallback(onReorder);
   const stableOnAddKpi = useStableCallback(onAddKpi);
-  const editLibrarySource = useCallback((target: SourceLibraryEditTarget) => {
-    setSourceLibraryEditRequest((current) => ({ ...target, requestId: (current?.requestId ?? 0) + 1 }));
-  }, []);
   const visibleEnumCategories = useMemo(
     () => categoryFields.filter((category) => !hiddenEnumColumns.includes(category)),
     [hiddenEnumColumns]
@@ -7688,7 +8161,7 @@ function KpiTable({
                 {resizeHandle(0, 'Name and description')}
               </th>
               <th className={headerClass(2)}>
-                <DataSourceHeader config={config} filter={filters.prerequisite} onFilterChange={(prerequisite) => onFiltersChange({ ...filters, prerequisite })} onConfigChange={onConfigChange} editRequest={sourceLibraryEditRequest} />
+                <TextHeaderFilter label="Source" value={filters.prerequisite} placeholder="Search sources..." onChange={(prerequisite) => onFiltersChange({ ...filters, prerequisite })} />
                 {resizeHandle(2, 'Source')}
               </th>
               <th className={headerClass(3)}>
@@ -7822,7 +8295,7 @@ function KpiTable({
                 onDuplicate={stableOnDuplicate}
                 onInsertBefore={stableOnAddKpi}
                 onDragHandleMouseDown={startRowDrag}
-                onEditLibrarySource={editLibrarySource}
+                onEditLibrarySource={onEditLibrarySource}
                 onHeightChange={handleRowHeightChange}
               />
             ))}
@@ -7884,6 +8357,10 @@ function EditorApp({
   const [focusedAssignment, setFocusedAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
   const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(true);
   const [performanceAreaSort, setPerformanceAreaSort] = useState<PerformanceAreaSortOrder>();
+  const [sourceLibraryEditRequest, setSourceLibraryEditRequest] = useState<SourceLibraryEditRequest>();
+  const editLibrarySource = useCallback((target: SourceLibraryEditTarget) => {
+    setSourceLibraryEditRequest((current) => ({ ...target, requestId: (current?.requestId ?? 0) + 1 }));
+  }, []);
   const baselineKpisRef = useRef(new Map(initialConfig.kpis.map((kpi) => [kpi.id, kpi])));
   const lastSyncedKpiIdsRef = useRef(
     new Set(initialRemoteExists ? initialConfig.kpis.map((kpi) => kpi.id) : [])
@@ -8281,7 +8758,8 @@ function EditorApp({
       const parsed = readConfigFromHtml(await file.text());
       const repaired = repairConfig(parsed);
       const merged = mergeImportedConfig(config, repaired.config);
-      const incomingById = new Map(repaired.config.kpis.map((kpi) => [kpi.id, kpi]));
+      const normalizedMerged = repairConfig(merged.config);
+      const incomingById = new Map(normalizedMerged.config.kpis.map((kpi) => [kpi.id, kpi]));
       const nextBaselines = new Map(baselineKpisRef.current);
       for (const id of merged.importedKpiIds) {
         const importedKpi = incomingById.get(id);
@@ -8289,18 +8767,22 @@ function EditorApp({
           nextBaselines.set(id, importedKpi);
         }
       }
-      for (const kpi of merged.config.kpis) {
+      for (const kpi of normalizedMerged.config.kpis) {
         if (!nextBaselines.has(kpi.id)) {
           nextBaselines.set(kpi.id, kpi);
         }
       }
       baselineKpisRef.current = nextBaselines;
-      setConfig(merged.config);
+      setConfig(normalizedMerged.config);
       setHasUnsavedChanges(true);
       setWarnings([
         ...repaired.warnings,
+        ...normalizedMerged.warnings,
         ...(merged.enumConflicts > 0
-          ? [`${merged.enumConflicts} imported enum option${merged.enumConflicts === 1 ? '' : 's'} had an existing ID with different content; the current option was kept.`]
+          ? [`${merged.enumConflicts} imported domain option${merged.enumConflicts === 1 ? '' : 's'} had an existing ID with different content; the current option was kept.`]
+          : []),
+        ...(merged.valueEnumConflicts > 0
+          ? [`${merged.valueEnumConflicts} imported global domain${merged.valueEnumConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept and linked uses were synchronized.`]
           : []),
         ...(merged.dataSourceConflicts > 0
           ? [`${merged.dataSourceConflicts} imported data source${merged.dataSourceConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
@@ -8421,6 +8903,7 @@ function EditorApp({
           </div>
         </div>
         <div className="topbar-row topbar-secondary-row">
+          <div className="topbar-focus-and-library">
           <UseCaseFocusController
             config={config}
             examineAssignment={examineAssignment}
@@ -8431,6 +8914,13 @@ function EditorApp({
             onExitFocus={exitUseCaseFocus}
             onHideUnassignedChange={setHideOutsideFocusedGroup}
           />
+          <DataSourceHeader
+            config={config}
+            onConfigChange={setConfigAndRepairExpansion}
+            editRequest={sourceLibraryEditRequest}
+            onEditLibrarySource={editLibrarySource}
+          />
+          </div>
           <div className="topbar-actions topbar-actions-right">
             <button className="secondary-action small" type="button" onClick={() => updateFilters(emptyFilters())} disabled={!filterCount}>
               <X size={14} aria-hidden="true" />
@@ -8470,6 +8960,7 @@ function EditorApp({
           onDuplicate={duplicateKpi}
           onReorder={reorderKpi}
           onAddKpi={addKpi}
+          onEditLibrarySource={editLibrarySource}
           focusedAssignment={focusedAssignment}
           performanceAreaSort={performanceAreaSort}
           onPerformanceAreaSortChange={setPerformanceAreaSort}

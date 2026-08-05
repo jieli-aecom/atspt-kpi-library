@@ -261,7 +261,7 @@ const normalSync = async (request: Request) => {
       const conflictWarnings = mergeResult
         ? [
             ...(mergeResult.enumConflicts
-              ? [`${mergeResult.enumConflicts} enum definition conflict${mergeResult.enumConflicts === 1 ? '' : 's'} kept the hosted value.`]
+              ? [`${mergeResult.enumConflicts} domain definition conflict${mergeResult.enumConflicts === 1 ? '' : 's'} kept the hosted value.`]
               : []),
             ...(mergeResult.dataSourceConflicts
               ? [`${mergeResult.dataSourceConflicts} data-source conflict${mergeResult.dataSourceConflicts === 1 ? '' : 's'} kept the hosted value.`]

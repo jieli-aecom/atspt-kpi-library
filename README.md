@@ -70,7 +70,7 @@ The browser asks for the shared library secret and calls `GET /api/config`. The 
 **Save to JSON** sends the edited configuration and the ETag from the last successful load. The Function rereads the hosted document before every write.
 
 - Existing edited objects are updated when the editor started from the current ETag.
-- New KPI, enum, data-source, and lookup IDs are added.
+- New KPI, domain, data-source, and lookup IDs are added.
 - KPI IDs deleted in this editor are sent as tombstones and removed from the merged result.
 - A KPI deleted by another editor is restored when it is still present in this editor; other collections remain additive.
 - If another editor saved first, KPI conflicts use `lastModified`; non-versioned definition conflicts keep the hosted value and are reported.
@@ -110,9 +110,9 @@ All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use 
 
 ## Schema compatibility
 
-`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `31`.
+`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `33`.
 
-The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to enum IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
+The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to domain IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
 
 A configuration whose `schemaVersion` is newer than the running application supports is rejected. It is never silently converted to an older schema, preventing a stale deployment from deleting fields introduced by a future release.
 
@@ -126,16 +126,17 @@ When introducing a future schema:
 
 ## Config shape
 
-- `schemaVersion`: currently `31`
+- `schemaVersion`: currently `33`
 - `title`: library title
 - `updatedAt`: ISO timestamp written by the server or during HTML export
-- `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned use-case definitions
-- `dataSources`: reusable data-source definitions and fields; enum fields retain user-defined options, each spatial unit is blank, `Point`, or a named spatial scale, and dimensioned field groups retain library-only option lists
-- `lookups`: reusable lookup definitions with documented inputs and output; each value is numeric or an enum with user-defined options, and each lookup can include optional long-form paragraphed text
+- `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned domain definitions
+- `valueEnums` / `valueEnumGroups`: global, grouped domain definitions that can supply names and options to fields, lookup values, and dimensions (the internal property names are retained for backward compatibility)
+- `dataSources`: reusable source-table definitions and fields; domain fields and dimensions can retain inline options or reference a global domain
+- `lookups`: reusable lookup definitions with documented inputs and output; domain inputs and outputs can retain inline options or reference a global domain
 - `kpis`: KPI definitions with stable IDs, `lastModified`, optional dimensions, sources, formulas, prerequisites, spatial scales, use-case assignments, performance areas, and notes
 
 See [`src/types.ts`](src/types.ts) for the complete current model.
 
 ## Systematic JSON export
 
-**Export as JSON** downloads the KPIs in the current filtered and sorted view. Each exported KPI contains only Name, Source, Formula, Spatial Scales, Performance Areas, User Group, and Use Case. The file also includes the enum definitions used by those columns and the library's complete data-source definitions.
+**Export as JSON** downloads the KPIs in the current filtered and sorted view. Each exported KPI contains only Name, Source, Formula, Spatial Scales, Performance Areas, User Group, and Use Case. The file also includes the domain definitions used by those columns and the library's complete data-source definitions.

@@ -7,6 +7,8 @@ export type ConfigMergeResult = {
   updatedKpis: number;
   addedEnumOptions: number;
   enumConflicts: number;
+  addedValueEnums: number;
+  valueEnumConflicts: number;
   addedDataSources: number;
   dataSourceConflicts: number;
   addedLookups: number;
@@ -83,6 +85,8 @@ export const mergeConcurrentConfig = (
       mergeConcurrentCollection(current.enums[category], base.enums[category], incoming.enums[category])
     ])
   ) as KpiPoolConfig['enums'],
+  valueEnums: mergeConcurrentCollection(current.valueEnums, base.valueEnums, incoming.valueEnums),
+  valueEnumGroups: mergeConcurrentCollection(current.valueEnumGroups, base.valueEnumGroups, incoming.valueEnumGroups),
   dataSources: mergeConcurrentCollection(current.dataSources, base.dataSources, incoming.dataSources),
   tableRelations: mergeConcurrentCollection(current.tableRelations, base.tableRelations, incoming.tableRelations),
   lookups: mergeConcurrentCollection(current.lookups, base.lookups, incoming.lookups),
@@ -141,6 +145,14 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
       return [category, [...current.enums[category], ...additions]];
     })
   ) as KpiPoolConfig['enums'];
+  let valueEnumConflicts = 0;
+  const currentValueEnumsById = new Map(current.valueEnums.map((definition) => [definition.id, definition]));
+  const addedValueEnums = incoming.valueEnums.filter((definition) => {
+    const existing = currentValueEnumsById.get(definition.id);
+    if (!existing) return true;
+    if (!sameValue(existing, definition)) valueEnumConflicts += 1;
+    return false;
+  });
 
   const incomingById = new Map(incoming.kpis.map((kpi) => [kpi.id, kpi]));
   const currentIds = new Set(current.kpis.map((kpi) => kpi.id));
@@ -208,6 +220,8 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     current.lookupGroups.length === 0 &&
     current.variables.length === 0 &&
     current.variableGroups.length === 0 &&
+    current.valueEnums.length === 0 &&
+    current.valueEnumGroups.length === 0 &&
     enumCategoryKeys.every((category) => current.enums[category].length === 0);
 
   return {
@@ -217,6 +231,14 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
       title: currentIsEmpty ? incoming.title : current.title,
       defaultFocus: currentIsEmpty ? incoming.defaultFocus : current.defaultFocus,
       enums,
+      valueEnums: [...current.valueEnums, ...addedValueEnums],
+      valueEnumGroups: mergeImportedLibraryGroups(
+        current.valueEnumGroups,
+        incoming.valueEnumGroups,
+        current.valueEnums,
+        incoming.valueEnums,
+        addedValueEnums
+      ),
       dataSources: [...current.dataSources, ...addedDataSources],
       tableRelations: [...current.tableRelations, ...addedTableRelations],
       lookups: [...current.lookups, ...addedLookups],
@@ -242,6 +264,8 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     updatedKpis,
     addedEnumOptions,
     enumConflicts,
+    addedValueEnums: addedValueEnums.length,
+    valueEnumConflicts,
     addedDataSources: addedDataSources.length,
     dataSourceConflicts,
     addedLookups: addedLookups.length,
