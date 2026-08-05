@@ -3550,16 +3550,13 @@ h1 {
   display: grid;
   gap: 4px;
   align-items: start;
-  overflow-y: hidden;
+  overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
   padding: 3px 5px;
   color: #1f2931;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
-}
-
-.formula-display.has-visible-overflow {
-  overflow-y: auto;
-  overscroll-behavior: contain;
 }
 
 .formula-comment-display {

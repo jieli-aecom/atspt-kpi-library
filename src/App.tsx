@@ -2064,7 +2064,6 @@ function FormulaDisplay({
   const comment = kpi.description.formulaComment;
   const hasFormula = formulas.some((group) => group.items.some((item) => item.formula.trim()));
   const displayRef = useRef<HTMLDivElement | null>(null);
-  const [hasVisibleOverflow, setHasVisibleOverflow] = useState(false);
 
   useEffect(() => {
     const element = displayRef.current;
@@ -2087,8 +2086,6 @@ function FormulaDisplay({
         }
       }
 
-      const nextHasVisibleOverflow = element.scrollHeight > element.clientHeight + 1;
-      setHasVisibleOverflow((current) => (current === nextHasVisibleOverflow ? current : nextHasVisibleOverflow));
     };
 
     const scheduleMeasure = () => {
@@ -2114,10 +2111,10 @@ function FormulaDisplay({
 
   useEffect(() => {
     const element = displayRef.current;
-    if (!element || !hasVisibleOverflow) return undefined;
+    if (!element) return undefined;
 
     const handleWheel = (event: WheelEvent) => {
-      if (event.deltaY === 0) return;
+      if (event.deltaY === 0 || element.scrollHeight <= element.clientHeight + 1) return;
       const canScrollInDirection = event.deltaY < 0
         ? element.scrollTop > 1
         : element.scrollTop + element.clientHeight < element.scrollHeight - 1;
@@ -2137,12 +2134,11 @@ function FormulaDisplay({
 
     element.addEventListener('wheel', handleWheel, { passive: false });
     return () => element.removeEventListener('wheel', handleWheel);
-  }, [hasVisibleOverflow]);
+  }, []);
 
-  const displayClassName = `formula-display${hasVisibleOverflow ? ' has-visible-overflow' : ''}`;
   if (!hasFormula) {
     return (
-      <div className={`${displayClassName} formula-comment-display`} ref={displayRef}>
+      <div className="formula-display formula-comment-display" ref={displayRef}>
         {comment.trim() ? <span>{comment}</span> : <span className="muted-dash">No formula</span>}
       </div>
     );
@@ -2161,7 +2157,7 @@ function FormulaDisplay({
     .filter((group) => group.name.trim() || group.items.length > 0);
 
   return (
-    <div className={displayClassName} ref={displayRef}>
+    <div className="formula-display" ref={displayRef}>
       {visibleGroups.length ? (
         visibleGroups.map((group, groupIndex) => (
           <div className="formula-display-group" key={`${group.name}-${groupIndex}`}>
