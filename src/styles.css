@@ -1124,7 +1124,7 @@ h1 {
 
 .lookup-definition > summary {
   display: grid;
-  grid-template-columns: 16px auto minmax(0, 1fr) auto 14px;
+  grid-template-columns: 16px auto minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   min-height: 34px;
@@ -1185,7 +1185,16 @@ h1 {
   font-size: 9px;
 }
 
-.lookup-definition > summary code {
+.lookup-summary-trailing {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.lookup-summary-trailing > code {
+  min-width: 0;
   max-width: 210px;
   overflow: hidden;
   border-radius: 4px;
@@ -1197,12 +1206,13 @@ h1 {
   white-space: nowrap;
 }
 
-.lookup-definition > summary > svg:last-child {
+.lookup-summary-trailing > svg:last-child {
+  flex: 0 0 auto;
   transform: rotate(-90deg);
   transition: transform 120ms ease;
 }
 
-.lookup-definition[open] > summary > svg:last-child {
+.lookup-definition[open] > summary .lookup-summary-trailing > svg:last-child {
   transform: rotate(0deg);
 }
 
@@ -3172,6 +3182,10 @@ h1 {
   font-size: 1em;
 }
 
+.formula-display .formula-preview {
+  background: transparent;
+}
+
 .formula-render-wrap,
 .formula-display .katex,
 .formula-display .katex-html,
@@ -3181,12 +3195,31 @@ h1 {
 .term-preview .katex-html {
   max-width: 100%;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   word-break: normal;
 }
 
 .formula-render-wrap {
   min-width: 0;
+}
+
+.interactive-formula-preview .katex-html > .base,
+.interactive-inline-formula .katex-html > .base {
+  padding-block: 0.05em;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  text-indent: 0;
+}
+
+.interactive-formula-preview .katex-html,
+.interactive-inline-formula .katex-html {
+  line-height: 1.3;
+}
+
+.interactive-formula-preview .katex-html.has-formula-continuation-indent {
+  width: 100%;
+  padding-inline-start: var(--formula-continuation-indent);
+  text-indent: calc(-1 * var(--formula-continuation-indent));
 }
 
 .muted-dash,
@@ -4368,18 +4401,7 @@ h1 {
 }
 
 .formula-preview > .formula-render-wrap {
-  flex: 0 0 auto;
-  width: max-content;
-  min-width: 100%;
-  max-width: none;
-}
-
-.formula-preview .formula-render-wrap,
-.formula-preview .katex,
-.formula-preview .katex-html {
-  max-width: none;
-  white-space: nowrap;
-  overflow-wrap: normal;
+  width: 100%;
 }
 
 .formula-preview.compact .katex-display {
@@ -4401,6 +4423,11 @@ h1 {
 
 .formula-preview .katex-display {
   margin: 0;
+  text-align: left;
+}
+
+.formula-preview .katex-display > .katex {
+  text-align: left;
 }
 
 .formula-explanation-row {

@@ -2156,7 +2156,6 @@ function FormulaDisplay({
                         priorItems={allFormulaItems.slice(0, allFormulaItems.indexOf(item))}
                         highlightedFormulaIndex={highlightedFormulaIndex}
                         onSemanticTarget={onSemanticTarget}
-                        inline
                       />
                     ) : (
                       <span className="muted-dash">No formula</span>
@@ -3939,21 +3938,23 @@ function DataSourceHeader({
                 aria-label="Lookup Name"
                 onChange={(event) => updateLookup(lookupIndex, { outputName: event.target.value })}
               />
-              <small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small>
             </span>
           </label>
-          <code>{lookupDefaultLatex(lookup)}</code>
-          <span className="lookup-header-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-            <button className="mini-icon-button" type="button" title="Copy lookup" aria-label={`Copy ${lookup.outputName.trim() || 'untitled lookup'}`} onClick={(event) => {
-              event.preventDefault();
-              duplicateLookup(lookupIndex);
-            }}><Copy size={12} /></button>
-            <button className="mini-icon-button danger" type="button" title="Delete lookup" aria-label={`Delete ${lookup.outputName.trim() || 'untitled lookup'}`} onClick={(event) => {
-              event.preventDefault();
-              deleteLookup(lookupIndex);
-            }}><Trash2 size={12} /></button>
+          <span className="lookup-summary-trailing">
+            <small>{lookup.inputs.length} {lookup.inputs.length === 1 ? 'input' : 'inputs'}</small>
+            <code>{lookupDefaultLatex(lookup)}</code>
+            <span className="lookup-header-actions" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+              <button className="mini-icon-button" type="button" title="Copy lookup" aria-label={`Copy ${lookup.outputName.trim() || 'untitled lookup'}`} onClick={(event) => {
+                event.preventDefault();
+                duplicateLookup(lookupIndex);
+              }}><Copy size={12} /></button>
+              <button className="mini-icon-button danger" type="button" title="Delete lookup" aria-label={`Delete ${lookup.outputName.trim() || 'untitled lookup'}`} onClick={(event) => {
+                event.preventDefault();
+                deleteLookup(lookupIndex);
+              }}><Trash2 size={12} /></button>
+            </span>
+            <ChevronDown size={12} aria-hidden="true" />
           </span>
-          <ChevronDown size={12} aria-hidden="true" />
         </summary>
         <div className="lookup-definition-body">
           <section className="lookup-output-section" aria-label="Lookup output">
@@ -5677,6 +5678,33 @@ const findFormulaToken = (formula: string, token: FormulaSemanticToken, startInd
   return undefined;
 };
 
+const splitFormulaAtSafeCommas = (formula: string) => {
+  if (/\\left|\\right/.test(formula)) return [formula];
+  const segments: string[] = [];
+  let segment = '';
+  let braceDepth = 0;
+  for (let index = 0; index < formula.length; index += 1) {
+    const character = formula[index];
+    if (character === '\\') {
+      segment += character;
+      if (index + 1 < formula.length) {
+        segment += formula[index + 1];
+        index += 1;
+      }
+      continue;
+    }
+    if (character === '{') braceDepth += 1;
+    if (character === '}') braceDepth = Math.max(0, braceDepth - 1);
+    segment += character;
+    if ((character === ',' || character === '(') && braceDepth === 0) {
+      segments.push(segment);
+      segment = '';
+    }
+  }
+  if (segment) segments.push(segment);
+  return segments;
+};
+
 const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]): DecoratedFormula => {
   const tokenMatchLatex = (token: FormulaSemanticToken) => token.matchLatex ?? token.latex;
   const tokenClassNames = (token: FormulaSemanticToken & { index: number }) => [
@@ -5693,6 +5721,32 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
   const cached = formulaDecorationCache.get(cacheKey);
   if (cached) return cached;
   const buildDecoratedFormula = (activeTokens: typeof uniqueTokens) => {
+    const safeBreakIndexes = new Set<number>();
+    let braceDepth = 0;
+    for (let index = 0; index < formula.length; index += 1) {
+      const character = formula[index];
+      if (character === '\\') {
+        index += 1;
+        continue;
+      }
+      if (character === '{') braceDepth += 1;
+      if (character === '}') braceDepth = Math.max(0, braceDepth - 1);
+      if (
+        (character === ',' || character === '(') &&
+        braceDepth === 0 &&
+        !/^\s*\\allowbreak\b/.test(formula.slice(index + 1))
+      ) {
+        safeBreakIndexes.add(index);
+      }
+    }
+    const formulaRangeWithSafeBreaks = (start: number, end: number) => {
+      let value = '';
+      for (let index = start; index < end; index += 1) {
+        value += formula[index];
+        if (safeBreakIndexes.has(index)) value += ' \\allowbreak ';
+      }
+      return value;
+    };
     const decorateNestedSemanticTokens = (parentLatex: string, parentToken: typeof uniqueTokens[number]) => {
       const nestedTokens = activeTokens.filter((token) =>
         token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale')
@@ -5737,15 +5791,25 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
         }
       }
       if (!match || !occurrence) {
-        decorated += formula.slice(cursor);
+        decorated += formulaRangeWithSafeBreaks(cursor, formula.length);
         break;
       }
-      decorated += formula.slice(cursor, occurrence.index);
+      decorated += formulaRangeWithSafeBreaks(cursor, occurrence.index);
       const matchedLatex = occurrence.latex;
       const decoratedMatch = match.kind === 'result' || match.kind === 'source' || match.kind === 'collection'
         ? decorateNestedSemanticTokens(matchedLatex, match)
         : matchedLatex;
-      decorated += `\\htmlClass{${tokenClassNames(match)}}{${decoratedMatch}}`;
+      const precedingFormula = formula.slice(0, occurrence.index).trimEnd();
+      const shouldBreakBeforeToken = (
+        match.kind === 'source' ||
+        match.kind === 'collection' ||
+        match.kind === 'lookup' ||
+        match.kind === 'variable'
+      ) && precedingFormula.length > 0 && !/[=+\-*/,(]$/.test(precedingFormula);
+      if (shouldBreakBeforeToken) decorated += ' \\allowbreak ';
+      decorated += splitFormulaAtSafeCommas(decoratedMatch)
+        .map((segment) => `\\htmlClass{${tokenClassNames(match)}}{${segment}}`)
+        .join(' \\allowbreak ');
       cursor = occurrence.index + matchedLatex.length;
     }
     return decorated;
@@ -5898,6 +5962,54 @@ function InteractiveFormulaPreview({
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),
     [inline, item.formula, semantic.decorated]
   );
+
+  useLayoutEffect(() => {
+    const container = previewRef.current;
+    const renderedFormula = container?.querySelector<HTMLElement>('.katex-html');
+    if (!container || !renderedFormula) return undefined;
+
+    renderedFormula.classList.remove('has-formula-continuation-indent');
+    renderedFormula.style.removeProperty('--formula-continuation-indent');
+
+    const leftExpression = item.leftExpression.trim();
+    if (!leftExpression || !item.rightExpression.trim()) return undefined;
+
+    const leftTemplate = document.createElement('template');
+    leftTemplate.innerHTML = renderFormulaHtml(leftExpression, leftExpression, true);
+    const leftEqualsCount = [...leftTemplate.content.querySelectorAll<HTMLElement>('.mrel')]
+      .filter((element) => element.textContent?.trim() === '=').length;
+    const connector = [...renderedFormula.querySelectorAll<HTMLElement>('.mrel')]
+      .filter((element) => element.textContent?.trim() === '=')[leftEqualsCount];
+    const connectorBase = connector?.closest<HTMLElement>('.base');
+    if (!connectorBase) return undefined;
+
+    let active = true;
+    const measure = () => {
+      if (!active) return;
+      const formulaRect = renderedFormula.getBoundingClientRect();
+      const connectorRect = connectorBase.getBoundingClientRect();
+      const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      const indentationCap = Math.min(container.clientWidth * 0.28, rootFontSize * 10);
+      const indentation = Math.max(0, Math.min(connectorRect.right - formulaRect.left, indentationCap));
+      const nextIndentation = `${Math.round(indentation * 10) / 10}px`;
+      if (renderedFormula.style.getPropertyValue('--formula-continuation-indent') !== nextIndentation) {
+        renderedFormula.style.setProperty('--formula-continuation-indent', nextIndentation);
+      }
+      renderedFormula.classList.toggle('has-formula-continuation-indent', indentation > 0);
+    };
+
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(container);
+    void document.fonts?.ready.then(measure);
+
+    return () => {
+      active = false;
+      observer?.disconnect();
+      renderedFormula.classList.remove('has-formula-continuation-indent');
+      renderedFormula.style.removeProperty('--formula-continuation-indent');
+    };
+  }, [item.leftExpression, item.rightExpression, renderedHtml]);
 
   useEffect(() => {
     const container = previewRef.current;
