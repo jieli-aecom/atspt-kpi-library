@@ -2489,18 +2489,26 @@ function GroupedDomainSelect({
   label: string;
   onChange: (domainId: string) => void;
 }) {
-  const sections = domainChoiceSections(definitions, groups);
-  const showGroups = sections.some((section) => section.label);
+  const [open, setOpen] = useState(false);
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const selected = definitions.find((definition) => definition.id === value);
   return (
-    <div className="grouped-domain-select">
-      <ListFilter size={13} aria-hidden="true" />
-      <select value={value} aria-label={label} onChange={(event) => onChange(event.target.value)}>
-        {showGroups ? sections.map((section) => (
-          <optgroup label={section.label ?? 'Ungrouped'} key={section.id}>
-            {section.definitions.map((definition) => <option value={definition.id} key={definition.id}>{definition.name || 'Untitled domain'}</option>)}
-          </optgroup>
-        )) : definitions.map((definition) => <option value={definition.id} key={definition.id}>{definition.name || 'Untitled domain'}</option>)}
-      </select>
+    <div className="grouped-domain-select" ref={controlRef}>
+      <button className="grouped-domain-select-trigger" type="button" aria-label={label} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
+        <ListFilter size={13} aria-hidden="true" />
+        <span>{selected?.name || 'Untitled domain'}</span>
+        <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
+      </button>
+      {open ? <div className="global-domain-picker grouped-domain-select-menu" role="menu">
+        <GroupedDomainPickerOptions
+          definitions={definitions}
+          groups={groups}
+          onSelect={(domainId) => {
+            onChange(domainId);
+            setOpen(false);
+          }}
+        />
+      </div> : null}
     </div>
   );
 }
@@ -2514,17 +2522,29 @@ function GroupedDomainPickerOptions({
   groups: DataLibraryGroup[];
   onSelect: (domainId: string) => void;
 }) {
+  const [expandedSectionIds, setExpandedSectionIds] = useState<string[]>([]);
   const sections = domainChoiceSections(definitions, groups);
   const showGroups = sections.some((section) => section.label);
   return <>{sections.map((section) => (
     <div className="global-domain-picker-section" key={section.id}>
-      {showGroups ? <div className="global-domain-picker-heading"><ListFilter size={11} aria-hidden="true" />{section.label ?? 'Ungrouped'}</div> : null}
-      {section.definitions.map((definition) => (
+      {showGroups ? <button
+        className="global-domain-picker-heading"
+        type="button"
+        aria-expanded={expandedSectionIds.includes(section.id)}
+        onClick={() => setExpandedSectionIds((current) => current.includes(section.id)
+          ? current.filter((id) => id !== section.id)
+          : [...current, section.id])}
+      >
+        <ChevronDown className={expandedSectionIds.includes(section.id) ? '' : 'is-collapsed'} size={11} aria-hidden="true" />
+        <span>{section.label ?? 'Ungrouped'}</span>
+        <small>{section.definitions.length}</small>
+      </button> : null}
+      {(!showGroups || expandedSectionIds.includes(section.id)) ? section.definitions.map((definition) => (
         <button type="button" role="menuitem" key={definition.id} onClick={() => onSelect(definition.id)}>
           <strong>{definition.name || 'Untitled domain'}</strong>
           <small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small>
         </button>
-      ))}
+      )) : null}
     </div>
   ))}</>;
 }

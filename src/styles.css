@@ -1004,36 +1004,53 @@ h1 {
 }
 
 .grouped-domain-select {
-  display: grid;
-  grid-template-columns: 26px minmax(0, 1fr);
-  align-items: center;
+  position: relative;
   min-width: 0;
+}
+
+.grouped-domain-select-trigger {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr) 24px;
+  align-items: center;
+  width: 100%;
+  min-height: 30px;
   overflow: hidden;
   border: 1px solid #b9cbc4;
   border-radius: 6px;
   background: #f7fbf9;
+  padding: 0;
   color: #4a7767;
+  text-align: left;
 }
 
-.grouped-domain-select > svg {
+.grouped-domain-select-trigger > svg {
   justify-self: center;
 }
 
-.grouped-domain-select > select {
+.grouped-domain-select-trigger > span {
   min-width: 0;
-  min-height: 29px;
-  border: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
   border-left: 1px solid #d7e3de;
-  border-radius: 0;
   background: #fff;
   padding: 4px 7px;
+  color: #33443e;
   font-size: 11px;
   font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.grouped-domain-select > select:focus {
+.grouped-domain-select-trigger:focus-visible {
   outline: 2px solid rgba(74, 126, 109, 0.32);
   outline-offset: -2px;
+}
+
+.grouped-domain-select-menu {
+  right: 0;
+  left: auto;
+  width: max(100%, min(310px, 72vw));
 }
 
 .value-enum-mode-summary {
@@ -2592,15 +2609,47 @@ h1 {
   display: flex;
   align-items: center;
   gap: 4px;
+  width: 100%;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
   padding: 3px 7px 2px;
   color: #668076;
   font-size: 9px;
   font-weight: 850;
   letter-spacing: 0.04em;
+  text-align: left;
   text-transform: uppercase;
 }
 
-.global-domain-picker-section > button {
+.global-domain-picker-heading:hover,
+.global-domain-picker-heading:focus-visible {
+  background: #edf6f2;
+}
+
+.global-domain-picker-heading > svg {
+  flex: 0 0 auto;
+  transition: transform 120ms ease;
+}
+
+.global-domain-picker-heading > svg.is-collapsed {
+  transform: rotate(-90deg);
+}
+
+.global-domain-picker-heading > span {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-domain-picker-heading > small {
+  color: #8a9a94;
+  font-size: 9px;
+}
+
+.global-domain-picker-section > button:not(.global-domain-picker-heading) {
   display: grid;
   gap: 2px;
   border: 0;
@@ -2611,16 +2660,16 @@ h1 {
   text-align: left;
 }
 
-.global-domain-picker-section > button:hover,
-.global-domain-picker-section > button:focus-visible {
+.global-domain-picker-section > button:not(.global-domain-picker-heading):hover,
+.global-domain-picker-section > button:not(.global-domain-picker-heading):focus-visible {
   background: #edf6f2;
 }
 
-.global-domain-picker-section > button strong {
+.global-domain-picker-section > button:not(.global-domain-picker-heading) strong {
   font-size: 11px;
 }
 
-.global-domain-picker-section > button small {
+.global-domain-picker-section > button:not(.global-domain-picker-heading) small {
   overflow: hidden;
   color: #6c7772;
   font-size: 9px;
