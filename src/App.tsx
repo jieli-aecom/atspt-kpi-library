@@ -889,6 +889,18 @@ const sameStructuredValue = (left: unknown, right: unknown): boolean => {
   );
 };
 
+const preserveUnchangedEntries = <T extends { id: string }>(previous: T[], next: T[]): T[] => {
+  if (previous === next) return previous;
+  const previousById = new Map(previous.map((entry) => [entry.id, entry]));
+  const reconciled = next.map((entry) => {
+    const prior = previousById.get(entry.id);
+    return prior && sameStructuredValue(prior, entry) ? prior : entry;
+  });
+  return previous.length === reconciled.length && previous.every((entry, index) => entry === reconciled[index])
+    ? previous
+    : reconciled;
+};
+
 const sameKpiMaterial = (left: KpiMetric, right: KpiMetric) =>
   left.id === right.id &&
   left.name === right.name &&
@@ -1986,7 +1998,6 @@ function SpatialScaleBadges({
   kpi: KpiMetric;
   onSemanticTarget: (target: FormulaSemanticTarget) => void;
 }) {
-  const normalFormulaItems = kpi.description.formulas.flatMap((group) => group.items);
   const applicableScales = spatialScaleKeys.filter((scale) => kpi.spatialScales[scale].applicable);
   const scalesWithoutFormula = applicableScales.filter((scale) => {
     const value = kpi.spatialScales[scale];
@@ -2030,7 +2041,7 @@ function SpatialScaleBadges({
             >
               {spatialScaleLabels[scale]}
             </span>
-            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} onSemanticTarget={onSemanticTarget} inline />
+            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} onSemanticTarget={onSemanticTarget} inline />
           </div>
         );
       })}
@@ -2051,19 +2062,20 @@ function FormulaDisplay({
 }) {
   const formulas = kpi.description.formulas;
   const comment = kpi.description.formulaComment;
-  const allFormulaItems = formulas.flatMap((group) => group.items);
   const hasFormula = formulas.some((group) => group.items.some((item) => item.formula.trim()));
   const displayRef = useRef<HTMLDivElement | null>(null);
   const [hasVisibleOverflow, setHasVisibleOverflow] = useState(false);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const element = displayRef.current;
     if (!element) return undefined;
     const cell = element.closest<HTMLTableCellElement>('td');
     let active = true;
+    let frame: number | null = null;
 
     const measure = () => {
       if (!active) return;
+      frame = null;
       if (cell) {
         const cellStyle = getComputedStyle(cell);
         const availableCellHeight = cell.clientHeight
@@ -2075,27 +2087,27 @@ function FormulaDisplay({
         }
       }
 
-      const containerRect = element.getBoundingClientRect();
-      const paddingBottom = Number.parseFloat(getComputedStyle(element).paddingBottom) || 0;
-      const visibleContentBottom = Array.from(element.children).reduce(
-        (bottom, child) => Math.max(bottom, child.getBoundingClientRect().bottom - containerRect.top + element.scrollTop),
-        0
-      );
-      const nextHasVisibleOverflow = visibleContentBottom > element.clientHeight - paddingBottom + 1;
+      const nextHasVisibleOverflow = element.scrollHeight > element.clientHeight + 1;
       setHasVisibleOverflow((current) => (current === nextHasVisibleOverflow ? current : nextHasVisibleOverflow));
     };
 
-    measure();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    const scheduleMeasure = () => {
+      if (!active || frame !== null) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+
+    scheduleMeasure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure);
     observer?.observe(element);
     if (cell) {
       observer?.observe(cell);
     }
     Array.from(element.children).forEach((child) => observer?.observe(child));
-    void document.fonts?.ready.then(measure);
+    void document.fonts?.ready.then(scheduleMeasure);
 
     return () => {
       active = false;
+      if (frame !== null) window.cancelAnimationFrame(frame);
       observer?.disconnect();
     };
   }, [comment, formulas, hasFormula]);
@@ -2163,7 +2175,6 @@ function FormulaDisplay({
                         config={config}
                         kpi={kpi}
                         item={item}
-                        priorItems={allFormulaItems.slice(0, allFormulaItems.indexOf(item))}
                         highlightedFormulaIndex={highlightedFormulaIndex}
                         onSemanticTarget={onSemanticTarget}
                       />
@@ -3178,7 +3189,11 @@ const dataSourceCollectionItemTypeLabels: Record<DataSourceCollectionItemType, s
 const fieldGroupDimensionLabel = (group?: DataSourceFieldGroup) =>
   group?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
 
+const formulaDimensionsCache = new WeakMap<KpiMetric, { config: KpiPoolConfig; value: DataSourceFieldDimension[] }>();
+
 const formulaDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFieldDimension[] => {
+  const cached = formulaDimensionsCache.get(kpi);
+  if (cached?.config === config) return cached.value;
   const combined = new Map<string, DataSourceFieldDimension>();
   const dimensions = [
     ...kpi.dimensions,
@@ -3207,7 +3222,9 @@ const formulaDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFie
       existingOptions.add(normalizedOption);
     });
   });
-  return [...combined.values()];
+  const value = [...combined.values()];
+  formulaDimensionsCache.set(kpi, { config, value });
+  return value;
 };
 
 type FormulaCollectionDomain = {
@@ -3216,7 +3233,11 @@ type FormulaCollectionDomain = {
   options: string[];
 };
 
+const formulaCollectionDomainsCache = new WeakMap<KpiMetric, { config: KpiPoolConfig; value: FormulaCollectionDomain[] }>();
+
 const formulaCollectionDomains = (config: KpiPoolConfig, kpi: KpiMetric): FormulaCollectionDomain[] => {
+  const cached = formulaCollectionDomainsCache.get(kpi);
+  if (cached?.config === config) return cached.value;
   const domains = new Map<string, FormulaCollectionDomain>();
   kpi.sources.forEach((source) => {
     if (source.type !== 'dataField') return;
@@ -3233,7 +3254,9 @@ const formulaCollectionDomains = (config: KpiPoolConfig, kpi: KpiMetric): Formul
       options: [...(globalDomain?.options ?? field.options)]
     });
   });
-  return [...domains.values()];
+  const value = [...domains.values()];
+  formulaCollectionDomainsCache.set(kpi, { config, value });
+  return value;
 };
 
 function DataSourceHeader({
@@ -3399,14 +3422,14 @@ function DataSourceHeader({
     onConfigChange({ ...config, variables, variableGroups });
   const patchValueEnums = (valueEnums: ValueEnumDefinition[], valueEnumGroups = config.valueEnumGroups) =>
     onConfigChange({ ...config, valueEnums, valueEnumGroups });
-  const addValueEnum = (insertionIndex = config.valueEnums.length, groupId?: string) => {
+  const addValueEnum = (insertionIndex = config.valueEnums.length, groupId?: string, shiftGroupsAtInsertion = true) => {
     const definition: ValueEnumDefinition = { id: createLocalId('value-enum'), name: 'New domain', options: [] };
     const index = Math.max(0, Math.min(insertionIndex, config.valueEnums.length));
     patchValueEnums(
       [...config.valueEnums.slice(0, index), definition, ...config.valueEnums.slice(index)],
       config.valueEnumGroups.map((group) => ({
         ...group,
-        position: group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
+        position: shiftGroupsAtInsertion && group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
         itemIds: group.id === groupId ? [...group.itemIds, definition.id] : group.itemIds
       }))
     );
@@ -3482,7 +3505,7 @@ function DataSourceHeader({
       kpis: config.kpis.map((kpi) => ({ ...kpi, dimensions: kpi.dimensions.map(clearDimension) }))
     });
   };
-  const addLookup = (insertionIndex = config.lookups.length, groupId?: string) => {
+  const addLookup = (insertionIndex = config.lookups.length, groupId?: string, shiftGroupsAtInsertion = true) => {
     const lookup: LookupDefinition = {
       id: createLocalId('lookup'),
       outputName: 'New lookup',
@@ -3497,7 +3520,7 @@ function DataSourceHeader({
       [...config.lookups.slice(0, index), lookup, ...config.lookups.slice(index)],
       config.lookupGroups.map((group) => ({
         ...group,
-        position: group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
+        position: shiftGroupsAtInsertion && group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
         itemIds: group.id === groupId ? [...group.itemIds, lookup.id] : group.itemIds
       }))
     );
@@ -3550,7 +3573,7 @@ function DataSourceHeader({
       }))
     });
   };
-  const addVariable = (insertionIndex = config.variables.length, groupId?: string) => {
+  const addVariable = (insertionIndex = config.variables.length, groupId?: string, shiftGroupsAtInsertion = true) => {
     const variable: VariableDefinition = {
       id: createLocalId('variable'),
       name: 'New variable',
@@ -3562,7 +3585,7 @@ function DataSourceHeader({
       [...config.variables.slice(0, index), variable, ...config.variables.slice(index)],
       config.variableGroups.map((group) => ({
         ...group,
-        position: group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
+        position: shiftGroupsAtInsertion && group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
         itemIds: group.id === groupId ? [...group.itemIds, variable.id] : group.itemIds
       }))
     );
@@ -4233,7 +4256,7 @@ function DataSourceHeader({
     position: number,
     key: string,
     groupId?: string,
-    shiftGroupsAtPosition = false
+    shiftGroupsAtPosition = true
   ) => (
     <div
       className={`field-insert-actions library-insert-actions ${libraryInsertDragOver?.kind === kind && libraryInsertDragOver.key === key ? 'is-drag-over' : ''}`}
@@ -4258,7 +4281,11 @@ function DataSourceHeader({
       <button
         className="list-insert-divider"
         type="button"
-        onClick={() => kind === 'lookup' ? addLookup(position, groupId) : kind === 'variable' ? addVariable(position, groupId) : addValueEnum(position, groupId)}
+        onClick={() => kind === 'lookup'
+          ? addLookup(position, groupId, shiftGroupsAtPosition)
+          : kind === 'variable'
+            ? addVariable(position, groupId, shiftGroupsAtPosition)
+            : addValueEnum(position, groupId, shiftGroupsAtPosition)}
       ><Plus size={11} aria-hidden="true" />Add {kind} here</button>
       <button
         className="list-insert-divider field-group-insert-divider"
@@ -4793,7 +4820,7 @@ function DataSourceHeader({
                     ...groupsAtPosition.map(renderLookupGroup),
                     ...(isUngrouped ? [
                       ...(groupsAtPosition.length > 0
-                        ? [renderLibraryInsertActions('lookup', lookupIndex, `after-lookup-groups-${lookup.id}`)]
+                        ? [renderLibraryInsertActions('lookup', lookupIndex, `after-lookup-groups-${lookup.id}`, undefined, false)]
                         : [renderLibraryInsertActions('lookup', lookupIndex, `insert-lookup-${lookup.id}`)]),
                       renderLookupItem(lookup, lookupIndex)
                     ] : [])
@@ -4803,6 +4830,9 @@ function DataSourceHeader({
                   ? renderLibraryInsertActions('lookup', config.lookups.length, 'before-final-lookup-groups', undefined, true)
                   : null}
                 {config.lookupGroups.filter((group) => group.position === config.lookups.length).map(renderLookupGroup)}
+                {config.lookups.length > 0 || config.lookupGroups.length > 0
+                  ? renderLibraryInsertActions('lookup', config.lookups.length, 'after-final-lookup-groups', undefined, false)
+                  : null}
                 <div className="library-final-actions">
                   <button className="secondary-action tiny" type="button" onClick={() => addLookup()}><Plus size={11} /> Add lookup</button>
                   <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('lookup', config.lookups.length)}><Plus size={11} /> Add group</button>
@@ -4841,7 +4871,7 @@ function DataSourceHeader({
                     ...groupsAtPosition.map(renderVariableGroup),
                     ...(isUngrouped ? [
                       ...(groupsAtPosition.length > 0
-                        ? [renderLibraryInsertActions('variable', variableIndex, `after-variable-groups-${variable.id}`)]
+                        ? [renderLibraryInsertActions('variable', variableIndex, `after-variable-groups-${variable.id}`, undefined, false)]
                         : [renderLibraryInsertActions('variable', variableIndex, `insert-variable-${variable.id}`)]),
                       renderVariableItem(variable, variableIndex)
                     ] : [])
@@ -4851,6 +4881,9 @@ function DataSourceHeader({
                   ? renderLibraryInsertActions('variable', config.variables.length, 'before-final-variable-groups', undefined, true)
                   : null}
                 {config.variableGroups.filter((group) => group.position === config.variables.length).map(renderVariableGroup)}
+                {config.variables.length > 0 || config.variableGroups.length > 0
+                  ? renderLibraryInsertActions('variable', config.variables.length, 'after-final-variable-groups', undefined, false)
+                  : null}
                 <div className="library-final-actions">
                   <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button>
                   <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('variable', config.variables.length)}><Plus size={11} /> Add group</button>
@@ -4878,13 +4911,16 @@ function DataSourceHeader({
                   ...(groupsAtPosition.length > 0 ? [renderLibraryInsertActions('enum', enumIndex, `before-enum-groups-${definition.id}`, undefined, true)] : []),
                   ...groupsAtPosition.map(renderValueEnumGroup),
                   ...(isUngrouped ? [
-                    ...(groupsAtPosition.length > 0 ? [renderLibraryInsertActions('enum', enumIndex, `after-enum-groups-${definition.id}`)] : [renderLibraryInsertActions('enum', enumIndex, `insert-enum-${definition.id}`)]),
+                    ...(groupsAtPosition.length > 0 ? [renderLibraryInsertActions('enum', enumIndex, `after-enum-groups-${definition.id}`, undefined, false)] : [renderLibraryInsertActions('enum', enumIndex, `insert-enum-${definition.id}`)]),
                     renderValueEnumItem(definition, enumIndex)
                   ] : [])
                 ];
               })}
               {config.valueEnumGroups.some((group) => group.position === config.valueEnums.length) ? renderLibraryInsertActions('enum', config.valueEnums.length, 'before-final-enum-groups', undefined, true) : null}
               {config.valueEnumGroups.filter((group) => group.position === config.valueEnums.length).map(renderValueEnumGroup)}
+              {config.valueEnums.length > 0 || config.valueEnumGroups.length > 0
+                ? renderLibraryInsertActions('enum', config.valueEnums.length, 'after-final-enum-groups', undefined, false)
+                : null}
               <div className="library-final-actions">
                 <button className="secondary-action tiny" type="button" onClick={() => addValueEnum()}><Plus size={11} /> Add domain</button>
                 <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('enum', config.valueEnums.length)}><Plus size={11} /> Add group</button>
@@ -6155,6 +6191,7 @@ type FormulaTokenMatch = { index: number; latex: string };
 const formulaDecorationCache = new Map<string, DecoratedFormula>();
 const formulaHtmlCache = new Map<string, string>();
 const formulaTokenValidityCache = new Map<string, boolean>();
+const formulaTokenMatchCache = new Map<string, Map<string, boolean>>();
 const formulaCacheLimit = 500;
 
 const cacheFormulaResult = <T,>(cache: Map<string, T>, key: string, value: T) => {
@@ -6236,6 +6273,28 @@ const findFormulaToken = (formula: string, token: FormulaSemanticToken, startInd
   return undefined;
 };
 
+const formulaContainsToken = (formula: string, token: FormulaSemanticToken) => {
+  let matchesByToken = formulaTokenMatchCache.get(formula);
+  if (!matchesByToken) {
+    if (formulaTokenMatchCache.size >= formulaCacheLimit) {
+      const oldestFormula = formulaTokenMatchCache.keys().next().value;
+      if (oldestFormula !== undefined) formulaTokenMatchCache.delete(oldestFormula);
+    }
+    matchesByToken = new Map<string, boolean>();
+    formulaTokenMatchCache.set(formula, matchesByToken);
+  }
+  const tokenKey = JSON.stringify([
+    token.kind,
+    token.matchLatex ?? token.latex,
+    Boolean(token.requiresFollowingParenthesis)
+  ]);
+  const cached = matchesByToken.get(tokenKey);
+  if (cached !== undefined) return cached;
+  const matches = Boolean(findFormulaToken(formula, token, 0));
+  matchesByToken.set(tokenKey, matches);
+  return matches;
+};
+
 const splitFormulaAtSafeCommas = (formula: string) => {
   if (/\\left|\\right/.test(formula)) return [formula];
   const segments: string[] = [];
@@ -6274,7 +6333,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
   const uniqueTokens = [...new Map(tokens.filter((token) => tokenMatchLatex(token).trim()).map((token) => [tokenMatchLatex(token), token])).values()]
     .map((token, index) => ({ ...token, index }))
     .sort((left, right) => tokenMatchLatex(right).length - tokenMatchLatex(left).length);
-  const matchingTokens = uniqueTokens.filter((token) => findFormulaToken(formula, token, 0));
+  const matchingTokens = uniqueTokens.filter((token) => formulaContainsToken(formula, token));
   const cacheKey = JSON.stringify([formula, matchingTokens]);
   const cached = formulaDecorationCache.get(cacheKey);
   if (cached) return cached;
@@ -6432,11 +6491,31 @@ const renderFormulaHtml = (formula: string, decorated: string, inline: boolean) 
   return cacheFormulaResult(formulaHtmlCache, cacheKey, rendered);
 };
 
+type FormulaItemCatalog = {
+  items: KpiFormulaItem[];
+  indexByItem: Map<KpiFormulaItem, number>;
+  finalItem?: KpiFormulaItem;
+};
+
+const formulaItemCatalogCache = new WeakMap<KpiMetric, FormulaItemCatalog>();
+
+const formulaItemCatalog = (kpi: KpiMetric) => {
+  const cached = formulaItemCatalogCache.get(kpi);
+  if (cached) return cached;
+  const items = kpi.description.formulas.flatMap((group) => group.items);
+  const value = {
+    items,
+    indexByItem: new Map(items.map((item, index) => [item, index])),
+    finalItem: items.slice().reverse().find((item) => item.formula.trim() || item.leftExpression.trim())
+  };
+  formulaItemCatalogCache.set(kpi, value);
+  return value;
+};
+
 function InteractiveFormulaPreview({
-  config,
-  kpi,
-  item,
-  priorItems,
+  config: currentConfig,
+  kpi: currentKpi,
+  item: currentItem,
   inline = false,
   highlightedFormulaIndex,
   onSemanticTarget
@@ -6444,12 +6523,16 @@ function InteractiveFormulaPreview({
   config: KpiPoolConfig;
   kpi: KpiMetric;
   item: KpiFormulaItem;
-  priorItems: KpiFormulaItem[];
   inline?: boolean;
   highlightedFormulaIndex?: number;
   onSemanticTarget?: (target: FormulaSemanticTarget) => void;
 }) {
   const previewRef = useRef<HTMLDivElement | null>(null);
+  const previewInput = useMemo(
+    () => ({ config: currentConfig, kpi: currentKpi, item: currentItem }),
+    [currentConfig, currentItem, currentKpi]
+  );
+  const { config, kpi, item } = useDeferredValue(previewInput);
   const dimensionTokens = useMemo(() => formulaDimensions(config, kpi).flatMap((dimension): FormulaSemanticToken[] => [
       {
         latex: latexIdentifier(dimension.name),
@@ -6492,12 +6575,14 @@ function InteractiveFormulaPreview({
       target: { kind: 'source', sourceId: source.id }
     };
   }), [config.dataSources, config.lookups, config.variables, kpi.sources, referencedKpiNames]);
-  const regularFormulaItems = kpi.description.formulas.flatMap((group) => group.items);
-  const finalFormulaItem = regularFormulaItems.slice().reverse().find((formulaItem) => formulaItem.formula.trim() || formulaItem.leftExpression.trim());
-  const currentFormulaIndex = regularFormulaItems.indexOf(item);
-  const priorItemsKey = JSON.stringify(priorItems.map((prior) => [regularFormulaItems.indexOf(prior), prior.leftExpression, prior.tag]));
+  const itemCatalog = formulaItemCatalog(kpi);
+  const regularFormulaItems = itemCatalog.items;
+  const finalFormulaItem = itemCatalog.finalItem;
+  const currentFormulaIndex = itemCatalog.indexByItem.get(item) ?? -1;
+  const priorItems = currentFormulaIndex >= 0 ? regularFormulaItems.slice(0, currentFormulaIndex) : regularFormulaItems;
+  const priorItemsKey = JSON.stringify(priorItems.map((prior) => [itemCatalog.indexByItem.get(prior), prior.leftExpression, prior.tag]));
   const priorItemTokens = useMemo(() => priorItems.map((prior): FormulaSemanticToken => {
-    const formulaIndex = regularFormulaItems.indexOf(prior);
+    const formulaIndex = itemCatalog.indexByItem.get(prior) ?? -1;
     return {
       latex: prior.leftExpression,
       kind: 'result',
@@ -6532,7 +6617,7 @@ function InteractiveFormulaPreview({
     [inline, item.formula, semantic.decorated]
   );
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     const container = previewRef.current;
     const renderedFormula = container?.querySelector<HTMLElement>('.katex-html');
     if (!container || !renderedFormula) return undefined;
@@ -6553,8 +6638,10 @@ function InteractiveFormulaPreview({
     if (!connectorBase) return undefined;
 
     let active = true;
+    let frame: number | null = null;
     const measure = () => {
       if (!active) return;
+      frame = null;
       const formulaRect = renderedFormula.getBoundingClientRect();
       const connectorRect = connectorBase.getBoundingClientRect();
       const rootFontSize = Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
@@ -6567,13 +6654,19 @@ function InteractiveFormulaPreview({
       renderedFormula.classList.toggle('has-formula-continuation-indent', indentation > 0);
     };
 
-    measure();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    const scheduleMeasure = () => {
+      if (!active || frame !== null) return;
+      frame = window.requestAnimationFrame(measure);
+    };
+
+    scheduleMeasure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(scheduleMeasure);
     observer?.observe(container);
-    void document.fonts?.ready.then(measure);
+    void document.fonts?.ready.then(scheduleMeasure);
 
     return () => {
       active = false;
+      if (frame !== null) window.cancelAnimationFrame(frame);
       observer?.disconnect();
       renderedFormula.classList.remove('has-formula-continuation-indent');
       renderedFormula.style.removeProperty('--formula-continuation-indent');
@@ -6859,7 +6952,7 @@ function SpatialScaleMatrix({
                     rightExpression: partial.rightExpression ?? scaleValue.rightExpression
                   })}
                 />
-                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} priorItems={normalFormulaItems} onSemanticTarget={onSemanticTarget} />
+                <InteractiveFormulaPreview config={config} kpi={kpi} item={item} onSemanticTarget={onSemanticTarget} />
                 <details className="formula-explanations spatial-scale-explanation">
                   <summary title="Show aggregation explanation"><Info size={13} aria-hidden="true" /><span>Aggregation explanation</span></summary>
                   <label className="field">
@@ -7304,7 +7397,6 @@ function ExpandedKpiEditor({
                         config={config}
                         kpi={kpi}
                         item={item}
-                        priorItems={allFormulaItems.slice(0, currentFormulaIndex)}
                         onSemanticTarget={onSemanticTarget}
                       />
                       <button
@@ -8543,7 +8635,21 @@ function EditorApp({
   const commitConfig = useCallback((action: KpiPoolConfig | ((current: KpiPoolConfig) => KpiPoolConfig)) => {
     setHasUnsavedChanges(true);
     setConfig((current) => {
-      const next = typeof action === 'function' ? action(current) : action;
+      const candidateConfig = typeof action === 'function' ? action(current) : action;
+      // Several catalog operations intentionally walk every entry to synchronize
+      // linked domains. Restore structural sharing for entries that the walk did
+      // not actually change so memoized KPI rows do not all re-render.
+      const next = {
+        ...candidateConfig,
+        valueEnums: preserveUnchangedEntries(current.valueEnums, candidateConfig.valueEnums),
+        valueEnumGroups: preserveUnchangedEntries(current.valueEnumGroups, candidateConfig.valueEnumGroups),
+        dataSources: preserveUnchangedEntries(current.dataSources, candidateConfig.dataSources),
+        tableRelations: preserveUnchangedEntries(current.tableRelations, candidateConfig.tableRelations),
+        lookups: preserveUnchangedEntries(current.lookups, candidateConfig.lookups),
+        lookupGroups: preserveUnchangedEntries(current.lookupGroups, candidateConfig.lookupGroups),
+        variables: preserveUnchangedEntries(current.variables, candidateConfig.variables),
+        variableGroups: preserveUnchangedEntries(current.variableGroups, candidateConfig.variableGroups)
+      };
       const currentById = new Map(current.kpis.map((kpi) => [kpi.id, kpi]));
       const nextIds = new Set(next.kpis.map((kpi) => kpi.id));
       const kpis = next.kpis.map((candidate) => {
@@ -8561,9 +8667,7 @@ function EditorApp({
         }
 
         if (sameKpiMaterial(previous, candidate)) {
-          return candidate.lastModified === previous.lastModified
-            ? candidate
-            : { ...candidate, lastModified: previous.lastModified };
+          return previous;
         }
 
         const baseline = baselineKpisRef.current.get(candidate.id);

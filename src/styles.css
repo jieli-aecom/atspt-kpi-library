@@ -847,8 +847,10 @@ h1 {
 .data-source-popover {
   position: fixed;
   z-index: 10000;
-  overflow-x: hidden;
-  overflow-y: auto;
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid #bfcbd2;
   border-radius: 9px;
   background: #fff;
@@ -867,6 +869,7 @@ h1 {
 }
 
 .data-source-popover-heading {
+  flex: 0 0 auto;
   grid-template-columns: minmax(0, 1fr) auto;
   margin-bottom: 10px;
 }
@@ -893,7 +896,15 @@ h1 {
 }
 
 .data-source-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 12px;
+  scrollbar-gutter: stable;
   display: grid;
+  align-content: start;
   gap: 10px;
 }
 
