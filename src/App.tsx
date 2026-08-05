@@ -2483,7 +2483,7 @@ const domainChoiceSections = (
   }
   return [
     ...groupedSections,
-    ...(ungrouped.length ? [{ id: 'ungrouped-domains', label: 'Ungrouped', definitions: ungrouped }] : [])
+    ...(ungrouped.length ? [{ id: 'ungrouped-domains', definitions: ungrouped }] : [])
   ];
 };
 
@@ -2535,10 +2535,9 @@ function GroupedDomainPickerOptions({
 }) {
   const [expandedSectionIds, setExpandedSectionIds] = useState<string[]>([]);
   const sections = domainChoiceSections(definitions, groups);
-  const showGroups = sections.some((section) => section.label);
   return <>{sections.map((section) => (
     <div className="global-domain-picker-section" key={section.id}>
-      {showGroups ? <button
+      {section.label ? <button
         className="global-domain-picker-heading"
         type="button"
         aria-expanded={expandedSectionIds.includes(section.id)}
@@ -2547,10 +2546,10 @@ function GroupedDomainPickerOptions({
           : [...current, section.id])}
       >
         <ChevronDown className={expandedSectionIds.includes(section.id) ? '' : 'is-collapsed'} size={11} aria-hidden="true" />
-        <span>{section.label ?? 'Ungrouped'}</span>
+        <span>{section.label}</span>
         <small>{section.definitions.length}</small>
       </button> : null}
-      {(!showGroups || expandedSectionIds.includes(section.id)) ? section.definitions.map((definition) => (
+      {(!section.label || expandedSectionIds.includes(section.id)) ? section.definitions.map((definition) => (
         <button type="button" role="menuitem" key={definition.id} onClick={() => onSelect(definition.id)}>
           <strong>{definition.name || 'Untitled domain'}</strong>
           <small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small>
@@ -5189,12 +5188,12 @@ function DataSourceHeader({
                           {group.dimensions.map((dimension) => (
                             <div className={`field-group-dimension-row ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
                               {dimension.enumId ? <div className="global-domain-definition">
-                                <small>Global domain</small>
+                                <small>By · Global domain</small>
                                 <strong>{dimension.name || 'Untitled domain'}</strong>
                                 <span>{dimension.options.length ? dimension.options.join(', ') : 'No options defined'}</span>
                                 <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })} />
                               </div> : <label className="data-source-field-group-control">
-                                <small>Name:</small>
+                                <small>By:</small>
                                 <input value={dimension.name} aria-label="Dimension name" placeholder="Mode" onChange={(event) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { name: event.target.value })} />
                               </label>}
                               {!dimension.enumId ? <div className="data-source-field-group-control">
@@ -5223,9 +5222,9 @@ function DataSourceHeader({
                                 {config.valueEnums.every((definition) => group.dimensions.some((entry) => entry.enumId === definition.id)) ? <span className="empty-option">All global domains are already used.</span> : null}
                               </div> : null}
                             </div>
+                            <button className="secondary-action tiny dimensioned-field-set-delete" type="button" title="Delete dimensioned field set" onClick={() => deleteFieldGroup(sourceIndex, group.id)}><Trash2 size={11} /> Delete field set</button>
                           </div>
                         </div>
-                        <button className="mini-icon-button danger" type="button" title="Delete dimensioned field set" aria-label="Delete dimensioned field set" onClick={() => deleteFieldGroup(sourceIndex, group.id)}><Trash2 size={12} /></button>
                       </div>
                     </div>
                   </details>

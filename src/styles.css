@@ -2501,7 +2501,7 @@ h1 {
 
 .data-source-field-group-settings {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 26px;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 5px;
 }
@@ -2514,7 +2514,7 @@ h1 {
 .field-group-dimension-row {
   display: grid;
   grid-template-columns: minmax(130px, 0.5fr) minmax(220px, 1fr) 26px;
-  align-items: end;
+  align-items: start;
   gap: 5px;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.55);
@@ -2575,6 +2575,19 @@ h1 {
   border-top: 1px solid #dfe7ea;
   margin-top: 4px;
   padding-top: 8px;
+}
+
+.dimensioned-field-set-delete {
+  margin-left: auto;
+  border-color: #e2b9b5;
+  background: #fff8f7;
+  color: #a2433c;
+}
+
+.dimensioned-field-set-delete:hover,
+.dimensioned-field-set-delete:focus-visible {
+  border-color: #cb8f88;
+  background: #fdecea;
 }
 
 .global-domain-add-control {
