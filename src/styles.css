@@ -2513,7 +2513,7 @@ h1 {
 
 .field-group-dimension-row {
   display: grid;
-  grid-template-columns: minmax(130px, 0.5fr) minmax(220px, 1fr) 26px;
+  grid-template-columns: minmax(130px, 0.5fr) minmax(220px, 1fr) 26px 26px;
   align-items: start;
   gap: 5px;
   border-radius: 5px;
@@ -2521,8 +2521,15 @@ h1 {
   padding: 5px;
 }
 
-.field-group-dimension-row.is-global {
-  grid-template-columns: minmax(0, 1fr) 26px;
+.field-group-dimension-row.is-global > .data-source-field-group-control > input[readonly] {
+  background: #f7fbf9;
+  color: #315a4d;
+  cursor: default;
+}
+
+.field-group-dimension-action-spacer {
+  width: 26px;
+  height: 26px;
 }
 
 .global-domain-definition {
@@ -5239,6 +5246,10 @@ h1 {
   .data-source-field-row,
   .selected-source-row {
     grid-template-columns: 1fr;
+  }
+
+  .field-group-dimension-action-spacer {
+    display: none;
   }
 
   .formula-equals,

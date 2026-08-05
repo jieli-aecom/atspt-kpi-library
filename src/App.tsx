@@ -5187,25 +5187,31 @@ function DataSourceHeader({
                         <div className="field-group-dimension-list">
                           {group.dimensions.map((dimension) => (
                             <div className={`field-group-dimension-row ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
-                              {dimension.enumId ? <div className="global-domain-definition">
-                                <small>By · Global domain</small>
-                                <strong>{dimension.name || 'Untitled domain'}</strong>
-                                <span>{dimension.options.length ? dimension.options.join(', ') : 'No options defined'}</span>
-                                <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })} />
-                              </div> : <label className="data-source-field-group-control">
+                              <label className="data-source-field-group-control">
                                 <small>By:</small>
-                                <input value={dimension.name} aria-label="Dimension name" placeholder="Mode" onChange={(event) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { name: event.target.value })} />
-                              </label>}
-                              {!dimension.enumId ? <div className="data-source-field-group-control">
+                                <input
+                                  value={dimension.name}
+                                  aria-label="Dimension name"
+                                  placeholder="Mode"
+                                  readOnly={Boolean(dimension.enumId)}
+                                  title={dimension.enumId ? 'Managed in Domains' : undefined}
+                                  onChange={(event) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { name: event.target.value })}
+                                />
+                              </label>
+                              <div className="data-source-field-group-control">
                                 <small>Options:</small>
                                 <div className="field-group-dimension-options">
-                                  <EnumOptionEditor
+                                  {dimension.enumId && dimension.options.length === 0 ? <span className="empty-option">No options defined</span> : <EnumOptionEditor
                                     options={dimension.options}
                                     label={`${dimension.name || 'dimension'} dimension`}
+                                    disabled={Boolean(dimension.enumId)}
                                     onChange={(options) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { options })}
-                                  />
+                                  />}
                                 </div>
-                              </div> : null}
+                              </div>
+                              {dimension.enumId
+                                ? <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })} />
+                                : <span className="field-group-dimension-action-spacer" aria-hidden="true" />}
                               <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeFieldGroupDimension(sourceIndex, group.id, dimension.id)}><Trash2 size={12} /></button>
                             </div>
                           ))}
