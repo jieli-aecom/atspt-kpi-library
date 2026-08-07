@@ -1103,49 +1103,59 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
   };
 };
 
-const duplicateKpiMetric = (kpi: KpiMetric): KpiMetric => ({
-  id: createBlankKpi().id,
-  lastModified: new Date().toISOString(),
-  name: `${kpi.name || 'Untitled KPI'} Copy`,
-  dimensions: kpi.dimensions.map((dimension) => ({
-    ...dimension,
-    id: createLocalId('kpi-dimension'),
-    options: [...dimension.options]
-  })),
-  sources: kpi.sources.map((source) => ({ ...source, id: createLocalId('kpi-source') })),
-  description: {
-    overview: kpi.description.overview,
-    formulaComment: kpi.description.formulaComment,
-    formulas: kpi.description.formulas.map((group) => ({
-      name: group.name,
-      items: group.items.map((item) => ({
-        ...item,
-        terms: item.terms.map((term) => ({ ...term }))
+const duplicateKpiMetric = (kpi: KpiMetric, focusAssignment?: UseCaseAssignment): KpiMetric => {
+  const performanceAreasByUseCase = kpi.performanceAreasByUseCase
+    .filter((entry) => !focusAssignment || entry.useCase === focusAssignment.useCase)
+    .map((entry) => ({
+      useCase: entry.useCase,
+      performanceAreas: [...entry.performanceAreas]
+    }));
+
+  return {
+    id: createBlankKpi().id,
+    lastModified: new Date().toISOString(),
+    name: `${kpi.name || 'Untitled KPI'} Copy`,
+    dimensions: kpi.dimensions.map((dimension) => ({
+      ...dimension,
+      id: createLocalId('kpi-dimension'),
+      options: [...dimension.options]
+    })),
+    sources: kpi.sources.map((source) => ({ ...source, id: createLocalId('kpi-source') })),
+    description: {
+      overview: kpi.description.overview,
+      formulaComment: kpi.description.formulaComment,
+      formulas: kpi.description.formulas.map((group) => ({
+        name: group.name,
+        items: group.items.map((item) => ({
+          ...item,
+          terms: item.terms.map((term) => ({ ...term }))
+        }))
       }))
-    }))
-  },
-  prerequisite: {
-    modules: [...kpi.prerequisite.modules],
-    kpis: [...kpi.prerequisite.kpis],
-    values: kpi.prerequisite.values
-  },
-  spatialScales: Object.fromEntries(spatialScaleKeys.map((scale) => [scale, { ...kpi.spatialScales[scale] }])) as KpiMetric['spatialScales'],
-  previousApplication: [...kpi.previousApplication],
-  federalRequirement: [...kpi.federalRequirement],
-  performanceArea: [...kpi.performanceArea],
-  performanceAreasByUseCase: kpi.performanceAreasByUseCase.map((entry) => ({
-    useCase: entry.useCase,
-    performanceAreas: [...entry.performanceAreas]
-  })),
-  notesByUseCase: kpi.notesByUseCase.map((entry) => ({
-    useCase: entry.useCase,
-    note: entry.note
-  })),
-  userGroupUseCases: kpi.userGroupUseCases.map((entry) => ({
-    userGroup: entry.userGroup,
-    useCases: [...entry.useCases]
-  }))
-});
+    },
+    prerequisite: {
+      modules: [...kpi.prerequisite.modules],
+      kpis: [...kpi.prerequisite.kpis],
+      values: kpi.prerequisite.values
+    },
+    spatialScales: Object.fromEntries(spatialScaleKeys.map((scale) => [scale, { ...kpi.spatialScales[scale] }])) as KpiMetric['spatialScales'],
+    previousApplication: [...kpi.previousApplication],
+    federalRequirement: [...kpi.federalRequirement],
+    performanceArea: focusAssignment ? aggregatePerformanceAreas(performanceAreasByUseCase) : [...kpi.performanceArea],
+    performanceAreasByUseCase,
+    notesByUseCase: kpi.notesByUseCase
+      .filter((entry) => !focusAssignment || entry.useCase === focusAssignment.useCase)
+      .map((entry) => ({
+        useCase: entry.useCase,
+        note: entry.note
+      })),
+    userGroupUseCases: focusAssignment
+      ? [{ userGroup: focusAssignment.userGroup, useCases: [focusAssignment.useCase] }]
+      : kpi.userGroupUseCases.map((entry) => ({
+          userGroup: entry.userGroup,
+          useCases: [...entry.useCases]
+        }))
+  };
+};
 
 function WarningBar({ warnings, onDismiss }: { warnings: string[]; onDismiss: () => void }) {
   const [expanded, setExpanded] = useState(false);
@@ -3439,20 +3449,44 @@ function DataSourceHeader({
     onConfigChange({
       ...config,
       valueEnums: config.valueEnums.map((definition, index) => index === enumIndex ? updated : definition),
-      dataSources: config.dataSources.map((source) => ({
-        ...source,
-        fields: source.fields.map((field) => field.enumId === current.id
-          ? { ...field, ...(field.dataType === 'enum' ? { name: updated.name } : {}), options: [...updated.options] }
-          : field),
-        fieldGroups: source.fieldGroups.map((group) => ({ ...group, dimensions: group.dimensions.map(syncDimension) }))
-      })),
-      lookups: config.lookups.map((lookup) => ({
-        ...lookup,
-        outputName: lookup.outputEnumId === current.id ? updated.name : lookup.outputName,
-        outputOptions: lookup.outputEnumId === current.id ? [...updated.options] : lookup.outputOptions,
-        inputs: lookup.inputs.map((input) => input.enumId === current.id ? { ...input, representation: updated.name, options: [...updated.options] } : input)
-      })),
-      kpis: config.kpis.map((kpi) => ({ ...kpi, dimensions: kpi.dimensions.map(syncDimension) }))
+      dataSources: config.dataSources.map((source) => {
+        const hasLinkedField = source.fields.some((field) => field.enumId === current.id);
+        const hasLinkedGroupDimension = source.fieldGroups.some((group) =>
+          group.dimensions.some((dimension) => dimension.enumId === current.id)
+        );
+        if (!hasLinkedField && !hasLinkedGroupDimension) return source;
+
+        return {
+          ...source,
+          fields: hasLinkedField
+            ? source.fields.map((field) => field.enumId === current.id
+                ? { ...field, ...(field.dataType === 'enum' ? { name: updated.name } : {}), options: [...updated.options] }
+                : field)
+            : source.fields,
+          fieldGroups: hasLinkedGroupDimension
+            ? source.fieldGroups.map((group) => group.dimensions.some((dimension) => dimension.enumId === current.id)
+                ? { ...group, dimensions: group.dimensions.map(syncDimension) }
+                : group)
+            : source.fieldGroups
+        };
+      }),
+      lookups: config.lookups.map((lookup) => {
+        const hasLinkedOutput = lookup.outputEnumId === current.id;
+        const hasLinkedInput = lookup.inputs.some((input) => input.enumId === current.id);
+        if (!hasLinkedOutput && !hasLinkedInput) return lookup;
+
+        return {
+          ...lookup,
+          outputName: hasLinkedOutput ? updated.name : lookup.outputName,
+          outputOptions: hasLinkedOutput ? [...updated.options] : lookup.outputOptions,
+          inputs: hasLinkedInput
+            ? lookup.inputs.map((input) => input.enumId === current.id ? { ...input, representation: updated.name, options: [...updated.options] } : input)
+            : lookup.inputs
+        };
+      }),
+      kpis: config.kpis.map((kpi) => kpi.dimensions.some((dimension) => dimension.enumId === current.id)
+        ? { ...kpi, dimensions: kpi.dimensions.map(syncDimension) }
+        : kpi)
     });
   };
   const duplicateValueEnum = (enumIndex: number) => {
@@ -7959,6 +7993,49 @@ function MeasuredKpiRow({
   );
 }
 
+type KpiCatalogChangeSummary = {
+  affectsEveryRow: boolean;
+  changedKpiIds: Set<string>;
+};
+
+const kpiCatalogChangeCache = new WeakMap<KpiPoolConfig, WeakMap<KpiPoolConfig, KpiCatalogChangeSummary>>();
+
+const summarizeKpiCatalogChanges = (previous: KpiPoolConfig, next: KpiPoolConfig): KpiCatalogChangeSummary => {
+  let summariesByNext = kpiCatalogChangeCache.get(previous);
+  const cached = summariesByNext?.get(next);
+  if (cached) return cached;
+
+  const changedKpiIds = new Set<string>();
+  let affectsEveryRow = previous.kpis.length !== next.kpis.length;
+  if (!affectsEveryRow) {
+    const previousById = new Map(previous.kpis.map((kpi) => [kpi.id, kpi]));
+    for (let index = 0; index < next.kpis.length; index += 1) {
+      const nextKpi = next.kpis[index];
+      if (previous.kpis[index]?.id !== nextKpi.id) {
+        affectsEveryRow = true;
+        break;
+      }
+
+      const previousKpi = previousById.get(nextKpi.id);
+      if (!previousKpi) {
+        affectsEveryRow = true;
+        break;
+      }
+      if (
+        previousKpi.name !== nextKpi.name ||
+        previousKpi.description.overview !== nextKpi.description.overview ||
+        !sameStructuredValue(previousKpi.dimensions, nextKpi.dimensions)
+      ) changedKpiIds.add(nextKpi.id);
+    }
+  }
+
+  const summary = { affectsEveryRow, changedKpiIds };
+  summariesByNext ??= new WeakMap<KpiPoolConfig, KpiCatalogChangeSummary>();
+  summariesByNext.set(next, summary);
+  kpiCatalogChangeCache.set(previous, summariesByNext);
+  return summary;
+};
+
 const kpiCatalogChangeAffectsRow = (previous: KpiPoolConfig, next: KpiPoolConfig, rowKpiId: string) => {
   if (
     previous.enums !== next.enums ||
@@ -7969,22 +8046,9 @@ const kpiCatalogChangeAffectsRow = (previous: KpiPoolConfig, next: KpiPoolConfig
     previous.variableGroups !== next.variableGroups
   ) return true;
   if (previous.kpis === next.kpis) return false;
-  if (previous.kpis.length !== next.kpis.length) return true;
 
-  const previousById = new Map(previous.kpis.map((kpi) => [kpi.id, kpi]));
-  for (let index = 0; index < next.kpis.length; index += 1) {
-    const nextKpi = next.kpis[index];
-    if (previous.kpis[index]?.id !== nextKpi.id) return true;
-    if (nextKpi.id === rowKpiId) continue;
-    const previousKpi = previousById.get(nextKpi.id);
-    if (!previousKpi) return true;
-    if (
-      previousKpi.name !== nextKpi.name ||
-      previousKpi.description.overview !== nextKpi.description.overview ||
-      !sameStructuredValue(previousKpi.dimensions, nextKpi.dimensions)
-    ) return true;
-  }
-  return false;
+  const summary = summarizeKpiCatalogChanges(previous, next);
+  return summary.affectsEveryRow || summary.changedKpiIds.size > (summary.changedKpiIds.has(rowKpiId) ? 1 : 0);
 };
 
 const sameMeasuredKpiRowProps = (
@@ -8832,7 +8896,7 @@ function EditorApp({
       return;
     }
 
-    const duplicate = duplicateKpiMetric(source);
+    const duplicate = duplicateKpiMetric(source, focusedAssignment);
     commitConfig({
       ...config,
       kpis: [...config.kpis.slice(0, sourceIndex + 1), duplicate, ...config.kpis.slice(sourceIndex + 1)]
