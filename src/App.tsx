@@ -7619,8 +7619,7 @@ function KpiDimensionControl({
       </button>
       {open ? (
         <div className="kpi-dimension-popover" id={popoverId} role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
-          <div className="popover-title">KPI dimensions</div>
-          <p>Dimensions and their options become formula shortcuts in this KPI and in KPIs that use it as a source.</p>
+          <div className="popover-title">Dimensions</div>
           <div className="kpi-dimension-list">
             {kpi.dimensions.length === 0 ? <span className="empty-option">This KPI has no dimensions.</span> : null}
             {kpi.dimensions.map((dimension) => (
