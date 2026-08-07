@@ -67,7 +67,7 @@ The browser asks for the shared library secret and calls `GET /api/config`. The 
 
 ### 2. Normal Save
 
-**Save to JSON** sends the edited configuration and the ETag from the last successful load. The Function rereads the hosted document before every write.
+**Save** sends the edited configuration and the ETag from the last successful load. The Function rereads the hosted document before every write.
 
 - Existing edited objects are updated when the editor started from the current ETag.
 - New KPI, domain, data-source, and lookup IDs are added.
@@ -91,12 +91,12 @@ When an exported HTML opens:
 - it hydrates from embedded JSON;
 - it makes no `/api/config` request;
 - it does not ask for the shared secret;
-- Refresh, Save to JSON, and Force Save are disabled;
+- Refresh, Save, and Force Save are disabled;
 - local editing, Import HTML, and Export HTML remain available.
 
 ### 5. Import HTML
 
-**Import HTML** reads embedded JSON from another KPI Library HTML file and merges it into the in-memory configuration. Importing does not change the hosted Blob until the user chooses Save to JSON or Force Save.
+**Import HTML** reads embedded JSON from another KPI Library HTML file and merges it into the in-memory configuration. Importing does not change the hosted Blob until the user chooses Save or Force Save.
 
 ## API
 

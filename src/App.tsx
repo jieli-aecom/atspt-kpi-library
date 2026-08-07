@@ -9199,7 +9199,7 @@ function EditorApp({
               title={remoteActionTitle ?? 'Merge changes while preserving every deletion made in this editor'}
             >
               <Save size={15} aria-hidden="true" />
-              Save to JSON
+              Save
             </button>
             <button
               className="secondary-action small danger-action"

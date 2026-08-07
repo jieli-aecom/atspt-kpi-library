@@ -13,7 +13,7 @@
 
 - The hosted application consists of the Vite frontend plus the Vercel Function at `/api/config` and a connected private Vercel Blob store.
 - HTML produced by the application's **Export HTML** action is an offline snapshot for users. It is not the hosted deployment artifact.
-- Exported HTML must continue to disable Refresh, Save to JSON, and Force Save while retaining local editing, Import HTML, and Export HTML.
+- Exported HTML must continue to disable Refresh, Save, and Force Save while retaining local editing, Import HTML, and Export HTML.
 
 ## Vercel Functions
 
