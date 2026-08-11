@@ -7,7 +7,6 @@ import {
   BookOpen,
   Check,
   ChevronDown,
-  ChevronsDown,
   ChevronsUp,
   Columns3,
   Copy,
@@ -8859,10 +8858,6 @@ function EditorApp({
     setExpandedIds((current) => (current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]));
   };
 
-  const expandAllRows = () => {
-    setExpandedIds((current) => [...new Set([...current, ...visibleKpis.map((kpi) => kpi.id)])]);
-  };
-
   const collapseAllRows = () => {
     setExpandedIds([]);
   };
@@ -9252,10 +9247,6 @@ function EditorApp({
             <button className="secondary-action small" type="button" onClick={() => updateFilters(emptyFilters())} disabled={!filterCount}>
               <X size={14} aria-hidden="true" />
               Clear filters
-            </button>
-            <button className="secondary-action small" type="button" onClick={expandAllRows} disabled={visibleKpis.length === 0}>
-              <ChevronsDown size={15} aria-hidden="true" />
-              Expand all
             </button>
             <button className="secondary-action small" type="button" onClick={collapseAllRows} disabled={expandedIds.length === 0}>
               <ChevronsUp size={15} aria-hidden="true" />
