@@ -1930,7 +1930,10 @@ function UseCaseFocusController({
   };
 
   return (
-    <section className="topbar-focus-controller" aria-label="Use case focus controller">
+    <section
+      className={`topbar-focus-controller ${focusAssignment ? 'is-active' : 'is-picker'}`}
+      aria-label="Use case focus controller"
+    >
       <span className="focus-controller-label">Use Case Focus</span>
       {focusAssignment ? (
         <div className="focus-active-summary">
