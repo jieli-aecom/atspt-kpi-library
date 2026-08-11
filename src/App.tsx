@@ -147,8 +147,8 @@ const validDefaultFocus = (config: KpiPoolConfig, focus?: KpiDefaultFocus): UseC
 
 const categoryFields: KpiEnumCategoryKey[] = [];
 
-const initialColumnWidths = [170, 145, 185, 334, 251, 115, 120, 135, 180, 138];
-const minColumnWidths = [150, 115, 145, 240, 180, 100, 105, 110, 145, 118];
+const initialColumnWidths = [220, 145, 225, 334, 251, 115, 120, 135, 145, 83];
+const minColumnWidths = [170, 115, 165, 240, 180, 100, 105, 110, 125, 76];
 const defaultHiddenEnumColumns: KpiEnumCategoryKey[] = ['previousApplication', 'federalRequirement'];
 const estimatedCollapsedRowHeight = 78;
 const estimatedExpandedRowHeight = 960;
@@ -7862,10 +7862,11 @@ function KpiRow({
                 <button
                   className={`assignment-action ${isUseCaseAssigned ? 'remove' : 'add'}`}
                   type="button"
+                  aria-label={isUseCaseAssigned ? 'Exclude from focused use case' : 'Include in focused use case'}
+                  title={isUseCaseAssigned ? 'Exclude from focused use case' : 'Include in focused use case'}
                   onClick={toggleUseCaseAssignment}
                 >
-                  {isUseCaseAssigned ? <X size={12} aria-hidden="true" /> : <Plus size={12} aria-hidden="true" />}
-                  {isUseCaseAssigned ? 'Exclude' : 'Include'}
+                  {isUseCaseAssigned ? <X size={14} aria-hidden="true" /> : <Plus size={14} aria-hidden="true" />}
                 </button>
               </div>
               <AutoGrowTextarea

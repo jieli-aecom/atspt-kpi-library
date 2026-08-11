@@ -3377,7 +3377,8 @@ h1 {
 
 .row-actions {
   display: grid;
-  grid-template-columns: repeat(3, 24px);
+  grid-template-columns: 24px;
+  grid-auto-rows: 24px;
   align-items: center;
   justify-content: start;
   gap: 3px;
@@ -3436,15 +3437,15 @@ h1 {
 }
 
 .assignment-action {
+  width: 24px;
+  height: 24px;
   min-height: 24px;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
   border: 1px solid #c9d3d8;
   border-radius: 5px;
-  padding: 3px 6px;
-  font-size: 11px;
-  font-weight: 800;
+  padding: 0;
 }
 
 .assignment-action.add {
