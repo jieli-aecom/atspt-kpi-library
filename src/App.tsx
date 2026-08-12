@@ -6047,11 +6047,13 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const leftRef = useRef<HTMLTextAreaElement | null>(null);
   const rightRef = useRef<HTMLTextAreaElement | null>(null);
   const paletteOptionsRef = useRef<HTMLDivElement | null>(null);
+  const paletteSlotRef = useRef<HTMLDivElement | null>(null);
   const [leftExpression, setLeftExpression] = useState(item.leftExpression);
   const [rightExpression, setRightExpression] = useState(item.rightExpression);
   const [activeSide, setActiveSide] = useState<'left' | 'right'>('right');
   const [paletteExpanded, setPaletteExpanded] = useState(false);
   const [paletteHasMore, setPaletteHasMore] = useState(false);
+  const [palettePosition, setPalettePosition] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number }>();
   const commitTimeoutRef = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -6174,6 +6176,34 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
       window.removeEventListener('resize', measure);
     };
   }, [config, dimensionShortcuts, insertableResults, kpi.sources, paletteExpanded, spatialScale]);
+  useLayoutEffect(() => {
+    if (!paletteExpanded) {
+      setPalettePosition(undefined);
+      return undefined;
+    }
+    const updatePosition = () => {
+      const anchor = paletteSlotRef.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const width = Math.min(rect.width, window.innerWidth - 24);
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+      const spaceBelow = window.innerHeight - rect.top - 12;
+      const spaceAbove = rect.bottom - 12;
+      const opensAbove = spaceBelow < 180 && spaceAbove > spaceBelow;
+      const availableHeight = Math.max(100, opensAbove ? spaceAbove : spaceBelow);
+      const maxHeight = Math.min(380, availableHeight);
+      setPalettePosition(opensAbove
+        ? { bottom: window.innerHeight - rect.bottom, left, width, maxHeight }
+        : { top: rect.top, left, width, maxHeight });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [paletteExpanded]);
   return (
     <div className="formula-expression-workbench">
       <div className={`formula-side-editors ${rightOnly ? 'is-right-only' : ''}`}>
@@ -6193,10 +6223,11 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             </button>
           ) : null}
         </div>
-        <div className="formula-source-options-slot">
+        <div className="formula-source-options-slot" ref={paletteSlotRef}>
           <div
-            className={`formula-source-options ${paletteExpanded ? 'is-expanded' : ''}`}
+            className={`formula-source-options ${paletteExpanded ? 'is-expanded' : ''} ${paletteExpanded && palettePosition ? 'is-floating' : ''}`}
             ref={paletteOptionsRef}
+            style={paletteExpanded ? palettePosition : undefined}
           >
           {spatialScale ? <section className="formula-shortcut-group is-priority">
             <span className="formula-shortcut-group-label">Scale formula</span>

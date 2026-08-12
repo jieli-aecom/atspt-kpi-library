@@ -4578,6 +4578,15 @@ h1 {
   padding: 6px;
 }
 
+.formula-source-options.is-expanded.is-floating {
+  position: fixed;
+  z-index: 10000;
+  top: auto;
+  right: auto;
+  bottom: auto;
+  left: auto;
+}
+
 .formula-shortcut-group {
   display: flex;
   flex: 0 0 auto;
