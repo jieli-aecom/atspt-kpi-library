@@ -5851,7 +5851,9 @@ function KpiSourceEditor({
   const [customLatex, setCustomLatex] = useState('');
   const [expandedPickerGroupKeys, setExpandedPickerGroupKeys] = useState<string[]>([]);
   const [highlightedSource, setHighlightedSource] = useState<{ sourceId: string; requestId: number }>();
-  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const [popoverPosition, setPopoverPosition] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number }>();
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
   const highlightSource = (sourceId: string) => {
     setHighlightedSource((current) => ({ sourceId, requestId: (current?.requestId ?? 0) + 1 }));
     setOpen(true);
@@ -5867,12 +5869,47 @@ function KpiSourceEditor({
   useEffect(() => {
     if (!open || !highlightedSource) return undefined;
     const frame = window.requestAnimationFrame(() => {
-      const target = [...(controlRef.current?.querySelectorAll<HTMLElement>('[data-kpi-source-id]') ?? [])]
+      const target = [...(popoverRef.current?.querySelectorAll<HTMLElement>('[data-kpi-source-id]') ?? [])]
         .find((element) => element.dataset.kpiSourceId === highlightedSource.sourceId);
       target?.scrollIntoView({ block: 'nearest' });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [highlightedSource, open]);
+  useLayoutEffect(() => {
+    if (!open) {
+      setPopoverPosition(undefined);
+      return undefined;
+    }
+    const updatePosition = (event?: Event) => {
+      if (event?.type === 'scroll' && event.target instanceof Node && popoverRef.current?.contains(event.target)) return;
+      const anchor = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const viewportMargin = 12;
+      const anchorGap = 6;
+      const width = Math.max(0, Math.min(760, window.innerWidth - viewportMargin * 2));
+      const left = Math.max(viewportMargin, Math.min(rect.left, window.innerWidth - width - viewportMargin));
+      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - anchorGap - viewportMargin);
+      const spaceAbove = Math.max(0, rect.top - anchorGap - viewportMargin);
+      const opensAbove = spaceAbove > spaceBelow;
+      if (opensAbove) {
+        const bottom = Math.max(viewportMargin, Math.min(window.innerHeight - rect.top + anchorGap, window.innerHeight - viewportMargin));
+        const maxHeight = Math.min(620, Math.max(0, window.innerHeight - bottom - viewportMargin));
+        setPopoverPosition({ bottom, left, width, maxHeight });
+        return;
+      }
+      const top = Math.max(viewportMargin, Math.min(rect.bottom + anchorGap, window.innerHeight - viewportMargin));
+      const maxHeight = Math.min(620, Math.max(0, window.innerHeight - top - viewportMargin));
+      setPopoverPosition({ top, left, width, maxHeight });
+    };
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [open]);
   useEffect(() => {
     if (!compact || !transientHighlightedSource) return undefined;
     const frame = window.requestAnimationFrame(() => {
@@ -6098,8 +6135,14 @@ function KpiSourceEditor({
         {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={highlightSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
-      {open ? (
-        <div className="kpi-source-popover">
+      {open && popoverPosition ? createPortal(
+        <div
+          className="kpi-source-popover"
+          ref={popoverRef}
+          role="dialog"
+          aria-label="KPI sources"
+          style={popoverPosition}
+        >
           <div className="popover-title">KPI sources</div>
           <section className="selected-source-section">
             <div className="popover-title">Selected sources</div>
@@ -6220,7 +6263,8 @@ function KpiSourceEditor({
             </section>
             ) : null}
           </section>
-        </div>
+        </div>,
+        document.body
       ) : null}
     </div>
   );
