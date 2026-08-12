@@ -3756,6 +3756,13 @@ h1 {
   min-width: 0;
 }
 
+.kpi-source-control.is-compact > .cell-enum-trigger {
+  max-height: 190px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .kpi-source-summary {
   display: grid;
   gap: 6px;

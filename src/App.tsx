@@ -156,6 +156,51 @@ const virtualOverscanPixels = 760;
 const rowDragAutoScrollEdge = 52;
 const rowDragAutoScrollStep = 18;
 const rowHeightKey = (id: string, expanded: boolean) => `${id}:${expanded ? 'expanded' : 'collapsed'}`;
+const rowToggleBlockedSelector = [
+  'button',
+  'input',
+  'textarea',
+  'select',
+  'option',
+  'a',
+  'label',
+  '[contenteditable]:not([contenteditable="false"])',
+  '[role="button"]',
+  '[role="dialog"]',
+  '[role="menu"]',
+  '[role="listbox"]',
+  '[role="tooltip"]',
+  '.cell-enum-popover',
+  '.kpi-source-popover',
+  '[data-row-toggle-ignore]'
+].join(',');
+
+const clickIntersectsRenderedText = (root: Element, clientX: number, clientY: number) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+
+  while (node) {
+    if (node.textContent?.trim()) {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const intersectsText = Array.from(range.getClientRects()).some(
+        (rect) => clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom
+      );
+      range.detach();
+      if (intersectsText) return true;
+    }
+    node = walker.nextNode();
+  }
+
+  return false;
+};
+
+const isRowBackgroundClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
+  if (event.defaultPrevented || event.button !== 0) return false;
+  const target = event.target;
+  if (!(target instanceof Element) || target.closest(rowToggleBlockedSelector)) return false;
+  return !clickIntersectsRenderedText(event.currentTarget, event.clientX, event.clientY);
+};
 
 const emptyFilters = (): ColumnFilters => ({
   name: '',
@@ -7753,7 +7798,14 @@ function KpiRow({
 
   return (
     <>
-      <tr className={rowClass} data-kpi-id={kpi.id} ref={compactRowRef}>
+      <tr
+        className={rowClass}
+        data-kpi-id={kpi.id}
+        ref={compactRowRef}
+        onClick={(event) => {
+          if (isRowBackgroundClick(event)) onExpand(kpi.id);
+        }}
+      >
         <td>
           <div className="name-description-cell">
             <div className="name-cell">
@@ -7826,9 +7878,7 @@ function KpiRow({
           </div>
         </td>
         <td>
-          <div onClick={stopRowToggle}>
-            <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSourceId={highlightedSourceId} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
-          </div>
+          <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSourceId={highlightedSourceId} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </td>
         <td>
           <FormulaDisplay config={config} kpi={kpi} highlightedFormulaIndex={highlightedFormulaIndex} onSemanticTarget={highlightSemanticTarget} />
@@ -7837,7 +7887,7 @@ function KpiRow({
           <SpatialScaleBadges config={config} kpi={kpi} onSemanticTarget={highlightSemanticTarget} />
         </td>
         {visibleEnumCategories.map((category) => (
-          <td key={category} onClick={stopRowToggle}>
+          <td key={category}>
             <RowEnumSelect
               config={config}
               category={category}
@@ -7846,7 +7896,7 @@ function KpiRow({
             />
           </td>
         ))}
-        <td onClick={stopRowToggle}>
+        <td>
           <RowPerformanceAreaSelect
             config={config}
             kpi={kpi}
@@ -7855,7 +7905,7 @@ function KpiRow({
             onChange={onChange}
           />
         </td>
-        <td onClick={stopRowToggle}>
+        <td>
           {useCaseAssignment ? (
             <div className="focused-use-case-cell">
               <div className="use-case-assignment-control">
@@ -8670,7 +8720,7 @@ function EditorApp({
   );
   const [filters, setFilters] = useState(emptyFilters);
   const [expandedIds, setExpandedIds] = useState<string[]>([]);
-  const [pinnedNameFilterIds, setPinnedNameFilterIds] = useState<string[]>([]);
+  const [pinnedFilterIds, setPinnedFilterIds] = useState<string[]>([]);
   const [examineAssignment, setExamineAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
   const [focusedAssignment, setFocusedAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
   const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(true);
@@ -8762,16 +8812,36 @@ function EditorApp({
     return next;
   }, [config]);
   const deferredFilters = useDeferredValue(filters);
-  const compiledFilters = useMemo(() => compileFilters(deferredFilters, indexes), [deferredFilters, indexes]);
-  const pinnedNameFilterIdSet = useMemo(() => new Set(pinnedNameFilterIds), [pinnedNameFilterIds]);
+  const pinnedFilterIdSet = useMemo(() => new Set(pinnedFilterIds), [pinnedFilterIds]);
+  const filterMatchCacheRef = useRef<{
+    filters: ColumnFilters;
+    focusedAssignment?: UseCaseAssignment;
+    ids: Set<string>;
+  }>();
+  const activeDeferredFilterCount = activeFilterCount(deferredFilters);
+  let filterMatchIds: Set<string> | undefined;
+  if (activeDeferredFilterCount > 0) {
+    const cached = filterMatchCacheRef.current;
+    if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment) {
+      filterMatchIds = cached.ids;
+    } else {
+      const compiledFilters = compileFilters(deferredFilters, indexes);
+      filterMatchIds = new Set(
+        config.kpis
+          .filter((kpi) => matchesFilters(indexes, kpi, compiledFilters, pinnedFilterIdSet, focusedAssignment))
+          .map((kpi) => kpi.id)
+      );
+      filterMatchCacheRef.current = { filters: deferredFilters, focusedAssignment, ids: filterMatchIds };
+    }
+  }
   const filteredKpis = useMemo(
     () =>
       config.kpis.filter(
         (kpi) =>
-          matchesFilters(indexes, kpi, compiledFilters, pinnedNameFilterIdSet, focusedAssignment) &&
+          (!filterMatchIds || filterMatchIds.has(kpi.id) || pinnedFilterIdSet.has(kpi.id)) &&
           (!focusedAssignment || !hideOutsideFocusedGroup || hasUseCaseAssignment(kpi, focusedAssignment))
       ),
-    [compiledFilters, config.kpis, focusedAssignment, hideOutsideFocusedGroup, indexes, pinnedNameFilterIdSet]
+    [config.kpis, filterMatchIds, focusedAssignment, hideOutsideFocusedGroup, pinnedFilterIdSet]
   );
   const visibleKpis = useMemo(() => {
     if (!performanceAreaSort) {
@@ -8796,15 +8866,13 @@ function EditorApp({
     commitConfig(normalizedNext);
     const validIds = new Set(normalizedNext.kpis.map((kpi) => kpi.id));
     setExpandedIds((current) => current.filter((id) => validIds.has(id)));
-    setPinnedNameFilterIds((current) => current.filter((id) => validIds.has(id)));
+    setPinnedFilterIds((current) => current.filter((id) => validIds.has(id)));
     setFocusedAssignment((current) => (current && validDefaultFocus(normalizedNext, current) ? current : validFocus));
     setExamineAssignment((current) => (current && validDefaultFocus(normalizedNext, current) ? current : validFocus));
   };
 
   const updateFilters = (next: ColumnFilters) => {
-    if (next.name !== filters.name || next.description !== filters.description) {
-      setPinnedNameFilterIds([]);
-    }
+    setPinnedFilterIds([]);
     setFilters(next);
   };
 
@@ -8853,8 +8921,8 @@ function EditorApp({
       kpis: [...configForNewKpi.kpis.slice(0, insertionIndex), kpi, ...configForNewKpi.kpis.slice(insertionIndex)]
     });
     setExpandedIds((current) => [...new Set([...current, kpi.id])]);
-    if (filters.name.trim()) {
-      setPinnedNameFilterIds((current) => [...new Set([...current, kpi.id])]);
+    if (filterCount > 0) {
+      setPinnedFilterIds((current) => [...new Set([...current, kpi.id])]);
     }
   };
 
@@ -8900,8 +8968,8 @@ function EditorApp({
       kpis: [...config.kpis.slice(0, sourceIndex + 1), duplicate, ...config.kpis.slice(sourceIndex + 1)]
     });
     setExpandedIds((current) => [...new Set([...current, duplicate.id])]);
-    if (filters.name.trim()) {
-      setPinnedNameFilterIds((current) => [...new Set([...current, duplicate.id])]);
+    if (filterCount > 0) {
+      setPinnedFilterIds((current) => [...new Set([...current, duplicate.id])]);
     }
   };
 
@@ -8938,7 +9006,7 @@ function EditorApp({
       previous &&
       (previous.name !== next.name || previous.description.overview !== next.description.overview)
     ) {
-      setPinnedNameFilterIds((current) => [...new Set([...current, next.id])]);
+      setPinnedFilterIds((current) => [...new Set([...current, next.id])]);
     }
 
     commitConfig((current) => updateKpi(current, next.id, () => next));
@@ -8957,7 +9025,7 @@ function EditorApp({
     setEtag(result.etag);
     setWarnings([...repaired.warnings, ...(result.warnings ?? [])]);
     const validIds = new Set(repaired.config.kpis.map((kpi) => kpi.id));
-    setPinnedNameFilterIds((current) => current.filter((id) => validIds.has(id)));
+    setPinnedFilterIds((current) => current.filter((id) => validIds.has(id)));
     setExpandedIds((current) => current.filter((id) => validIds.has(id)));
     setExamineAssignment((current) => (current && validDefaultFocus(repaired.config, current) ? current : undefined));
     setFocusedAssignment((current) => (current && validDefaultFocus(repaired.config, current) ? current : undefined));
