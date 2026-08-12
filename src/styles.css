@@ -4328,6 +4328,7 @@ h1 {
 
 .formula-items-panel {
   display: grid;
+  align-content: start;
   gap: 6px;
   max-height: min(600px, 62vh);
   overflow-y: auto;
