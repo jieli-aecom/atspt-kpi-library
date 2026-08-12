@@ -8366,7 +8366,7 @@ function PrerequisiteKpiDialog({
   onViewKpi: (kpiId: string) => void;
   highlightedKpi?: { kpiId: string; requestId: number };
 }) {
-  const [expandedKpiIds, setExpandedKpiIds] = useState<string[]>(() => kpis.map((kpi) => kpi.id));
+  const [expandedKpiIds, setExpandedKpiIds] = useState<string[]>([]);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const tableScrollRef = useRef<HTMLDivElement | null>(null);
   const visibleEnumCategories = categoryFields.filter((category) => !defaultHiddenEnumColumns.includes(category));
@@ -8392,10 +8392,7 @@ function PrerequisiteKpiDialog({
   useEffect(() => {
     const visibleIds = new Set(kpis.map((kpi) => kpi.id));
     setExpandedKpiIds((current) => {
-      const next = [
-        ...kpis.filter((kpi) => !current.includes(kpi.id)).map((kpi) => kpi.id),
-        ...current.filter((id) => visibleIds.has(id))
-      ];
+      const next = current.filter((id) => visibleIds.has(id));
       return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
     });
   }, [kpis]);
@@ -8450,6 +8447,18 @@ function PrerequisiteKpiDialog({
             <colgroup>
               {visibleColumnIndices.map((index) => <col key={index} style={{ width: minColumnWidths[index] }} />)}
             </colgroup>
+            <thead>
+              <tr>
+                <th scope="col">Name / Description</th>
+                <th scope="col">Source</th>
+                <th scope="col">Formula</th>
+                <th scope="col">Spatial Scales</th>
+                {visibleEnumCategories.map((category) => <th scope="col" key={category}>{enumCategoryLabels[category]}</th>)}
+                <th scope="col">Performance Area</th>
+                <th scope="col">User Group / Use Case</th>
+                <th scope="col">Last Modified</th>
+              </tr>
+            </thead>
             <tbody>
               {kpis.map((kpi) => (
                 <KpiRow

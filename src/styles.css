@@ -799,7 +799,7 @@ h1 {
 
 .prerequisite-kpi-dialog {
   width: min(96vw, 1800px);
-  max-height: 94vh;
+  height: 94vh;
   display: flex;
   min-width: 0;
   flex-direction: column;
@@ -844,12 +844,28 @@ h1 {
 .prerequisite-kpi-dialog-table-scroll {
   flex: 1 1 auto;
   min-height: 0;
+  display: flex;
+  align-items: flex-start;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
+.prerequisite-kpi-dialog-table {
+  flex: 0 0 auto;
+  height: max-content;
+  align-self: flex-start;
+}
+
 .prerequisite-kpi-dialog-table .compact-row:first-child td {
   border-top: 2px solid #6d99a7;
+}
+
+.prerequisite-kpi-dialog-table thead th {
+  padding: 8px 6px;
+  color: #43545f;
+  font-size: 11px;
+  font-weight: 800;
+  vertical-align: middle;
 }
 
 .prerequisite-kpi-dialog-table .expanded-row-viewport {
