@@ -4330,6 +4330,18 @@ h1 {
   scrollbar-width: thin;
 }
 
+@media (min-width: 1501px) {
+  .formulae-expanded-column {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .formulae-expanded-column > .formula-items-panel {
+    min-height: min(600px, 62vh);
+    max-height: none;
+    contain: size;
+  }
+}
+
 .formula-items-heading {
   display: flex;
   align-items: end;
