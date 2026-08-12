@@ -5834,6 +5834,7 @@ function KpiSourceEditor({
   kpi,
   onChange,
   onEditLibrarySource,
+  onViewKpi,
   transientHighlightedSource,
   compact = false
 }: {
@@ -5841,6 +5842,7 @@ function KpiSourceEditor({
   kpi: KpiMetric;
   onChange: (sources: KpiSourceItem[], formulaUpdates?: KpiSourceFormulaUpdates) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  onViewKpi: (kpiId: string) => void;
   transientHighlightedSource?: FormulaSourceHighlight;
   compact?: boolean;
 }) {
@@ -6063,8 +6065,8 @@ function KpiSourceEditor({
       return;
     }
     if (item.type === 'kpi') {
-      setPickerScope('kpis');
-      setQuery(config.kpis.find((entry) => entry.id === item.kpiId)?.name ?? '');
+      setOpen(false);
+      onViewKpi(item.kpiId);
       return;
     }
     button.closest('.selected-source-row')?.querySelector<HTMLInputElement>('input')?.focus();
@@ -7367,6 +7369,7 @@ function ExpandedKpiEditor({
   kpi,
   onChange,
   onEditLibrarySource,
+  onViewKpi,
   onSemanticTarget,
   transientHighlightedSource
 }: {
@@ -7374,6 +7377,7 @@ function ExpandedKpiEditor({
   kpi: KpiMetric;
   onChange: (next: KpiMetric) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  onViewKpi: (kpiId: string) => void;
   onSemanticTarget: (target: FormulaSemanticTarget) => void;
   transientHighlightedSource?: FormulaSourceHighlight;
 }) {
@@ -7882,7 +7886,7 @@ function ExpandedKpiEditor({
           role="tabpanel"
         >
           <span>Sources</span>
-          <KpiSourceEditor config={config} kpi={kpi} transientHighlightedSource={transientHighlightedSource} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+          <KpiSourceEditor config={config} kpi={kpi} transientHighlightedSource={transientHighlightedSource} onEditLibrarySource={onEditLibrarySource} onViewKpi={onViewKpi} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </div>
         <div
           className={`expanded-tab-panel spatial-scales-tab-panel ${activeExpandedPanel === 'scales' ? 'is-active' : 'is-inactive'}`}
@@ -8065,7 +8069,9 @@ function KpiRow({
   onDuplicate,
   onDragHandleMouseDown,
   onInsertBefore,
-  onEditLibrarySource
+  onEditLibrarySource,
+  onViewKpi,
+  traceHighlighted = false
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
@@ -8086,6 +8092,8 @@ function KpiRow({
   onDragHandleMouseDown: (id: string, event: React.MouseEvent<HTMLButtonElement>) => void;
   onInsertBefore: (id: string) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  onViewKpi: (kpiId: string) => void;
+  traceHighlighted?: boolean;
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const stopRowToggle = (event: React.SyntheticEvent) => event.stopPropagation();
@@ -8119,7 +8127,8 @@ function KpiRow({
     expanded ? 'selected-row compact-row' : 'compact-row',
     dragPosition === 'before' ? 'drag-over-before' : '',
     dragPosition === 'after' ? 'drag-over-after' : '',
-    useCaseAssignment && isUseCaseAssigned ? 'use-case-assigned-row' : ''
+    useCaseAssignment && isUseCaseAssigned ? 'use-case-assigned-row' : '',
+    traceHighlighted ? 'is-trace-highlighted' : ''
   ]
     .filter(Boolean)
     .join(' ');
@@ -8206,7 +8215,7 @@ function KpiRow({
           </div>
         </td>
         <td>
-          <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSource={highlightedSource} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+          <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSource={highlightedSource} onEditLibrarySource={onEditLibrarySource} onViewKpi={onViewKpi} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </td>
         <td>
           <FormulaDisplay config={config} kpi={kpi} highlightedFormulaIndex={highlightedFormulaIndex} onSemanticTarget={highlightSemanticTarget} />
@@ -8310,7 +8319,7 @@ function KpiRow({
         </td>
       </tr>
       {expanded ? (
-        <tr className="expanded-row" ref={expandedRowRef}>
+        <tr className={`expanded-row${traceHighlighted ? ' is-trace-highlighted' : ''}`} ref={expandedRowRef}>
           <td colSpan={tableColumnCount}>
             <div className="expanded-row-viewport" style={{ width: tableViewportWidth || '100%' }}>
               <ExpandedKpiEditor
@@ -8318,6 +8327,7 @@ function KpiRow({
                 kpi={kpi}
                 onChange={onChange}
                 onEditLibrarySource={onEditLibrarySource}
+                onViewKpi={onViewKpi}
                 onSemanticTarget={highlightSemanticTarget}
                 transientHighlightedSource={highlightedSource}
               />
@@ -8326,6 +8336,152 @@ function KpiRow({
         </tr>
       ) : null}
     </>
+  );
+}
+
+function PrerequisiteKpiDialog({
+  config,
+  kpis,
+  filters,
+  useCaseAssignment,
+  onClose,
+  onChange,
+  onDelete,
+  onDuplicate,
+  onInsertBefore,
+  onEditLibrarySource,
+  onViewKpi,
+  highlightedKpi
+}: {
+  config: KpiPoolConfig;
+  kpis: KpiMetric[];
+  filters: ColumnFilters;
+  useCaseAssignment?: UseCaseAssignment;
+  onClose: () => void;
+  onChange: (next: KpiMetric) => void;
+  onDelete: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onInsertBefore: (id: string) => void;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  onViewKpi: (kpiId: string) => void;
+  highlightedKpi?: { kpiId: string; requestId: number };
+}) {
+  const [expandedKpiIds, setExpandedKpiIds] = useState<string[]>(() => kpis.map((kpi) => kpi.id));
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const visibleEnumCategories = categoryFields.filter((category) => !defaultHiddenEnumColumns.includes(category));
+  const visibleColumnIndices = [
+    0,
+    2,
+    3,
+    4,
+    ...visibleEnumCategories.map((category) => 5 + categoryFields.indexOf(category)),
+    7,
+    8,
+    9
+  ];
+  const tableColumnCount = visibleColumnIndices.length;
+  const minimumTableWidth = visibleColumnIndices.reduce((sum, index) => sum + minColumnWidths[index], 0);
+  const rowFilters = {
+    ...emptyFilters(),
+    userGroups: filters.userGroups,
+    useCases: filters.useCases
+  };
+  const topKpi = kpis[0];
+
+  useEffect(() => {
+    const visibleIds = new Set(kpis.map((kpi) => kpi.id));
+    setExpandedKpiIds((current) => {
+      const next = [
+        ...kpis.filter((kpi) => !current.includes(kpi.id)).map((kpi) => kpi.id),
+        ...current.filter((id) => visibleIds.has(id))
+      ];
+      return next.length === current.length && next.every((id, index) => id === current[index]) ? current : next;
+    });
+  }, [kpis]);
+
+  useEffect(() => {
+    if (!highlightedKpi) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const target = [...(tableScrollRef.current?.querySelectorAll<HTMLTableRowElement>('tr.compact-row[data-kpi-id]') ?? [])]
+        .find((row) => row.dataset.kpiId === highlightedKpi.kpiId);
+      target?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlightedKpi?.requestId]);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div className="prerequisite-kpi-dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section
+        className="prerequisite-kpi-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="prerequisite-kpi-dialog-title"
+      >
+        <header className="prerequisite-kpi-dialog-header">
+          <div>
+            <span>Prerequisite KPI trace{kpis.length > 1 ? ` · ${kpis.length} KPIs` : ''}</span>
+            <strong id="prerequisite-kpi-dialog-title">{topKpi?.name || 'Untitled KPI'}</strong>
+          </div>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close prerequisite KPI" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="prerequisite-kpi-dialog-table-scroll" ref={tableScrollRef}>
+          <table className="kpi-table prerequisite-kpi-dialog-table" style={{ width: '100%', minWidth: minimumTableWidth }}>
+            <colgroup>
+              {visibleColumnIndices.map((index) => <col key={index} style={{ width: minColumnWidths[index] }} />)}
+            </colgroup>
+            <tbody>
+              {kpis.map((kpi) => (
+                <KpiRow
+                  key={kpi.id}
+                  config={config}
+                  kpi={kpi}
+                  filters={rowFilters}
+                  expanded={expandedKpiIds.includes(kpi.id)}
+                  visibleEnumCategories={visibleEnumCategories}
+                  tableColumnCount={tableColumnCount}
+                  tableViewportWidth={0}
+                  useCaseAssignment={useCaseAssignment}
+                  sortingActive
+                  onExpand={(kpiId) => setExpandedKpiIds((current) => current.includes(kpiId)
+                    ? current.filter((id) => id !== kpiId)
+                    : [...current, kpiId])}
+                  onChange={onChange}
+                  onDelete={onDelete}
+                  onDuplicate={onDuplicate}
+                  onInsertBefore={onInsertBefore}
+                  onDragHandleMouseDown={() => {}}
+                  onEditLibrarySource={onEditLibrarySource}
+                  onViewKpi={onViewKpi}
+                  traceHighlighted={highlightedKpi?.kpiId === kpi.id}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </div>,
+    document.body
   );
 }
 
@@ -8464,6 +8620,7 @@ function KpiTable({
   onReorder,
   onAddKpi,
   onEditLibrarySource,
+  onViewKpi,
   focusedAssignment,
   performanceAreaSort,
   onPerformanceAreaSortChange
@@ -8481,6 +8638,7 @@ function KpiTable({
   onReorder: (sourceId: string, targetId: string, position: DropPosition) => void;
   onAddKpi: (beforeKpiId?: string) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+  onViewKpi: (kpiId: string) => void;
   focusedAssignment?: UseCaseAssignment;
   performanceAreaSort: PerformanceAreaSortOrder;
   onPerformanceAreaSortChange: (next: PerformanceAreaSortOrder) => void;
@@ -8993,6 +9151,7 @@ function KpiTable({
                 onInsertBefore={stableOnAddKpi}
                 onDragHandleMouseDown={startRowDrag}
                 onEditLibrarySource={onEditLibrarySource}
+                onViewKpi={onViewKpi}
                 onHeightChange={handleRowHeightChange}
               />
             ))}
@@ -9055,9 +9214,31 @@ function EditorApp({
   const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(true);
   const [performanceAreaSort, setPerformanceAreaSort] = useState<PerformanceAreaSortOrder>();
   const [sourceLibraryEditRequest, setSourceLibraryEditRequest] = useState<SourceLibraryEditRequest>();
+  const [viewedPrerequisiteKpiIds, setViewedPrerequisiteKpiIds] = useState<string[]>([]);
+  const [highlightedPrerequisiteKpi, setHighlightedPrerequisiteKpi] = useState<{ kpiId: string; requestId: number }>();
   const editLibrarySource = useCallback((target: SourceLibraryEditTarget) => {
     setSourceLibraryEditRequest((current) => ({ ...target, requestId: (current?.requestId ?? 0) + 1 }));
   }, []);
+  const viewPrerequisiteKpi = useCallback((kpiId: string) => {
+    if (viewedPrerequisiteKpiIds.includes(kpiId)) {
+      setHighlightedPrerequisiteKpi((current) => ({ kpiId, requestId: (current?.requestId ?? 0) + 1 }));
+      return;
+    }
+    setHighlightedPrerequisiteKpi(undefined);
+    setViewedPrerequisiteKpiIds((current) => [kpiId, ...current]);
+  }, [viewedPrerequisiteKpiIds]);
+  const closePrerequisiteKpi = useCallback(() => {
+    setViewedPrerequisiteKpiIds([]);
+    setHighlightedPrerequisiteKpi(undefined);
+  }, []);
+  useEffect(() => {
+    if (!highlightedPrerequisiteKpi) return undefined;
+    const requestId = highlightedPrerequisiteKpi.requestId;
+    const timeout = window.setTimeout(() => {
+      setHighlightedPrerequisiteKpi((current) => current?.requestId === requestId ? undefined : current);
+    }, transientSourceHighlightDurationMs);
+    return () => window.clearTimeout(timeout);
+  }, [highlightedPrerequisiteKpi?.requestId]);
   const baselineKpisRef = useRef(new Map(initialConfig.kpis.map((kpi) => [kpi.id, kpi])));
   const lastSyncedKpiIdsRef = useRef(
     new Set(initialRemoteExists ? initialConfig.kpis.map((kpi) => kpi.id) : [])
@@ -9185,6 +9366,10 @@ function EditorApp({
     });
   }, [config, deferredFilters, filteredKpis, focusedAssignment, performanceAreaSort]);
   const filterCount = activeFilterCount(filters);
+  const viewedPrerequisiteKpis = useMemo(() => viewedPrerequisiteKpiIds.flatMap((kpiId) => {
+    const kpi = config.kpis.find((entry) => entry.id === kpiId);
+    return kpi ? [kpi] : [];
+  }), [config.kpis, viewedPrerequisiteKpiIds]);
 
   const setConfigAndRepairExpansion = (next: KpiPoolConfig) => {
     const validFocus = validDefaultFocus(next, next.defaultFocus);
@@ -9282,6 +9467,8 @@ function EditorApp({
           }
         }))
     });
+    setViewedPrerequisiteKpiIds((current) => current.filter((id) => id !== kpiId));
+    setHighlightedPrerequisiteKpi((current) => current?.kpiId === kpiId ? undefined : current);
   };
 
   const duplicateKpi = (kpiId: string) => {
@@ -9680,11 +9867,28 @@ function EditorApp({
           onReorder={reorderKpi}
           onAddKpi={addKpi}
           onEditLibrarySource={editLibrarySource}
+          onViewKpi={viewPrerequisiteKpi}
           focusedAssignment={focusedAssignment}
           performanceAreaSort={performanceAreaSort}
           onPerformanceAreaSortChange={setPerformanceAreaSort}
         />
       </section>
+      {viewedPrerequisiteKpis.length ? (
+        <PrerequisiteKpiDialog
+          config={config}
+          kpis={viewedPrerequisiteKpis}
+          filters={filters}
+          useCaseAssignment={focusedAssignment}
+          onClose={closePrerequisiteKpi}
+          onChange={updateKpiFromRow}
+          onDelete={deleteKpi}
+          onDuplicate={duplicateKpi}
+          onInsertBefore={addKpi}
+          onEditLibrarySource={editLibrarySource}
+          onViewKpi={viewPrerequisiteKpi}
+          highlightedKpi={highlightedPrerequisiteKpi}
+        />
+      ) : null}
     </main>
   );
 }
