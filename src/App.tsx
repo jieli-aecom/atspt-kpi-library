@@ -3202,6 +3202,15 @@ const lookupDefaultLatex = (lookup: LookupDefinition) => {
 
 const variableDefaultLatex = (variable: VariableDefinition) => latexIdentifier(variable.name) || 'variable';
 
+const kpiDefaultLatex = (kpi: KpiMetric) => {
+  const formulaItems = kpi.description.formulas.flatMap((group) => group.items);
+  return formulaItems
+    .slice()
+    .reverse()
+    .find((item) => item.formula.trim() || item.leftExpression.trim())
+    ?.leftExpression ?? '';
+};
+
 const selectedDataSourceGroups = (config: KpiPoolConfig, kpi: KpiMetric) =>
   config.dataSources.flatMap((dataSource) => {
     const items = kpi.sources.flatMap((source) => {
@@ -5736,9 +5745,11 @@ function KpiSourceEditor({
   };
   const toggleKpi = (kpiId: string) => {
     const existing = kpi.sources.find((item) => item.type === 'kpi' && item.kpiId === kpiId);
+    const prerequisiteKpi = config.kpis.find((entry) => entry.id === kpiId);
+    if (!existing && !prerequisiteKpi) return;
     onChange(existing
       ? kpi.sources.filter((item) => item.id !== existing.id)
-      : [...kpi.sources, { id: createLocalId('kpi-source'), type: 'kpi', kpiId, latex: '' }]);
+      : [...kpi.sources, { id: createLocalId('kpi-source'), type: 'kpi', kpiId, latex: kpiDefaultLatex(prerequisiteKpi!) }]);
   };
   const toggleLookup = (lookupId: string) => {
     const existing = kpi.sources.find((item) => item.type === 'lookup' && item.lookupId === lookupId);
