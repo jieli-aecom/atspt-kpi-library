@@ -5851,9 +5851,43 @@ function KpiSourceEditor({
   const [customLatex, setCustomLatex] = useState('');
   const [expandedPickerGroupKeys, setExpandedPickerGroupKeys] = useState<string[]>([]);
   const [highlightedSource, setHighlightedSource] = useState<{ sourceId: string; requestId: number }>();
-  const [popoverPosition, setPopoverPosition] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number }>();
+  const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
+  const updatePopoverPosition = useCallback((renderedHeight?: number) => {
+    const anchor = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
+    const viewportMargin = 12;
+    const anchorGap = 6;
+    const width = Math.max(0, Math.min(760, window.innerWidth - viewportMargin * 2));
+    const maxHeight = Math.min(620, Math.max(0, window.innerHeight - viewportMargin * 2));
+    const height = Math.min(renderedHeight ?? maxHeight, maxHeight);
+    const left = Math.max(viewportMargin, Math.min(rect.left, window.innerWidth - width - viewportMargin));
+    const spaceBelow = window.innerHeight - rect.bottom - anchorGap - viewportMargin;
+    const spaceAbove = rect.top - anchorGap - viewportMargin;
+    let top: number;
+    if (spaceBelow >= height) {
+      top = rect.bottom + anchorGap;
+    } else if (spaceAbove >= height) {
+      top = rect.top - anchorGap - height;
+    } else {
+      const preferredTop = spaceBelow >= spaceAbove
+        ? rect.bottom + anchorGap
+        : rect.top - anchorGap - height;
+      top = Math.max(viewportMargin, Math.min(preferredTop, window.innerHeight - viewportMargin - height));
+    }
+    setPopoverPosition((current) => {
+      const next = { top, left, width, maxHeight };
+      return current
+        && Math.abs(current.top - next.top) < 0.5
+        && Math.abs(current.left - next.left) < 0.5
+        && Math.abs(current.width - next.width) < 0.5
+        && Math.abs(current.maxHeight - next.maxHeight) < 0.5
+        ? current
+        : next;
+    });
+  }, []);
   const highlightSource = (sourceId: string) => {
     setHighlightedSource((current) => ({ sourceId, requestId: (current?.requestId ?? 0) + 1 }));
     setOpen(true);
@@ -5882,25 +5916,7 @@ function KpiSourceEditor({
     }
     const updatePosition = (event?: Event) => {
       if (event?.type === 'scroll' && event.target instanceof Node && popoverRef.current?.contains(event.target)) return;
-      const anchor = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
-      if (!anchor) return;
-      const rect = anchor.getBoundingClientRect();
-      const viewportMargin = 12;
-      const anchorGap = 6;
-      const width = Math.max(0, Math.min(760, window.innerWidth - viewportMargin * 2));
-      const left = Math.max(viewportMargin, Math.min(rect.left, window.innerWidth - width - viewportMargin));
-      const spaceBelow = Math.max(0, window.innerHeight - rect.bottom - anchorGap - viewportMargin);
-      const spaceAbove = Math.max(0, rect.top - anchorGap - viewportMargin);
-      const opensAbove = spaceAbove > spaceBelow;
-      if (opensAbove) {
-        const bottom = Math.max(viewportMargin, Math.min(window.innerHeight - rect.top + anchorGap, window.innerHeight - viewportMargin));
-        const maxHeight = Math.min(620, Math.max(0, window.innerHeight - bottom - viewportMargin));
-        setPopoverPosition({ bottom, left, width, maxHeight });
-        return;
-      }
-      const top = Math.max(viewportMargin, Math.min(rect.bottom + anchorGap, window.innerHeight - viewportMargin));
-      const maxHeight = Math.min(620, Math.max(0, window.innerHeight - top - viewportMargin));
-      setPopoverPosition({ top, left, width, maxHeight });
+      updatePopoverPosition(popoverRef.current?.getBoundingClientRect().height);
     };
     updatePosition();
     window.addEventListener('resize', updatePosition);
@@ -5909,7 +5925,16 @@ function KpiSourceEditor({
       window.removeEventListener('resize', updatePosition);
       window.removeEventListener('scroll', updatePosition, true);
     };
-  }, [open]);
+  }, [open, updatePopoverPosition]);
+  useLayoutEffect(() => {
+    const popover = popoverRef.current;
+    if (!open || !popoverPosition || !popover) return undefined;
+    const updateForRenderedSize = () => updatePopoverPosition(popover.getBoundingClientRect().height);
+    updateForRenderedSize();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(updateForRenderedSize);
+    observer?.observe(popover);
+    return () => observer?.disconnect();
+  }, [open, popoverPosition?.maxHeight, popoverPosition?.width, updatePopoverPosition]);
   useEffect(() => {
     if (!compact || !transientHighlightedSource) return undefined;
     const frame = window.requestAnimationFrame(() => {

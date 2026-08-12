@@ -4134,6 +4134,7 @@ h1 {
   background: #fbfcfc;
   margin: 8px 0 10px;
   padding: 8px;
+  font-size: 11px;
 }
 
 .source-picker-section {
@@ -4165,32 +4166,32 @@ h1 {
 
 .selected-source-list {
   display: grid;
-  gap: 8px;
+  gap: 6px;
   margin-top: 6px;
 }
 
 .selected-source-group {
   display: grid;
-  gap: 5px;
+  gap: 4px;
   border: 1px solid #dce5e8;
   border-radius: 7px;
   background: #f8fafb;
-  padding: 7px;
+  padding: 6px;
 }
 
 .selected-source-group-heading {
-  padding: 1px 2px 3px;
-  font-size: 12px;
+  padding: 1px 2px 2px;
+  font-size: 11px;
 }
 
 .selected-source-row {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) minmax(120px, 0.8fr) minmax(60px, 0.5fr) 26px 26px;
+  grid-template-columns: minmax(105px, 0.75fr) minmax(145px, 1fr) minmax(150px, 1fr) 24px 24px;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   border-radius: 6px;
   background: #eef4f4;
-  padding: 5px;
+  padding: 4px;
   transition: box-shadow 220ms ease;
 }
 
@@ -4219,10 +4220,29 @@ h1 {
 
 .selected-source-row > span:first-child {
   overflow: hidden;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.selected-source-row .latex-code-editor {
+  min-height: 27px;
+  padding: 4px 6px;
+  font-size: 10px;
+}
+
+.selected-source-row .source-latex-preview {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.selected-source-row .source-latex-preview .katex {
+  font-size: 1em;
 }
 
 .source-latex-preview {
