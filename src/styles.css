@@ -4324,6 +4324,10 @@ h1 {
 .formula-items-panel {
   display: grid;
   gap: 6px;
+  max-height: min(600px, 62vh);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
 }
 
 .formula-items-heading {
