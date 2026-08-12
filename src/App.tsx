@@ -3360,6 +3360,7 @@ function DataSourceHeader({
   const [fieldInsertDragOver, setFieldInsertDragOver] = useState<{ sourceIndex: number; targetKey: string } | null>(null);
   const [fieldGroupDragOver, setFieldGroupDragOver] = useState<{ sourceIndex: number; groupId?: string } | null>(null);
   const [libraryItemDrag, setLibraryItemDrag] = useState<{ kind: 'lookup' | 'variable' | 'enum'; itemIndex: number } | null>(null);
+  const [libraryGroupDrag, setLibraryGroupDrag] = useState<{ kind: 'lookup' | 'variable' | 'enum'; groupId: string } | null>(null);
   const [libraryItemDragOver, setLibraryItemDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; itemIndex: number; position: DropPosition } | null>(null);
   const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; groupId?: string; position?: DropPosition } | null>(null);
   const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; key: string } | null>(null);
@@ -3720,19 +3721,25 @@ function DataSourceHeader({
       }))
     });
   };
-  const addLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', position: number) => {
+  const addLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', position: number, beforeGroupId?: string) => {
     const group: DataLibraryGroup = {
       id: createLocalId(`${kind}-group`),
       name: 'New group',
       itemIds: [],
       position
     };
+    const insertGroup = (groups: DataLibraryGroup[]) => {
+      const insertionIndex = beforeGroupId ? groups.findIndex((entry) => entry.id === beforeGroupId) : -1;
+      return insertionIndex < 0
+        ? [...groups, group]
+        : [...groups.slice(0, insertionIndex), group, ...groups.slice(insertionIndex)];
+    };
     if (kind === 'lookup') {
-      onConfigChange({ ...config, lookupGroups: [...config.lookupGroups, group] });
+      onConfigChange({ ...config, lookupGroups: insertGroup(config.lookupGroups) });
     } else if (kind === 'variable') {
-      onConfigChange({ ...config, variableGroups: [...config.variableGroups, group] });
+      onConfigChange({ ...config, variableGroups: insertGroup(config.variableGroups) });
     } else {
-      onConfigChange({ ...config, valueEnumGroups: [...config.valueEnumGroups, group] });
+      onConfigChange({ ...config, valueEnumGroups: insertGroup(config.valueEnumGroups) });
       setExpandedValueEnumGroupIds((current) => [...current, group.id]);
     }
   };
@@ -3852,6 +3859,73 @@ function DataSourceHeader({
         groupId,
         shiftGroupsAtTarget
       );
+      onConfigChange({ ...config, valueEnums: result.items, valueEnumGroups: result.groups });
+    }
+  };
+  const moveLibraryGroupCollection = <T extends { id: string },>(
+    items: T[],
+    groups: DataLibraryGroup[],
+    sourceGroupId: string,
+    target: { type: 'group'; groupId: string; position: DropPosition } | { type: 'item'; itemId: string; position: DropPosition } | { type: 'end' }
+  ) => {
+    const groupedItemIds = new Set(groups.flatMap((group) => group.itemIds));
+    const groupsByPosition = new Map<number, DataLibraryGroup[]>();
+    groups.forEach((group) => {
+      const position = Math.max(0, Math.min(group.position, items.length));
+      groupsByPosition.set(position, [...(groupsByPosition.get(position) ?? []), group]);
+    });
+    const blocks: Array<
+      | { type: 'group'; group: DataLibraryGroup; items: T[] }
+      | { type: 'item'; item: T }
+    > = [];
+    for (let index = 0; index <= items.length; index += 1) {
+      (groupsByPosition.get(index) ?? []).forEach((group) => {
+        const itemIds = new Set(group.itemIds);
+        blocks.push({ type: 'group', group, items: items.filter((item) => itemIds.has(item.id)) });
+      });
+      const item = items[index];
+      if (item && !groupedItemIds.has(item.id)) blocks.push({ type: 'item', item });
+    }
+
+    const sourceIndex = blocks.findIndex((block) => block.type === 'group' && block.group.id === sourceGroupId);
+    if (sourceIndex < 0) return { items, groups };
+    const [moved] = blocks.splice(sourceIndex, 1);
+    let insertionIndex = blocks.length;
+    if (target.type === 'group') {
+      const targetIndex = blocks.findIndex((block) => block.type === 'group' && block.group.id === target.groupId);
+      if (targetIndex >= 0) insertionIndex = targetIndex + (target.position === 'after' ? 1 : 0);
+    } else if (target.type === 'item') {
+      const targetIndex = blocks.findIndex((block) => block.type === 'item' && block.item.id === target.itemId);
+      if (targetIndex >= 0) insertionIndex = targetIndex + (target.position === 'after' ? 1 : 0);
+    }
+    blocks.splice(insertionIndex, 0, moved);
+
+    const nextItems: T[] = [];
+    const nextGroups: DataLibraryGroup[] = [];
+    blocks.forEach((block) => {
+      if (block.type === 'item') {
+        nextItems.push(block.item);
+        return;
+      }
+      nextGroups.push({ ...block.group, position: nextItems.length });
+      nextItems.push(...block.items);
+    });
+    return { items: nextItems, groups: nextGroups };
+  };
+  const moveLibraryGroup = (
+    kind: 'lookup' | 'variable' | 'enum',
+    target: { type: 'group'; groupId: string; position: DropPosition } | { type: 'item'; itemId: string; position: DropPosition } | { type: 'end' }
+  ) => {
+    if (!libraryGroupDrag || libraryGroupDrag.kind !== kind) return;
+    if (target.type === 'group' && target.groupId === libraryGroupDrag.groupId) return;
+    if (kind === 'lookup') {
+      const result = moveLibraryGroupCollection(config.lookups, config.lookupGroups, libraryGroupDrag.groupId, target);
+      onConfigChange({ ...config, lookups: result.items, lookupGroups: result.groups });
+    } else if (kind === 'variable') {
+      const result = moveLibraryGroupCollection(config.variables, config.variableGroups, libraryGroupDrag.groupId, target);
+      onConfigChange({ ...config, variables: result.items, variableGroups: result.groups });
+    } else {
+      const result = moveLibraryGroupCollection(config.valueEnums, config.valueEnumGroups, libraryGroupDrag.groupId, target);
       onConfigChange({ ...config, valueEnums: result.items, valueEnumGroups: result.groups });
     }
   };
@@ -4334,6 +4408,7 @@ function DataSourceHeader({
   };
   const clearLibraryDrag = () => {
     setLibraryItemDrag(null);
+    setLibraryGroupDrag(null);
     setLibraryItemDragOver(null);
     setLibraryGroupDragOver(null);
     setLibraryInsertDragOver(null);
@@ -4343,13 +4418,14 @@ function DataSourceHeader({
     position: number,
     key: string,
     groupId?: string,
-    shiftGroupsAtPosition = true
+    shiftGroupsAtPosition = true,
+    beforeGroupId?: string
   ) => (
     <div
       className={`field-insert-actions library-insert-actions ${libraryInsertDragOver?.kind === kind && libraryInsertDragOver.key === key ? 'is-drag-over' : ''}`}
       key={key}
       onDragOver={(event) => {
-        if (libraryItemDrag?.kind !== kind) return;
+        if (libraryItemDrag?.kind !== kind && (libraryGroupDrag?.kind !== kind || groupId)) return;
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = 'move';
@@ -4358,10 +4434,25 @@ function DataSourceHeader({
         setLibraryInsertDragOver({ kind, key });
       }}
       onDrop={(event) => {
-        if (libraryItemDrag?.kind !== kind) return;
+        if (libraryItemDrag?.kind !== kind && (libraryGroupDrag?.kind !== kind || groupId)) return;
         event.preventDefault();
         event.stopPropagation();
-        moveLibraryItem(kind, position, 'before', groupId, shiftGroupsAtPosition);
+        if (libraryGroupDrag?.kind === kind) {
+          if (beforeGroupId) {
+            moveLibraryGroup(kind, { type: 'group', groupId: beforeGroupId, position: 'before' });
+          } else {
+            const targetItem = kind === 'lookup'
+              ? config.lookups[position]
+              : kind === 'variable'
+                ? config.variables[position]
+                : config.valueEnums[position];
+            moveLibraryGroup(kind, targetItem
+              ? { type: 'item', itemId: targetItem.id, position: 'before' }
+              : { type: 'end' });
+          }
+        } else {
+          moveLibraryItem(kind, position, 'before', groupId, shiftGroupsAtPosition);
+        }
         clearLibraryDrag();
       }}
     >
@@ -4377,7 +4468,7 @@ function DataSourceHeader({
       <button
         className="list-insert-divider field-group-insert-divider"
         type="button"
-        onClick={() => addLibraryGroup(kind, position)}
+        onClick={() => addLibraryGroup(kind, position, beforeGroupId)}
       ><Plus size={11} aria-hidden="true" />Add group</button>
     </div>
   );
@@ -4387,7 +4478,8 @@ function DataSourceHeader({
       data-library-target={`lookup:${lookup.id}`}
       key={lookup.id}
       onDragOver={(event) => {
-        if (libraryItemDrag?.kind !== 'lookup') return;
+        if (libraryItemDrag?.kind !== 'lookup' && libraryGroupDrag?.kind !== 'lookup') return;
+        if (libraryGroupDrag?.kind === 'lookup' && groupId) return;
         event.preventDefault();
         event.stopPropagation();
         setLibraryInsertDragOver(null);
@@ -4400,10 +4492,13 @@ function DataSourceHeader({
         setLibraryGroupDragOver({ kind: 'lookup', groupId });
       }}
       onDrop={(event) => {
-        if (libraryItemDrag?.kind !== 'lookup') return;
+        if (libraryItemDrag?.kind !== 'lookup' && libraryGroupDrag?.kind !== 'lookup') return;
+        if (libraryGroupDrag?.kind === 'lookup' && groupId) return;
         event.preventDefault();
         event.stopPropagation();
-        moveLibraryItem('lookup', lookupIndex, libraryItemDragOver?.position ?? 'before', groupId);
+        const position = libraryItemDragOver?.position ?? 'before';
+        if (libraryGroupDrag?.kind === 'lookup') moveLibraryGroup('lookup', { type: 'item', itemId: lookup.id, position });
+        else moveLibraryItem('lookup', lookupIndex, position, groupId);
         clearLibraryDrag();
       }}
     >
@@ -4553,7 +4648,8 @@ function DataSourceHeader({
       data-library-target={`variable:${variable.id}`}
       key={variable.id}
       onDragOver={(event) => {
-        if (libraryItemDrag?.kind !== 'variable') return;
+        if (libraryItemDrag?.kind !== 'variable' && libraryGroupDrag?.kind !== 'variable') return;
+        if (libraryGroupDrag?.kind === 'variable' && groupId) return;
         event.preventDefault();
         event.stopPropagation();
         setLibraryInsertDragOver(null);
@@ -4566,10 +4662,13 @@ function DataSourceHeader({
         setLibraryGroupDragOver({ kind: 'variable', groupId });
       }}
       onDrop={(event) => {
-        if (libraryItemDrag?.kind !== 'variable') return;
+        if (libraryItemDrag?.kind !== 'variable' && libraryGroupDrag?.kind !== 'variable') return;
+        if (libraryGroupDrag?.kind === 'variable' && groupId) return;
         event.preventDefault();
         event.stopPropagation();
-        moveLibraryItem('variable', variableIndex, libraryItemDragOver?.position ?? 'before', groupId);
+        const position = libraryItemDragOver?.position ?? 'before';
+        if (libraryGroupDrag?.kind === 'variable') moveLibraryGroup('variable', { type: 'item', itemId: variable.id, position });
+        else moveLibraryItem('variable', variableIndex, position, groupId);
         clearLibraryDrag();
       }}
     >
@@ -4595,6 +4694,35 @@ function DataSourceHeader({
       </div>
     </div>
   );
+  const renderLibraryGroupHeading = (
+    kind: 'lookup' | 'variable' | 'enum',
+    group: DataLibraryGroup,
+    expanded: boolean,
+    itemLabel: string,
+    onToggle: () => void
+  ) => (
+    <div className="library-group-heading">
+      <button
+        className="mini-icon-button drag-handle library-group-drag"
+        type="button"
+        draggable
+        title={`Drag ${itemLabel} group`}
+        aria-label={`Drag ${group.name.trim() || `untitled ${itemLabel}`} group`}
+        onDragStart={(event) => {
+          setLibraryItemDrag(null);
+          setLibraryGroupDrag({ kind, groupId: group.id });
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/plain', `group:${group.id}`);
+        }}
+        onDragEnd={clearLibraryDrag}
+      ><GripVertical size={13} aria-hidden="true" /></button>
+      <button className="library-group-toggle" type="button" aria-expanded={expanded} onClick={onToggle}>
+        <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
+        <strong>{group.name.trim() || 'Untitled group'}</strong>
+        <small>{group.itemIds.length} {group.itemIds.length === 1 ? itemLabel : `${itemLabel}s`}</small>
+      </button>
+    </div>
+  );
   const renderLookupGroup = (group: DataLibraryGroup) => {
     const groupItems = config.lookups
       .map((lookup, lookupIndex) => ({ lookup, lookupIndex }))
@@ -4616,42 +4744,41 @@ function DataSourceHeader({
         className={`library-group ${groupIsDragTarget ? groupDragPosition ? `is-drag-over-${groupDragPosition}` : 'is-drag-over' : ''}`}
         key={group.id}
         onDragOver={(event) => {
-          if (libraryItemDrag?.kind !== 'lookup') return;
+          if (libraryItemDrag?.kind !== 'lookup' && libraryGroupDrag?.kind !== 'lookup') return;
           event.preventDefault();
           event.stopPropagation();
           event.dataTransfer.dropEffect = 'move';
-          const position = lookupGroupDropPosition(event.currentTarget, event.clientY);
+          const rect = event.currentTarget.getBoundingClientRect();
+          const position = libraryGroupDrag?.kind === 'lookup'
+            ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+            : lookupGroupDropPosition(event.currentTarget, event.clientY);
           setLibraryItemDragOver(null);
           setLibraryInsertDragOver(null);
           setLibraryGroupDragOver({ kind: 'lookup', groupId: group.id, position });
-          if (!position) setExpandedLookupGroupIds((current) => [...new Set([...current, group.id])]);
+          if (libraryItemDrag && !position) setExpandedLookupGroupIds((current) => [...new Set([...current, group.id])]);
         }}
         onDrop={(event) => {
-          if (libraryItemDrag?.kind !== 'lookup') return;
+          if (libraryItemDrag?.kind !== 'lookup' && libraryGroupDrag?.kind !== 'lookup') return;
           event.preventDefault();
           event.stopPropagation();
-          const position = lookupGroupDropPosition(event.currentTarget, event.clientY);
-          if (position === 'before') {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const position = libraryGroupDrag?.kind === 'lookup'
+            ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+            : lookupGroupDropPosition(event.currentTarget, event.clientY);
+          if (libraryGroupDrag?.kind === 'lookup') {
+            moveLibraryGroup('lookup', { type: 'group', groupId: group.id, position: position ?? 'before' });
+          } else if (position === 'before') {
             moveLibraryItem('lookup', group.position, 'before', undefined, true);
           } else if (position === 'after') {
             moveLibraryItem('lookup', group.position, 'before', undefined, false);
           } else {
-            const dragged = config.lookups[libraryItemDrag.itemIndex];
+            const dragged = config.lookups[libraryItemDrag!.itemIndex];
             if (dragged) assignLibraryItemToGroup('lookup', dragged.id, group.id);
           }
           clearLibraryDrag();
         }}
       >
-        <button
-          className="library-group-heading"
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpandedLookupGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}
-        >
-          <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
-          <strong>{group.name.trim() || 'Untitled group'}</strong>
-          <small>{group.itemIds.length} {group.itemIds.length === 1 ? 'lookup' : 'lookups'}</small>
-        </button>
+        {renderLibraryGroupHeading('lookup', group, expanded, 'lookup', () => setExpandedLookupGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
         {expanded ? <div className="library-group-body">
           <div className="library-group-settings">
             <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('lookup', group.id, { name: event.target.value })} /></label>
@@ -4675,38 +4802,57 @@ function DataSourceHeader({
       .map((variable, variableIndex) => ({ variable, variableIndex }))
       .filter(({ variable }) => group.itemIds.includes(variable.id));
     const expanded = expandedVariableGroupIds.includes(group.id);
+    const groupDragPosition = libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === group.id
+      ? libraryGroupDragOver.position
+      : undefined;
     return (
       <div
-        className={`library-group is-variable ${libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === group.id ? 'is-drag-over' : ''}`}
+        className={`library-group is-variable ${libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === group.id ? groupDragPosition ? `is-drag-over-${groupDragPosition}` : 'is-drag-over' : ''}`}
         key={group.id}
         onDragOver={(event) => {
-          if (libraryItemDrag?.kind !== 'variable') return;
+          if (libraryItemDrag?.kind !== 'variable' && libraryGroupDrag?.kind !== 'variable') return;
           event.preventDefault();
           event.stopPropagation();
+          event.dataTransfer.dropEffect = 'move';
+          const rect = event.currentTarget.getBoundingClientRect();
+          const edgeSize = Math.min(28, Math.max(10, rect.height * 0.2));
+          const itemPosition = event.clientY < rect.top + edgeSize
+            ? 'before'
+            : event.clientY > rect.bottom - edgeSize ? 'after' : undefined;
+          const position = libraryGroupDrag?.kind === 'variable'
+            ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+            : itemPosition;
           setLibraryItemDragOver(null);
           setLibraryInsertDragOver(null);
-          setLibraryGroupDragOver({ kind: 'variable', groupId: group.id });
-          setExpandedVariableGroupIds((current) => [...new Set([...current, group.id])]);
+          setLibraryGroupDragOver({ kind: 'variable', groupId: group.id, position });
+          if (libraryItemDrag && !position) setExpandedVariableGroupIds((current) => [...new Set([...current, group.id])]);
         }}
         onDrop={(event) => {
-          if (libraryItemDrag?.kind !== 'variable') return;
+          if (libraryItemDrag?.kind !== 'variable' && libraryGroupDrag?.kind !== 'variable') return;
           event.preventDefault();
           event.stopPropagation();
-          const dragged = config.variables[libraryItemDrag.itemIndex];
-          if (dragged) assignLibraryItemToGroup('variable', dragged.id, group.id);
+          const rect = event.currentTarget.getBoundingClientRect();
+          const edgeSize = Math.min(28, Math.max(10, rect.height * 0.2));
+          const itemPosition = event.clientY < rect.top + edgeSize
+            ? 'before'
+            : event.clientY > rect.bottom - edgeSize ? 'after' : undefined;
+          const position = libraryGroupDrag?.kind === 'variable'
+            ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+            : itemPosition;
+          if (libraryGroupDrag?.kind === 'variable') {
+            moveLibraryGroup('variable', { type: 'group', groupId: group.id, position: position ?? 'before' });
+          } else if (position === 'before') {
+            moveLibraryItem('variable', group.position, 'before', undefined, true);
+          } else if (position === 'after') {
+            moveLibraryItem('variable', group.position, 'before', undefined, false);
+          } else {
+            const dragged = config.variables[libraryItemDrag!.itemIndex];
+            if (dragged) assignLibraryItemToGroup('variable', dragged.id, group.id);
+          }
           clearLibraryDrag();
         }}
       >
-        <button
-          className="library-group-heading"
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpandedVariableGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}
-        >
-          <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
-          <strong>{group.name.trim() || 'Untitled group'}</strong>
-          <small>{group.itemIds.length} {group.itemIds.length === 1 ? 'variable' : 'variables'}</small>
-        </button>
+        {renderLibraryGroupHeading('variable', group, expanded, 'variable', () => setExpandedVariableGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
         {expanded ? <div className="library-group-body">
           <div className="library-group-settings">
             <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('variable', group.id, { name: event.target.value })} /></label>
@@ -4731,7 +4877,8 @@ function DataSourceHeader({
       data-library-target={`domain:${definition.id}`}
       key={definition.id}
       onDragOver={(event) => {
-        if (libraryItemDrag?.kind !== 'enum') return;
+        if (libraryItemDrag?.kind !== 'enum' && libraryGroupDrag?.kind !== 'enum') return;
+        if (libraryGroupDrag?.kind === 'enum' && groupId) return;
         event.preventDefault();
         event.stopPropagation();
         setLibraryInsertDragOver(null);
@@ -4740,10 +4887,13 @@ function DataSourceHeader({
         setLibraryGroupDragOver({ kind: 'enum', groupId });
       }}
       onDrop={(event) => {
-        if (libraryItemDrag?.kind !== 'enum') return;
+        if (libraryItemDrag?.kind !== 'enum' && libraryGroupDrag?.kind !== 'enum') return;
+        if (libraryGroupDrag?.kind === 'enum' && groupId) return;
         event.preventDefault();
         event.stopPropagation();
-        moveLibraryItem('enum', enumIndex, libraryItemDragOver?.position ?? 'before', groupId);
+        const position = libraryItemDragOver?.position ?? 'before';
+        if (libraryGroupDrag?.kind === 'enum') moveLibraryGroup('enum', { type: 'item', itemId: definition.id, position });
+        else moveLibraryItem('enum', enumIndex, position, groupId);
         clearLibraryDrag();
       }}
     >
@@ -4783,34 +4933,38 @@ function DataSourceHeader({
       className={`library-group is-enum ${libraryGroupDragOver?.kind === 'enum' && libraryGroupDragOver.groupId === group.id ? groupDragPosition ? `is-drag-over-${groupDragPosition}` : 'is-drag-over' : ''}`}
       key={group.id}
       onDragOver={(event) => {
-        if (libraryItemDrag?.kind !== 'enum') return;
+        if (libraryItemDrag?.kind !== 'enum' && libraryGroupDrag?.kind !== 'enum') return;
         event.preventDefault();
         event.stopPropagation();
-        const position = groupDropPosition(event.currentTarget, event.clientY);
+        event.dataTransfer.dropEffect = 'move';
+        const rect = event.currentTarget.getBoundingClientRect();
+        const position = libraryGroupDrag?.kind === 'enum'
+          ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+          : groupDropPosition(event.currentTarget, event.clientY);
         setLibraryItemDragOver(null);
         setLibraryInsertDragOver(null);
         setLibraryGroupDragOver({ kind: 'enum', groupId: group.id, position });
-        if (!position) setExpandedValueEnumGroupIds((current) => [...new Set([...current, group.id])]);
+        if (libraryItemDrag && !position) setExpandedValueEnumGroupIds((current) => [...new Set([...current, group.id])]);
       }}
       onDrop={(event) => {
-        if (libraryItemDrag?.kind !== 'enum') return;
+        if (libraryItemDrag?.kind !== 'enum' && libraryGroupDrag?.kind !== 'enum') return;
         event.preventDefault();
         event.stopPropagation();
-        const position = groupDropPosition(event.currentTarget, event.clientY);
-        if (position === 'before') moveLibraryItem('enum', group.position, 'before', undefined, true);
+        const rect = event.currentTarget.getBoundingClientRect();
+        const position = libraryGroupDrag?.kind === 'enum'
+          ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+          : groupDropPosition(event.currentTarget, event.clientY);
+        if (libraryGroupDrag?.kind === 'enum') moveLibraryGroup('enum', { type: 'group', groupId: group.id, position: position ?? 'before' });
+        else if (position === 'before') moveLibraryItem('enum', group.position, 'before', undefined, true);
         else if (position === 'after') moveLibraryItem('enum', group.position, 'before', undefined, false);
         else {
-          const dragged = config.valueEnums[libraryItemDrag.itemIndex];
+          const dragged = config.valueEnums[libraryItemDrag!.itemIndex];
           if (dragged) assignLibraryItemToGroup('enum', dragged.id, group.id);
         }
         clearLibraryDrag();
       }}
     >
-      <button className="library-group-heading" type="button" aria-expanded={expanded} onClick={() => setExpandedValueEnumGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id])}>
-        <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
-        <strong>{group.name.trim() || 'Untitled group'}</strong>
-        <small>{group.itemIds.length} {group.itemIds.length === 1 ? 'domain' : 'domains'}</small>
-      </button>
+      {renderLibraryGroupHeading('enum', group, expanded, 'domain', () => setExpandedValueEnumGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
       {expanded ? <div className="library-group-body">
         <div className="library-group-settings">
           <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('enum', group.id, { name: event.target.value })} /></label>
@@ -4882,17 +5036,21 @@ function DataSourceHeader({
                 className={`lookup-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
                 id="lookup-library-list"
                 onDragOver={(event) => {
-                  if (libraryItemDrag?.kind !== 'lookup') return;
+                  if (libraryItemDrag?.kind !== 'lookup' && libraryGroupDrag?.kind !== 'lookup') return;
                   event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
                   setLibraryItemDragOver(null);
                   setLibraryInsertDragOver(null);
                   setLibraryGroupDragOver({ kind: 'lookup' });
                 }}
                 onDrop={(event) => {
-                  if (libraryItemDrag?.kind !== 'lookup') return;
+                  if (libraryItemDrag?.kind !== 'lookup' && libraryGroupDrag?.kind !== 'lookup') return;
                   event.preventDefault();
-                  const dragged = config.lookups[libraryItemDrag.itemIndex];
-                  if (dragged) assignLibraryItemToGroup('lookup', dragged.id);
+                  if (libraryGroupDrag?.kind === 'lookup') moveLibraryGroup('lookup', { type: 'end' });
+                  else {
+                    const dragged = config.lookups[libraryItemDrag!.itemIndex];
+                    if (dragged) assignLibraryItemToGroup('lookup', dragged.id);
+                  }
                   clearLibraryDrag();
                 }}
               >
@@ -4901,10 +5059,10 @@ function DataSourceHeader({
                   const groupsAtPosition = config.lookupGroups.filter((group) => group.position === lookupIndex);
                   const isUngrouped = !groupedLookupIds.has(lookup.id);
                   return [
-                    ...(groupsAtPosition.length > 0
-                      ? [renderLibraryInsertActions('lookup', lookupIndex, `before-lookup-groups-${lookup.id}`, undefined, true)]
-                      : []),
-                    ...groupsAtPosition.map(renderLookupGroup),
+                    ...groupsAtPosition.flatMap((group) => [
+                      renderLibraryInsertActions('lookup', lookupIndex, `before-lookup-group-${group.id}`, undefined, true, group.id),
+                      renderLookupGroup(group)
+                    ]),
                     ...(isUngrouped ? [
                       ...(groupsAtPosition.length > 0
                         ? [renderLibraryInsertActions('lookup', lookupIndex, `after-lookup-groups-${lookup.id}`, undefined, false)]
@@ -4913,10 +5071,10 @@ function DataSourceHeader({
                     ] : [])
                   ];
                 })}
-                {config.lookupGroups.some((group) => group.position === config.lookups.length)
-                  ? renderLibraryInsertActions('lookup', config.lookups.length, 'before-final-lookup-groups', undefined, true)
-                  : null}
-                {config.lookupGroups.filter((group) => group.position === config.lookups.length).map(renderLookupGroup)}
+                {config.lookupGroups.filter((group) => group.position === config.lookups.length).flatMap((group) => [
+                  renderLibraryInsertActions('lookup', config.lookups.length, `before-final-lookup-group-${group.id}`, undefined, true, group.id),
+                  renderLookupGroup(group)
+                ])}
                 {config.lookups.length > 0 || config.lookupGroups.length > 0
                   ? renderLibraryInsertActions('lookup', config.lookups.length, 'after-final-lookup-groups', undefined, false)
                   : null}
@@ -4931,17 +5089,21 @@ function DataSourceHeader({
                 className={`variable-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
                 id="variable-library-list"
                 onDragOver={(event) => {
-                  if (libraryItemDrag?.kind !== 'variable') return;
+                  if (libraryItemDrag?.kind !== 'variable' && libraryGroupDrag?.kind !== 'variable') return;
                   event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
                   setLibraryItemDragOver(null);
                   setLibraryInsertDragOver(null);
                   setLibraryGroupDragOver({ kind: 'variable' });
                 }}
                 onDrop={(event) => {
-                  if (libraryItemDrag?.kind !== 'variable') return;
+                  if (libraryItemDrag?.kind !== 'variable' && libraryGroupDrag?.kind !== 'variable') return;
                   event.preventDefault();
-                  const dragged = config.variables[libraryItemDrag.itemIndex];
-                  if (dragged) assignLibraryItemToGroup('variable', dragged.id);
+                  if (libraryGroupDrag?.kind === 'variable') moveLibraryGroup('variable', { type: 'end' });
+                  else {
+                    const dragged = config.variables[libraryItemDrag!.itemIndex];
+                    if (dragged) assignLibraryItemToGroup('variable', dragged.id);
+                  }
                   clearLibraryDrag();
                 }}
               >
@@ -4952,10 +5114,10 @@ function DataSourceHeader({
                   const groupsAtPosition = config.variableGroups.filter((group) => group.position === variableIndex);
                   const isUngrouped = !groupedVariableIds.has(variable.id);
                   return [
-                    ...(groupsAtPosition.length > 0
-                      ? [renderLibraryInsertActions('variable', variableIndex, `before-variable-groups-${variable.id}`, undefined, true)]
-                      : []),
-                    ...groupsAtPosition.map(renderVariableGroup),
+                    ...groupsAtPosition.flatMap((group) => [
+                      renderLibraryInsertActions('variable', variableIndex, `before-variable-group-${group.id}`, undefined, true, group.id),
+                      renderVariableGroup(group)
+                    ]),
                     ...(isUngrouped ? [
                       ...(groupsAtPosition.length > 0
                         ? [renderLibraryInsertActions('variable', variableIndex, `after-variable-groups-${variable.id}`, undefined, false)]
@@ -4964,10 +5126,10 @@ function DataSourceHeader({
                     ] : [])
                   ];
                 })}
-                {config.variableGroups.some((group) => group.position === config.variables.length)
-                  ? renderLibraryInsertActions('variable', config.variables.length, 'before-final-variable-groups', undefined, true)
-                  : null}
-                {config.variableGroups.filter((group) => group.position === config.variables.length).map(renderVariableGroup)}
+                {config.variableGroups.filter((group) => group.position === config.variables.length).flatMap((group) => [
+                  renderLibraryInsertActions('variable', config.variables.length, `before-final-variable-group-${group.id}`, undefined, true, group.id),
+                  renderVariableGroup(group)
+                ])}
                 {config.variables.length > 0 || config.variableGroups.length > 0
                   ? renderLibraryInsertActions('variable', config.variables.length, 'after-final-variable-groups', undefined, false)
                   : null}
@@ -4978,16 +5140,20 @@ function DataSourceHeader({
               </div>
             </section> : null}
             {activeLibrarySection === 'enums' ? <section className="value-enum-library library-ungrouped-dropzone" onDragOver={(event) => {
-              if (libraryItemDrag?.kind !== 'enum') return;
+              if (libraryItemDrag?.kind !== 'enum' && libraryGroupDrag?.kind !== 'enum') return;
               event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
               setLibraryItemDragOver(null);
               setLibraryInsertDragOver(null);
               setLibraryGroupDragOver({ kind: 'enum' });
             }} onDrop={(event) => {
-              if (libraryItemDrag?.kind !== 'enum') return;
+              if (libraryItemDrag?.kind !== 'enum' && libraryGroupDrag?.kind !== 'enum') return;
               event.preventDefault();
-              const dragged = config.valueEnums[libraryItemDrag.itemIndex];
-              if (dragged) assignLibraryItemToGroup('enum', dragged.id);
+              if (libraryGroupDrag?.kind === 'enum') moveLibraryGroup('enum', { type: 'end' });
+              else {
+                const dragged = config.valueEnums[libraryItemDrag!.itemIndex];
+                if (dragged) assignLibraryItemToGroup('enum', dragged.id);
+              }
               clearLibraryDrag();
             }}>
               {config.valueEnums.length === 0 ? <span className="empty-option">No global domains defined.</span> : null}
@@ -4995,16 +5161,20 @@ function DataSourceHeader({
                 const groupsAtPosition = config.valueEnumGroups.filter((group) => group.position === enumIndex);
                 const isUngrouped = !groupedValueEnumIds.has(definition.id);
                 return [
-                  ...(groupsAtPosition.length > 0 ? [renderLibraryInsertActions('enum', enumIndex, `before-enum-groups-${definition.id}`, undefined, true)] : []),
-                  ...groupsAtPosition.map(renderValueEnumGroup),
+                  ...groupsAtPosition.flatMap((group) => [
+                    renderLibraryInsertActions('enum', enumIndex, `before-enum-group-${group.id}`, undefined, true, group.id),
+                    renderValueEnumGroup(group)
+                  ]),
                   ...(isUngrouped ? [
                     ...(groupsAtPosition.length > 0 ? [renderLibraryInsertActions('enum', enumIndex, `after-enum-groups-${definition.id}`, undefined, false)] : [renderLibraryInsertActions('enum', enumIndex, `insert-enum-${definition.id}`)]),
                     renderValueEnumItem(definition, enumIndex)
                   ] : [])
                 ];
               })}
-              {config.valueEnumGroups.some((group) => group.position === config.valueEnums.length) ? renderLibraryInsertActions('enum', config.valueEnums.length, 'before-final-enum-groups', undefined, true) : null}
-              {config.valueEnumGroups.filter((group) => group.position === config.valueEnums.length).map(renderValueEnumGroup)}
+              {config.valueEnumGroups.filter((group) => group.position === config.valueEnums.length).flatMap((group) => [
+                renderLibraryInsertActions('enum', config.valueEnums.length, `before-final-enum-group-${group.id}`, undefined, true, group.id),
+                renderValueEnumGroup(group)
+              ])}
               {config.valueEnums.length > 0 || config.valueEnumGroups.length > 0
                 ? renderLibraryInsertActions('enum', config.valueEnums.length, 'after-final-enum-groups', undefined, false)
                 : null}

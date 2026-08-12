@@ -1247,12 +1247,11 @@ h1 {
 
 .library-group-heading {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-columns: 26px minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   width: 100%;
   min-height: 31px;
-  border: 0;
   background: transparent;
   color: #424b79;
   padding: 4px 7px;
@@ -1261,6 +1260,24 @@ h1 {
 
 .library-group.is-variable .library-group-heading {
   color: #71447f;
+}
+
+.library-group-toggle {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  text-align: left;
+}
+
+.library-group-drag {
+  width: 26px;
+  min-height: 26px;
 }
 
 .library-group-heading strong {
