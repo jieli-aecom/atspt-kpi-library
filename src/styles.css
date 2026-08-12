@@ -4254,7 +4254,7 @@ h1 {
 .expanded-editor-tabs {
   display: none;
   grid-column: 1 / -1;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 4px;
   border: 1px solid #cbd7dc;
   border-radius: 7px;
@@ -5175,10 +5175,6 @@ h1 {
 
   .expanded-overview {
     order: 1;
-  }
-
-  .expanded-sources {
-    order: 2;
   }
 
   .expanded-tab-panel {

@@ -127,6 +127,8 @@ type FormulaSemanticTarget =
   | { kind: 'source'; sourceId: string }
   | { kind: 'formula'; formulaIndex: number };
 
+type FormulaSourceHighlight = { sourceId: string; requestId: number };
+
 const sourceLibraryTargetKey = (target: SourceLibraryEditTarget) => target.kind === 'dataField'
   ? `field:${target.fieldId}`
   : target.kind === 'lookup'
@@ -5528,7 +5530,7 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(dataSource.name, dataSource.spatialUnit)}</span></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
             const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-            return <span className={sourceSummaryItemClassName(source.id)} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
           })}</span>
         </span>
       ))}
@@ -5537,26 +5539,26 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className={sourceSummaryItemClassName(source.id)} key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
           })}</span>
         </span>
       ) : null}
       {lookupSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><BookOpen size={12} aria-hidden="true" /><span>Lookups</span></span>
-          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className={sourceSummaryItemClassName(source.id)} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
+          <span className="source-summary-items">{lookupSources.map(({ source, lookup }) => <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{lookup?.outputName ?? 'Missing lookup'}</span>)}</span>
         </span>
       ) : null}
       {variableSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><VariableIcon size={12} aria-hidden="true" /><span>Variables</span></span>
-          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className={sourceSummaryItemClassName(source.id)} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{variable?.name ?? 'Missing variable'}</span>)}</span>
+          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{variable?.name ?? 'Missing variable'}</span>)}</span>
         </span>
       ) : null}
       {customSources.length ? (
         <span className="source-summary-group">
           <span className="source-summary-heading"><Pencil size={12} aria-hidden="true" /><span>Custom sources</span></span>
-          <span className="source-summary-items">{customSources.map((source) => <span className={sourceSummaryItemClassName(source.id)} key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{source.name}</span>)}</span>
+          <span className="source-summary-items">{customSources.map((source) => <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{source.name}</span>)}</span>
         </span>
       ) : null}
     </span>
@@ -5653,14 +5655,14 @@ function KpiSourceEditor({
   kpi,
   onChange,
   onEditLibrarySource,
-  transientHighlightedSourceId,
+  transientHighlightedSource,
   compact = false
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
   onChange: (sources: KpiSourceItem[], formulaUpdates?: KpiSourceFormulaUpdates) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
-  transientHighlightedSourceId?: string;
+  transientHighlightedSource?: FormulaSourceHighlight;
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -5692,6 +5694,27 @@ function KpiSourceEditor({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [highlightedSource, open]);
+  useEffect(() => {
+    if (!compact || !transientHighlightedSource) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const scroller = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
+      const target = [...(scroller?.querySelectorAll<HTMLElement>('[data-kpi-source-id]') ?? [])]
+        .find((element) => element.dataset.kpiSourceId === transientHighlightedSource.sourceId);
+      if (!scroller || !target) return;
+
+      const scrollerRect = scroller.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const isFullyVisible = targetRect.top >= scrollerRect.top && targetRect.bottom <= scrollerRect.bottom;
+      if (isFullyVisible) return;
+
+      scroller.scrollTo({
+        top: scroller.scrollTop + targetRect.top + targetRect.height / 2 - scrollerRect.top - scrollerRect.height / 2,
+        behavior: 'smooth'
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [compact, transientHighlightedSource?.requestId]);
+  const transientHighlightedSourceId = transientHighlightedSource?.sourceId;
   const normalizedQuery = normalize(query);
   const toggleDataField = (dataSourceId: string, fieldId: string) => {
     const sameField = (item: KpiSourceItem) => item.type === 'dataField' && item.dataSourceId === dataSourceId && item.fieldId === fieldId;
@@ -7061,13 +7084,15 @@ function ExpandedKpiEditor({
   kpi,
   onChange,
   onEditLibrarySource,
-  onSemanticTarget
+  onSemanticTarget,
+  transientHighlightedSource
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
   onChange: (next: KpiMetric) => void;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
   onSemanticTarget: (target: FormulaSemanticTarget) => void;
+  transientHighlightedSource?: FormulaSourceHighlight;
 }) {
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const [formulaDrag, setFormulaDrag] = useState<{ groupIndex: number; itemIndex: number } | null>(null);
@@ -7079,7 +7104,11 @@ function ExpandedKpiEditor({
   const [formulaGroupDrag, setFormulaGroupDrag] = useState<number | null>(null);
   const [formulaGroupDragOver, setFormulaGroupDragOver] = useState<{ groupIndex: number; position: DropPosition } | null>(null);
   const [collapsedFormulaGroupIndexes, setCollapsedFormulaGroupIndexes] = useState<number[]>([]);
-  const [activeExpandedPanel, setActiveExpandedPanel] = useState<'formulae' | 'scales'>('formulae');
+  const [activeExpandedPanel, setActiveExpandedPanel] = useState<'formulae' | 'sources' | 'scales'>('formulae');
+  const handleSemanticTarget = useCallback((target: FormulaSemanticTarget) => {
+    if (target.kind === 'source') setActiveExpandedPanel('sources');
+    onSemanticTarget(target);
+  }, [onSemanticTarget]);
   const updateFormulaGroups = (updater: (groups: KpiFormulaGroup[]) => KpiFormulaGroup[]) => {
     patch({
       description: {
@@ -7260,6 +7289,16 @@ function ExpandedKpiEditor({
           onClick={() => setActiveExpandedPanel('formulae')}
         >
           Formulae
+        </button>
+        <button
+          className={activeExpandedPanel === 'sources' ? 'is-active' : ''}
+          type="button"
+          role="tab"
+          aria-selected={activeExpandedPanel === 'sources'}
+          aria-controls={`sources-panel-${kpi.id}`}
+          onClick={() => setActiveExpandedPanel('sources')}
+        >
+          Sources
         </button>
         <button
           className={activeExpandedPanel === 'scales' ? 'is-active' : ''}
@@ -7479,7 +7518,7 @@ function ExpandedKpiEditor({
                         config={config}
                         kpi={kpi}
                         item={item}
-                        onSemanticTarget={onSemanticTarget}
+                        onSemanticTarget={handleSemanticTarget}
                       />
                       <button
                         className="mini-icon-button danger"
@@ -7554,16 +7593,20 @@ function ExpandedKpiEditor({
       </section>
 
       <section className="expanded-section source-and-scale-section scales-expanded-column">
-        <div className="field expanded-independent expanded-sources">
+        <div
+          className={`field expanded-sources expanded-tab-panel sources-tab-panel ${activeExpandedPanel === 'sources' ? 'is-active' : 'is-inactive'}`}
+          id={`sources-panel-${kpi.id}`}
+          role="tabpanel"
+        >
           <span>Sources</span>
-          <KpiSourceEditor config={config} kpi={kpi} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+          <KpiSourceEditor config={config} kpi={kpi} transientHighlightedSource={transientHighlightedSource} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </div>
         <div
           className={`expanded-tab-panel spatial-scales-tab-panel ${activeExpandedPanel === 'scales' ? 'is-active' : 'is-inactive'}`}
           id={`scales-panel-${kpi.id}`}
           role="tabpanel"
         >
-          <SpatialScaleMatrix config={config} kpi={kpi} onSemanticTarget={onSemanticTarget} onChange={(spatialScales) => patch({ spatialScales })} />
+          <SpatialScaleMatrix config={config} kpi={kpi} onSemanticTarget={handleSemanticTarget} onChange={(spatialScales) => patch({ spatialScales })} />
         </div>
       </section>
     </div>
@@ -7776,7 +7819,9 @@ function KpiRow({
     }, transientSourceHighlightDurationMs);
     return () => window.clearTimeout(timeout);
   }, [semanticHighlight?.requestId]);
-  const highlightedSourceId = semanticHighlight?.target.kind === 'source' ? semanticHighlight.target.sourceId : undefined;
+  const highlightedSource = semanticHighlight?.target.kind === 'source'
+    ? { sourceId: semanticHighlight.target.sourceId, requestId: semanticHighlight.requestId }
+    : undefined;
   const highlightedFormulaIndex = semanticHighlight?.target.kind === 'formula' ? semanticHighlight.target.formulaIndex : undefined;
   const isUseCaseAssigned = hasUseCaseAssignment(kpi, useCaseAssignment);
   const focusedNote = useCaseNote(kpi, useCaseAssignment);
@@ -7878,7 +7923,7 @@ function KpiRow({
           </div>
         </td>
         <td>
-          <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSourceId={highlightedSourceId} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+          <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSource={highlightedSource} onEditLibrarySource={onEditLibrarySource} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </td>
         <td>
           <FormulaDisplay config={config} kpi={kpi} highlightedFormulaIndex={highlightedFormulaIndex} onSemanticTarget={highlightSemanticTarget} />
@@ -7991,6 +8036,7 @@ function KpiRow({
                 onChange={onChange}
                 onEditLibrarySource={onEditLibrarySource}
                 onSemanticTarget={highlightSemanticTarget}
+                transientHighlightedSource={highlightedSource}
               />
             </div>
           </td>
