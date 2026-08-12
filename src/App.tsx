@@ -6141,20 +6141,21 @@ function KpiSourceEditor({
               </div>
             ) : <span className="selected-source-empty">No sources selected. Open a picker below to add one.</span>}
           </section>
-          <div className="popover-title source-picker-title">Add sources</div>
-          <div className="source-scope-buttons" aria-label="Add source from">
-            <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={pickerScope === 'kpis' ? 'rotate' : ''} /></button>
-            <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
-            <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Variables<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
-            {config.dataSources.map((source) => (
-              <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{source.name}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
-            ))}
-            <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
-          </div>
-          {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
-            <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search variables…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
-          ) : null}
-          {pickerScope === 'kpis' ? (
+          <section className="source-picker-section">
+            <div className="popover-title source-picker-title">Add sources</div>
+            <div className="source-scope-buttons" aria-label="Add source from">
+              <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={pickerScope === 'kpis' ? 'rotate' : ''} /></button>
+              <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
+              <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Variables<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
+              {config.dataSources.map((source) => (
+                <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{source.name}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+              ))}
+              <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
+            </div>
+            {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
+              <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search variables…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
+            ) : null}
+            {pickerScope === 'kpis' ? (
             <fieldset className="source-scope-panel">
               <legend>Other KPIs</legend>
               {visibleKpis.length === 0 ? <span className="empty-option">No matching KPIs.</span> : null}
@@ -6165,8 +6166,8 @@ function KpiSourceEditor({
                 </label>
               ))}
             </fieldset>
-          ) : null}
-          {pickerScope === 'lookups' ? (
+            ) : null}
+            {pickerScope === 'lookups' ? (
             <fieldset className="source-scope-panel">
               <legend>Lookups</legend>
               {!hasVisibleLookupChoices ? <span className="empty-option">No matching lookups.</span> : null}
@@ -6179,8 +6180,8 @@ function KpiSourceEditor({
               })}
               {config.lookupGroups.filter((group) => group.position === config.lookups.length).map(renderLookupPickerGroup)}
             </fieldset>
-          ) : null}
-          {pickerScope === 'variables' ? (
+            ) : null}
+            {pickerScope === 'variables' ? (
             <fieldset className="source-scope-panel">
               <legend>Variables</legend>
               {!hasVisibleVariableChoices ? <span className="empty-option">No matching variables.</span> : null}
@@ -6193,8 +6194,8 @@ function KpiSourceEditor({
               })}
               {config.variableGroups.filter((group) => group.position === config.variables.length).map(renderVariablePickerGroup)}
             </fieldset>
-          ) : null}
-          {selectedDataSource ? (
+            ) : null}
+            {selectedDataSource ? (
             <fieldset className="source-scope-panel">
               <legend>{selectedDataSource.name}{selectedDataSource.spatialUnit ? ` · ${selectedDataSource.spatialUnit}` : ''}</legend>
               {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
@@ -6209,15 +6210,16 @@ function KpiSourceEditor({
                 );
               })}
             </fieldset>
-          ) : null}
-          {pickerScope === 'custom' ? (
+            ) : null}
+            {pickerScope === 'custom' ? (
             <section className="custom-source-panel">
               <label className="field"><span>Name</span><input value={customName} autoFocus placeholder="Source name" onChange={(event) => setCustomName(event.target.value)} /></label>
               <label className="field"><span>LaTeX expression</span><input className="latex-code-editor" value={customLatex} placeholder="x_{custom}" onChange={(event) => setCustomLatex(event.target.value)} /></label>
               <span className="source-latex-preview">{customLatex.trim() ? <InlineMath math={customLatex} errorColor="#b42318" /> : 'Preview'}</span>
               <button className="primary-action tiny" type="button" disabled={!customName.trim()} onClick={addCustomSource}><Plus size={12} /> Add custom source</button>
             </section>
-          ) : null}
+            ) : null}
+          </section>
         </div>
       ) : null}
     </div>
