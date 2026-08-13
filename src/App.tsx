@@ -5838,6 +5838,7 @@ function KpiSourceEditor({
   onEditLibrarySource,
   onViewKpi,
   transientHighlightedSource,
+  openOnTransientHighlight = true,
   compact = false
 }: {
   config: KpiPoolConfig;
@@ -5846,6 +5847,7 @@ function KpiSourceEditor({
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
   onViewKpi: (kpiId: string) => void;
   transientHighlightedSource?: FormulaSourceHighlight;
+  openOnTransientHighlight?: boolean;
   compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -5854,7 +5856,7 @@ function KpiSourceEditor({
   const [customName, setCustomName] = useState('');
   const [customLatex, setCustomLatex] = useState('');
   const [expandedPickerGroupKeys, setExpandedPickerGroupKeys] = useState<string[]>([]);
-  const [highlightedSource, setHighlightedSource] = useState<{ sourceId: string; requestId: number }>();
+  const [customSourceFocusRequest, setCustomSourceFocusRequest] = useState<{ sourceId: string; requestId: number }>();
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
@@ -5892,27 +5894,28 @@ function KpiSourceEditor({
         : next;
     });
   }, []);
-  const highlightSource = (sourceId: string) => {
-    setHighlightedSource((current) => ({ sourceId, requestId: (current?.requestId ?? 0) + 1 }));
+  useEffect(() => {
+    if (!openOnTransientHighlight || !transientHighlightedSource) return;
     setOpen(true);
-  };
+  }, [openOnTransientHighlight, transientHighlightedSource?.requestId]);
   useEffect(() => {
-    if (!highlightedSource) return undefined;
-    const requestId = highlightedSource.requestId;
-    const timeout = window.setTimeout(() => {
-      setHighlightedSource((current) => current?.requestId === requestId ? undefined : current);
-    }, transientSourceHighlightDurationMs);
-    return () => window.clearTimeout(timeout);
-  }, [highlightedSource?.requestId]);
-  useEffect(() => {
-    if (!open || !highlightedSource) return undefined;
+    if (!open || !transientHighlightedSource) return undefined;
     const frame = window.requestAnimationFrame(() => {
       const target = [...(popoverRef.current?.querySelectorAll<HTMLElement>('[data-kpi-source-id]') ?? [])]
-        .find((element) => element.dataset.kpiSourceId === highlightedSource.sourceId);
+        .find((element) => element.dataset.kpiSourceId === transientHighlightedSource.sourceId);
       target?.scrollIntoView({ block: 'nearest' });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [highlightedSource, open]);
+  }, [open, popoverPosition, transientHighlightedSource?.requestId]);
+  useEffect(() => {
+    if (!open || !customSourceFocusRequest) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const row = [...(popoverRef.current?.querySelectorAll<HTMLElement>('[data-kpi-source-id]') ?? [])]
+        .find((element) => element.dataset.kpiSourceId === customSourceFocusRequest.sourceId);
+      row?.querySelector<HTMLInputElement>('input')?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [customSourceFocusRequest?.requestId, open, popoverPosition]);
   useLayoutEffect(() => {
     if (!open) {
       setPopoverPosition(undefined);
@@ -6050,7 +6053,7 @@ function KpiSourceEditor({
   const selectedLookupSources = kpi.sources.filter((source) => source.type === 'lookup');
   const selectedVariableSources = kpi.sources.filter((source) => source.type === 'variable');
   const selectedCustomSources = kpi.sources.filter((source) => source.type === 'custom');
-  const editSelectedSource = (item: KpiSourceItem, button: HTMLButtonElement) => {
+  const editSelectedSource = (item: KpiSourceItem) => {
     if (item.type === 'dataField') {
       setOpen(false);
       onEditLibrarySource({ kind: 'dataField', dataSourceId: item.dataSourceId, fieldId: item.fieldId });
@@ -6071,7 +6074,15 @@ function KpiSourceEditor({
       onViewKpi(item.kpiId);
       return;
     }
-    button.closest('.selected-source-row')?.querySelector<HTMLInputElement>('input')?.focus();
+    setOpen(true);
+    setCustomSourceFocusRequest((current) => ({
+      sourceId: item.id,
+      requestId: (current?.requestId ?? 0) + 1
+    }));
+  };
+  const viewSelectedSource = (sourceId: string) => {
+    const item = kpi.sources.find((source) => source.id === sourceId);
+    if (item) editSelectedSource(item);
   };
   const renderSelectedSourceRow = (item: KpiSourceItem, label: string) => {
     const isCollection = item.type === 'dataField' && config.dataSources
@@ -6079,12 +6090,12 @@ function KpiSourceEditor({
       .find((field) => field.id === item.fieldId)?.dataType === 'collection';
     return (
     <div
-      className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${highlightedSource?.sourceId === item.id || transientHighlightedSourceId === item.id ? 'is-kpi-source-highlighted' : ''}`}
+      className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${transientHighlightedSourceId === item.id ? 'is-kpi-source-highlighted' : ''}`}
       data-kpi-source-id={item.id}
       key={item.id}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button, input')) return;
-        highlightSource(item.id);
+        editSelectedSource(item);
       }}
     >
       {item.type === 'custom'
@@ -6092,7 +6103,7 @@ function KpiSourceEditor({
         : <span title={sourceItemTooltip(config, item)}>{label}</span>}
       <DebouncedInput className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
-      <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={(event) => editSelectedSource(item, event.currentTarget)}><Eye size={12} /></button>
+      <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={() => editSelectedSource(item)}><Eye size={12} /></button>
       <button className="mini-icon-button danger" type="button" title="Remove source" aria-label={`Remove source ${label}`} onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
     </div>
     );
@@ -6161,7 +6172,7 @@ function KpiSourceEditor({
   return (
     <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef}>
       <button className="cell-enum-trigger" type="button" onClick={() => setOpen((value) => !value)}>
-        {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={highlightSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
+        {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={viewSelectedSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
       {open && popoverPosition ? createPortal(
@@ -7394,6 +7405,9 @@ function ExpandedKpiEditor({
   const [formulaGroupDragOver, setFormulaGroupDragOver] = useState<{ groupIndex: number; position: DropPosition } | null>(null);
   const [collapsedFormulaGroupIndexes, setCollapsedFormulaGroupIndexes] = useState<number[]>([]);
   const [activeExpandedPanel, setActiveExpandedPanel] = useState<'formulae' | 'sources' | 'scales'>('formulae');
+  useEffect(() => {
+    if (transientHighlightedSource) setActiveExpandedPanel('sources');
+  }, [transientHighlightedSource?.requestId]);
   const handleSemanticTarget = useCallback((target: FormulaSemanticTarget) => {
     if (target.kind === 'source') setActiveExpandedPanel('sources');
     onSemanticTarget(target);
@@ -7987,14 +8001,16 @@ function KpiDimensionControl({
       <button
         className={`mini-icon-button kpi-dimension-trigger ${kpi.dimensions.length ? 'is-active' : ''}`}
         type="button"
-        aria-label={`Manage dimensions for ${kpi.name}`}
+        aria-label={`${kpi.dimensions.length ? 'Manage' : 'Add'} dimensions for ${kpi.name}`}
         aria-controls={popoverId}
         aria-expanded={open}
-        title="Manage KPI dimensions"
-        onClick={() => onOpenChange(!open)}
+        title={kpi.dimensions.length ? 'Manage KPI dimensions' : 'Add KPI dimensions'}
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenChange(!open);
+        }}
       >
-        <Settings2 size={13} aria-hidden="true" />
-        {kpi.dimensions.length ? <span>{kpi.dimensions.length}</span> : null}
+        <span aria-hidden="true">By</span>
       </button>
       {open ? (
         <div className="kpi-dimension-popover" id={popoverId} role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
@@ -8170,9 +8186,16 @@ function KpiRow({
                   onClick={stopRowToggle}
                   onValueChange={(name) => patch({ name })}
                 />
-                {kpi.dimensions.length ? (
-                  <span className="kpi-dimension-line" title={kpi.dimensions.map((dimension) => `${dimension.name}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join('\n')}>
-                    <span className="kpi-dimension-by">by</span>
+                <div className="kpi-dimension-line" title={kpi.dimensions.length ? kpi.dimensions.map((dimension) => `${dimension.name}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join('\n') : undefined}>
+                  <KpiDimensionControl
+                    config={config}
+                    kpi={kpi}
+                    open={dimensionControlOpen}
+                    onOpenChange={setDimensionControlOpen}
+                    onViewDomain={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })}
+                    onChange={(dimensions) => patch({ dimensions })}
+                  />
+                  {kpi.dimensions.length ? (
                     <button
                       className="kpi-dimension-summary"
                       type="button"
@@ -8186,17 +8209,9 @@ function KpiRow({
                     >
                       {kpi.dimensions.map((dimension) => <span key={dimension.id}>{dimension.name || 'Untitled'}{dimension.options.length ? ` (${dimension.options.length})` : ''}</span>)}
                     </button>
-                  </span>
-                ) : null}
+                  ) : null}
+                </div>
               </div>
-              <KpiDimensionControl
-                config={config}
-                kpi={kpi}
-                open={dimensionControlOpen}
-                onOpenChange={setDimensionControlOpen}
-                onViewDomain={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })}
-                onChange={(dimensions) => patch({ dimensions })}
-              />
             </div>
             <AutoGrowTextarea
               className="inline-textarea description-input"
@@ -8217,7 +8232,7 @@ function KpiRow({
           </div>
         </td>
         <td>
-          <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSource={highlightedSource} onEditLibrarySource={onEditLibrarySource} onViewKpi={onViewKpi} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+          <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSource={highlightedSource} openOnTransientHighlight={!expanded} onEditLibrarySource={onEditLibrarySource} onViewKpi={onViewKpi} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
         </td>
         <td>
           <FormulaDisplay config={config} kpi={kpi} highlightedFormulaIndex={highlightedFormulaIndex} onSemanticTarget={highlightSemanticTarget} />

@@ -3293,7 +3293,7 @@ h1 {
 .name-cell {
   position: relative;
   display: grid;
-  grid-template-columns: 24px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr);
   align-items: start;
   gap: 5px;
 }
@@ -3310,14 +3310,6 @@ h1 {
   min-width: 0;
   gap: 4px;
   padding-inline: 5px;
-}
-
-.kpi-dimension-by {
-  flex: 0 0 auto;
-  color: #60747c;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1.35;
 }
 
 .kpi-dimension-summary {
@@ -3366,9 +3358,9 @@ h1 {
 
 .kpi-dimension-trigger {
   position: relative;
-  width: auto;
+  width: 24px;
   min-width: 24px;
-  padding-inline: 4px;
+  padding: 0;
 }
 
 .kpi-dimension-trigger.is-active {
@@ -3378,8 +3370,9 @@ h1 {
 }
 
 .kpi-dimension-trigger > span {
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 850;
+  letter-spacing: -0.02em;
 }
 
 .kpi-dimension-popover {
@@ -4905,8 +4898,18 @@ h1 {
   cursor: pointer;
 }
 
-.formula-semantic-token.is-actionable * {
+/* KaTeX uses transparent vlist/layout spans whose boxes can overlap visible
+   limits, subscripts, superscripts, and fraction contents. Let those structural
+   spans pass pointer input through, then restore it on every semantic token so
+   source clicks and dimension/scale hover tooltips use the visible term. */
+.interactive-formula-preview .katex-html span,
+.interactive-inline-formula .katex-html span {
   pointer-events: none;
+}
+
+.interactive-formula-preview .katex-html .formula-semantic-token,
+.interactive-inline-formula .katex-html .formula-semantic-token {
+  pointer-events: auto;
 }
 
 .formula-semantic-token.is-formula-origin-highlighted {
