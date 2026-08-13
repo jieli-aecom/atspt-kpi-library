@@ -5860,6 +5860,7 @@ function KpiSourceEditor({
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
+  const stopSourceControlClick = (event: React.MouseEvent) => event.stopPropagation();
   const updatePopoverPosition = useCallback((renderedHeight?: number) => {
     const anchor = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
     if (!anchor) return;
@@ -6170,7 +6171,7 @@ function KpiSourceEditor({
     );
   };
   return (
-    <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef}>
+    <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef} onClick={stopSourceControlClick}>
       <button className="cell-enum-trigger" type="button" onClick={() => setOpen((value) => !value)}>
         {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={viewSelectedSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
@@ -6182,6 +6183,7 @@ function KpiSourceEditor({
           role="dialog"
           aria-label="KPI sources"
           style={popoverPosition}
+          onClick={stopSourceControlClick}
         >
           <div className="popover-title">KPI sources</div>
           <section className="selected-source-section">
