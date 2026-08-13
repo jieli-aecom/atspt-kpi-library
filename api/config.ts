@@ -270,7 +270,7 @@ const normalSync = async (request: Request) => {
               ? [`${mergeResult.lookupConflicts} lookup conflict${mergeResult.lookupConflicts === 1 ? '' : 's'} kept the hosted value.`]
               : []),
             ...(mergeResult.variableConflicts
-              ? [`${mergeResult.variableConflicts} variable conflict${mergeResult.variableConflicts === 1 ? '' : 's'} kept the hosted value.`]
+              ? [`${mergeResult.variableConflicts} constant conflict${mergeResult.variableConflicts === 1 ? '' : 's'} kept the hosted value.`]
               : [])
           ]
         : [];

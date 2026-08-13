@@ -134,6 +134,7 @@ const variableSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   explanation: z.string(),
+  defaultValue: z.string(),
   unit: z.string()
 });
 
@@ -491,6 +492,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       typeof variable.id === 'string' &&
       typeof variable.name === 'string' &&
       typeof variable.explanation === 'string' &&
+      typeof variable.defaultValue === 'string' &&
       typeof variable.unit === 'string'
     )
   ) {
@@ -2298,20 +2300,21 @@ const repairLookups = (rawValue: unknown, valueEnums: ValueEnumDefinition[], war
 const repairVariables = (rawValue: unknown, warnings: string[]): VariableDefinition[] => {
   if (rawValue == null) return [];
   if (!Array.isArray(rawValue)) {
-    warnings.push('Variables were not a list and were initialized empty.');
+    warnings.push('Constants were not a list and were initialized empty.');
     return [];
   }
   const usedVariableIds = new Set<string>();
   return rawValue.flatMap((rawVariable, variableIndex): VariableDefinition[] => {
     if (!isRecord(rawVariable)) {
-      warnings.push(`Variable ${variableIndex + 1} was not readable and was removed.`);
+      warnings.push(`Constant ${variableIndex + 1} was not readable and was removed.`);
       return [];
     }
-    const name = stringValue(rawVariable.name ?? rawVariable.Name).trim() || `Variable ${variableIndex + 1}`;
+    const name = stringValue(rawVariable.name ?? rawVariable.Name).trim() || `Constant ${variableIndex + 1}`;
     return [{
-      id: ensureUniqueId(rawVariable.id, 'variable', usedVariableIds, warnings, `Variable "${name}"`),
+      id: ensureUniqueId(rawVariable.id, 'variable', usedVariableIds, warnings, `Constant "${name}"`),
       name,
       explanation: stringValue(rawVariable.explanation ?? rawVariable.description ?? rawVariable.Explanation),
+      defaultValue: stringValue(rawVariable.defaultValue ?? rawVariable['Default Value']),
       unit: stringValue(rawVariable.unit ?? rawVariable.valueUnit ?? rawVariable.Unit)
     }];
   });
@@ -2353,7 +2356,7 @@ const repairDataLibraryGroups = (
 ): DataLibraryGroup[] => {
   if (rawValue == null) return [];
   if (!Array.isArray(rawValue)) {
-    warnings.push(`${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Variable' : 'Domain'} groups were not a list and were initialized empty.`);
+    warnings.push(`${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Constant' : 'Domain'} groups were not a list and were initialized empty.`);
     return [];
   }
   const usedGroupIds = new Set<string>();
@@ -2377,7 +2380,7 @@ const repairDataLibraryGroups = (
         `${collectionName}-group`,
         usedGroupIds,
         warnings,
-        `${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Variable' : 'Domain'} group ${groupIndex + 1}`
+        `${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Constant' : 'Domain'} group ${groupIndex + 1}`
       ),
       name: stringValue(rawGroup.name ?? rawGroup.label).trim() || `Group ${groupIndex + 1}`,
       itemIds,

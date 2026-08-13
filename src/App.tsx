@@ -3204,7 +3204,7 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
     return config.lookups.find((lookup) => lookup.id === item.lookupId)?.outputName ?? 'Missing lookup';
   }
   if (item.type === 'variable') {
-    return config.variables.find((variable) => variable.id === item.variableId)?.name ?? 'Missing variable';
+    return config.variables.find((variable) => variable.id === item.variableId)?.name ?? 'Missing constant';
   }
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
@@ -3229,7 +3229,11 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   }
   if (item.type === 'variable') {
     const variable = config.variables.find((entry) => entry.id === item.variableId);
-    const details = [variable?.explanation.trim(), variable?.unit.trim() ? `Unit: ${variable.unit.trim()}` : ''].filter(Boolean);
+    const details = [
+      variable?.explanation.trim(),
+      variable?.defaultValue.trim() ? `Default Value: ${variable.defaultValue.trim()}` : '',
+      variable?.unit.trim() ? `Unit: ${variable.unit.trim()}` : ''
+    ].filter(Boolean);
     return details.length ? `${label}\n${details.join('\n')}` : label;
   }
   if (item.type !== 'dataField') return [label, ...dimensionDetails].join('\n');
@@ -3719,8 +3723,9 @@ function DataSourceHeader({
   const addVariable = (insertionIndex = config.variables.length, groupId?: string, shiftGroupsAtInsertion = true) => {
     const variable: VariableDefinition = {
       id: createLocalId('variable'),
-      name: 'New variable',
+      name: 'New constant',
       explanation: '',
+      defaultValue: '',
       unit: ''
     };
     const index = Math.max(0, Math.min(insertionIndex, config.variables.length));
@@ -3741,7 +3746,7 @@ function DataSourceHeader({
     const duplicate: VariableDefinition = {
       ...variable,
       id: createLocalId('variable'),
-      name: `${variable.name || 'Untitled variable'} copy`
+      name: `${variable.name || 'Untitled constant'} copy`
     };
     const containingGroup = config.variableGroups.find((group) => group.itemIds.includes(variable.id));
     patchVariables(
@@ -4515,7 +4520,7 @@ function DataSourceHeader({
           : kind === 'variable'
             ? addVariable(position, groupId, shiftGroupsAtPosition)
             : addValueEnum(position, groupId, shiftGroupsAtPosition)}
-      ><Plus size={11} aria-hidden="true" />Add {kind} here</button>
+      ><Plus size={11} aria-hidden="true" />Add {kind === 'variable' ? 'constant' : kind} here</button>
       <button
         className="list-insert-divider field-group-insert-divider"
         type="button"
@@ -4727,7 +4732,7 @@ function DataSourceHeader({
         type="button"
         draggable
         title="Drag to reorder or move into a group"
-        aria-label={`Drag ${variable.name || 'variable'} to reorder or move into a group`}
+        aria-label={`Drag ${variable.name || 'constant'} to reorder or move into a group`}
         onDragStart={(event) => {
           setLibraryItemDrag({ kind: 'variable', itemIndex: variableIndex });
           event.dataTransfer.effectAllowed = 'move';
@@ -4735,12 +4740,13 @@ function DataSourceHeader({
         }}
         onDragEnd={clearLibraryDrag}
       ><GripVertical size={13} aria-hidden="true" /></button>
-      <input value={variable.name} aria-label="Variable name" placeholder="Variable name" onChange={(event) => updateVariable(variableIndex, { name: event.target.value })} />
-      <input value={variable.explanation} aria-label="Variable explanation" placeholder="What this variable represents" onChange={(event) => updateVariable(variableIndex, { explanation: event.target.value })} />
-      <input value={variable.unit} aria-label="Variable unit" placeholder="Unit" onChange={(event) => updateVariable(variableIndex, { unit: event.target.value })} />
+      <input value={variable.name} aria-label="Constant name" placeholder="Constant name" onChange={(event) => updateVariable(variableIndex, { name: event.target.value })} />
+      <input value={variable.explanation} aria-label="Constant explanation" placeholder="What this constant represents" onChange={(event) => updateVariable(variableIndex, { explanation: event.target.value })} />
+      <input value={variable.defaultValue} aria-label="Constant default value" placeholder="Default Value" onChange={(event) => updateVariable(variableIndex, { defaultValue: event.target.value })} />
+      <input value={variable.unit} aria-label="Constant unit" placeholder="Unit" onChange={(event) => updateVariable(variableIndex, { unit: event.target.value })} />
       <div className="lookup-definition-actions">
-        <button className="mini-icon-button" type="button" title="Copy variable" onClick={() => duplicateVariable(variableIndex)}><Copy size={11} /></button>
-        <button className="mini-icon-button danger" type="button" title="Delete variable" onClick={() => deleteVariable(variableIndex)}><Trash2 size={11} /></button>
+        <button className="mini-icon-button" type="button" title="Copy constant" onClick={() => duplicateVariable(variableIndex)}><Copy size={11} /></button>
+        <button className="mini-icon-button danger" type="button" title="Delete constant" onClick={() => deleteVariable(variableIndex)}><Trash2 size={11} /></button>
       </div>
     </div>
   );
@@ -4902,19 +4908,19 @@ function DataSourceHeader({
           clearLibraryDrag();
         }}
       >
-        {renderLibraryGroupHeading('variable', group, expanded, 'variable', () => setExpandedVariableGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
+        {renderLibraryGroupHeading('variable', group, expanded, 'constant', () => setExpandedVariableGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
         {expanded ? <div className="library-group-body">
           <div className="library-group-settings">
             <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('variable', group.id, { name: event.target.value })} /></label>
-            <button className="mini-icon-button danger" type="button" title="Delete variable group" onClick={() => deleteLibraryGroup('variable', group.id)}><Trash2 size={12} /></button>
+            <button className="mini-icon-button danger" type="button" title="Delete constant group" onClick={() => deleteLibraryGroup('variable', group.id)}><Trash2 size={12} /></button>
           </div>
-          {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag variables here</span> : null}
+          {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag constants here</span> : null}
           {groupItems.flatMap(({ variable, variableIndex }) => [
             renderLibraryInsertActions('variable', variableIndex, `insert-group-variable-${variable.id}`, group.id),
             renderVariableItem(variable, variableIndex, group.id)
           ])}
           <div className="library-final-actions">
-            <button className="secondary-action tiny library-group-add-item" type="button" onClick={() => addVariable(config.variables.length, group.id)}><Plus size={11} /> Add variable</button>
+            <button className="secondary-action tiny library-group-add-item" type="button" onClick={() => addVariable(config.variables.length, group.id)}><Plus size={11} /> Add constant</button>
             <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('variable', group.position)}><Plus size={11} /> Add group</button>
           </div>
         </div> : null}
@@ -5039,7 +5045,7 @@ function DataSourceHeader({
     <div className="library-manager-control" ref={controlRef}>
       <div className="library-manager-tray" aria-label="Shared definition libraries">
         {([
-          ['variables', 'Variables', VariableIcon],
+          ['variables', 'Constants', VariableIcon],
           ['enums', 'Domains', ListFilter],
           ['lookups', 'Lookups', BookOpen],
           ['tables', 'Source Tables', Table2]
@@ -5065,16 +5071,16 @@ function DataSourceHeader({
           className="data-source-popover"
           ref={popoverRef}
           role="dialog"
-          aria-label="Variables, domains, lookups, and source tables"
+          aria-label="Constants, domains, lookups, and source tables"
           style={popoverPosition}
         >
           <div className="data-source-popover-heading">
             <div>
               <strong>Shared definitions</strong>
-              <span>Define reusable variables, global domains, lookups, and source tables.</span>
+              <span>Define reusable constants, global domains, lookups, and source tables.</span>
             </div>
             <div className="data-source-library-actions">
-              {activeLibrarySection === 'variables' ? <button className="primary-action tiny" type="button" onClick={() => addVariable()}><Plus size={12} /> Add variable</button> : null}
+              {activeLibrarySection === 'variables' ? <button className="primary-action tiny" type="button" onClick={() => addVariable()}><Plus size={12} /> Add constant</button> : null}
               {activeLibrarySection === 'enums' ? <button className="primary-action tiny" type="button" onClick={() => addValueEnum()}><Plus size={12} /> Add domain</button> : null}
               {activeLibrarySection === 'lookups' ? <button className="primary-action tiny" type="button" onClick={() => addLookup()}><Plus size={12} /> Add lookup</button> : null}
               {activeLibrarySection === 'tables' ? <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add source table</button> : null}
@@ -5157,8 +5163,8 @@ function DataSourceHeader({
                   clearLibraryDrag();
                 }}
               >
-                {config.variables.length === 0 ? <span className="empty-option">No variables defined.</span> : (
-                  <div className="variable-heading"><span /><span>Name</span><span>Explanation</span><span>Unit</span><span>Actions</span></div>
+                {config.variables.length === 0 ? <span className="empty-option">No constants defined.</span> : (
+                  <div className="variable-heading"><span /><span>Name</span><span>Explanation</span><span>Default Value</span><span>Unit</span><span>Actions</span></div>
                 )}
                 {config.variables.flatMap((variable, variableIndex) => {
                   const groupsAtPosition = config.variableGroups.filter((group) => group.position === variableIndex);
@@ -5184,7 +5190,7 @@ function DataSourceHeader({
                   ? renderLibraryInsertActions('variable', config.variables.length, 'after-final-variable-groups', undefined, false)
                   : null}
                 <div className="library-final-actions">
-                  <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={11} /> Add variable</button>
+                  <button className="secondary-action tiny" type="button" onClick={() => addVariable()}><Plus size={11} /> Add constant</button>
                   <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('variable', config.variables.length)}><Plus size={11} /> Add group</button>
                 </div>
               </div>
@@ -5779,8 +5785,8 @@ function KpiSourceGroupedSummary({
       ) : null}
       {variableSources.length ? (
         <span className="source-summary-group">
-          <span className="source-summary-heading"><VariableIcon size={12} aria-hidden="true" /><span>Variables</span></span>
-          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{variable?.name ?? 'Missing variable'}</span>)}</span>
+          <span className="source-summary-heading"><VariableIcon size={12} aria-hidden="true" /><span>Constants</span></span>
+          <span className="source-summary-items">{variableSources.map(({ source, variable }) => <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{variable?.name ?? 'Missing constant'}</span>)}</span>
         </span>
       ) : null}
       {customSources.length ? (
@@ -6078,7 +6084,7 @@ function KpiSourceEditor({
   const lookupMatchesQuery = (lookup: LookupDefinition) =>
     !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.outputValueType} ${lookup.outputOptions.join(' ')} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation} ${input.valueType} ${input.options.join(' ')}`).join(' ')}`).includes(normalizedQuery);
   const variableMatchesQuery = (variable: VariableDefinition) =>
-    !normalizedQuery || normalize(`${variable.name} ${variable.explanation} ${variable.unit}`).includes(normalizedQuery);
+    !normalizedQuery || normalize(`${variable.name} ${variable.explanation} ${variable.defaultValue} ${variable.unit}`).includes(normalizedQuery);
   const visibleLookups = config.lookups.filter(lookupMatchesQuery);
   const visibleVariables = config.variables.filter(variableMatchesQuery);
   const visibleLookupIds = new Set(visibleLookups.map((lookup) => lookup.id));
@@ -6239,7 +6245,7 @@ function KpiSourceEditor({
           <small>{group.itemIds.length}</small>
         </button>
         {expanded ? <div className="source-choice-library-group-body">
-          {groupItems.length ? groupItems.map(renderVariableChoice) : <span className="empty-option">No matching variables in this group.</span>}
+          {groupItems.length ? groupItems.map(renderVariableChoice) : <span className="empty-option">No matching constants in this group.</span>}
         </div> : null}
       </section>
     );
@@ -6287,8 +6293,8 @@ function KpiSourceEditor({
                 ) : null}
                 {selectedVariableSources.length ? (
                   <section className="selected-source-group is-variable">
-                    <div className="selected-source-group-heading"><VariableIcon size={13} aria-hidden="true" /><span>Variables</span></div>
-                    {selectedVariableSources.map((source) => renderSelectedSourceRow(source, config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing variable'))}
+                    <div className="selected-source-group-heading"><VariableIcon size={13} aria-hidden="true" /><span>Constants</span></div>
+                    {selectedVariableSources.map((source) => renderSelectedSourceRow(source, config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing constant'))}
                   </section>
                 ) : null}
                 {selectedCustomSources.length ? (
@@ -6305,14 +6311,14 @@ function KpiSourceEditor({
             <div className="source-scope-buttons" aria-label="Add source from">
               <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={pickerScope === 'kpis' ? 'rotate' : ''} /></button>
               <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
-              <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Variables<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
+              <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Constants<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
               {config.dataSources.map((source) => (
                 <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{source.name}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
               ))}
               <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
             </div>
             {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
-              <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search variables…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
+              <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search constants…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
             ) : null}
             {pickerScope === 'kpis' ? (
             <fieldset className="source-scope-panel">
@@ -6345,8 +6351,8 @@ function KpiSourceEditor({
             ) : null}
             {pickerScope === 'variables' ? (
             <fieldset className="source-scope-panel">
-              <legend>Variables</legend>
-              {!hasVisibleVariableChoices ? <span className="empty-option">No matching variables.</span> : null}
+              <legend>Constants</legend>
+              {!hasVisibleVariableChoices ? <span className="empty-option">No matching constants.</span> : null}
               {config.variables.flatMap((variable, variableIndex) => {
                 const groupsAtPosition = config.variableGroups.filter((group) => group.position === variableIndex);
                 return [
@@ -6623,7 +6629,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             </div>
           </section> : null}
           {variableShortcuts.length ? <section className="formula-shortcut-group">
-            <span className="formula-shortcut-group-label">Source variables</span>
+            <span className="formula-shortcut-group-label">Source constants</span>
             <div className="formula-shortcut-group-options">
               {variableShortcuts.map((source) => <button className="formula-variable-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
                 {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
@@ -9851,7 +9857,7 @@ function EditorApp({
           ? [`${merged.lookupConflicts} imported lookup${merged.lookupConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : []),
         ...(merged.variableConflicts > 0
-          ? [`${merged.variableConflicts} imported variable${merged.variableConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
+          ? [`${merged.variableConflicts} imported constant${merged.variableConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : [])
       ]);
     } catch (err) {

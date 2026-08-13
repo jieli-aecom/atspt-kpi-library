@@ -1265,7 +1265,7 @@ h1 {
 .variable-heading,
 .variable-row {
   display: grid;
-  grid-template-columns: 26px minmax(120px, 0.65fr) minmax(220px, 1.35fr) minmax(80px, 0.45fr) 56px;
+  grid-template-columns: 26px minmax(120px, 0.6fr) minmax(190px, 1.2fr) minmax(100px, 0.5fr) minmax(58px, 0.3fr) 56px;
   align-items: center;
   gap: 6px;
 }
@@ -5628,6 +5628,7 @@ h1 {
     grid-template-areas:
       "drag name"
       "drag explanation"
+      "drag default-value"
       "drag unit"
       "drag actions";
     align-items: start;
@@ -5656,6 +5657,10 @@ h1 {
   }
 
   .variable-row > input:nth-of-type(3) {
+    grid-area: default-value;
+  }
+
+  .variable-row > input:nth-of-type(4) {
     grid-area: unit;
   }
 
