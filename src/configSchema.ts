@@ -613,7 +613,6 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
           hasDuplicate(group.dimensions.map((dimension) => dimension.id)) ||
           group.dimensions.some((dimension) => dimension.enumId !== undefined && (
             !validValueEnumIds.has(dimension.enumId) ||
-            dimension.name !== valueEnumById.get(dimension.enumId)?.name ||
             JSON.stringify(dimension.options) !== JSON.stringify(valueEnumById.get(dimension.enumId)?.options)
           )) ||
           group.dimensions.some((dimension) => hasDuplicate(dimension.options.map((option) => option.toLocaleLowerCase())))
@@ -670,7 +669,6 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       hasDuplicate(kpi.dimensions.map((dimension) => dimension.id)) ||
       kpi.dimensions.some((dimension) => dimension.enumId !== undefined && (
         !validValueEnumIds.has(dimension.enumId) ||
-        dimension.name !== valueEnumById.get(dimension.enumId)?.name ||
         JSON.stringify(dimension.options) !== JSON.stringify(valueEnumById.get(dimension.enumId)?.options)
       )) ||
       kpi.dimensions.some((dimension) => hasDuplicate(dimension.options.map((option) => option.toLocaleLowerCase())))
@@ -706,7 +704,6 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
         )) &&
         lookup.inputs.every((entry) => entry.enumId === undefined || (
           validValueEnumIds.has(entry.enumId) &&
-          entry.representation === valueEnumById.get(entry.enumId)?.name &&
           JSON.stringify(entry.options) === JSON.stringify(valueEnumById.get(entry.enumId)?.options)
         ))
       ) &&
@@ -2036,9 +2033,9 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
         const dimensionRecord = isRecord(rawDimension) ? rawDimension : undefined;
         const enumId = stringValue(dimensionRecord?.enumId).trim();
         const valueEnum = valueEnumById.get(enumId);
-        const dimensionName = valueEnum?.name ?? stringValue(
+        const dimensionName = stringValue(
           dimensionRecord?.name ?? dimensionRecord?.dimensionName ?? dimensionRecord?.label ?? rawDimension
-        ).trim();
+        ).trim() || valueEnum?.name || `Dimension ${dimensionIndex + 1}`;
         const normalizedName = dimensionName.toLocaleLowerCase();
         if (!dimensionName || seenDimensionNames.has(normalizedName)) return [];
         seenDimensionNames.add(normalizedName);
@@ -2060,7 +2057,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
             warnings,
             `${name}: field group ${groupIndex + 1}, dimension ${dimensionIndex + 1}`
           ),
-          name: valueEnum?.name ?? dimensionName,
+          name: dimensionName,
           options: valueEnum ? [...valueEnum.options] : options,
           ...(valueEnum ? { enumId } : {})
         }];
@@ -2274,7 +2271,7 @@ const repairLookups = (rawValue: unknown, valueEnums: ValueEnumDefinition[], war
       if (!isRecord(rawInput)) return [];
       return [{
         id: ensureUniqueId(rawInput.id, 'lookup-input', usedInputIds, warnings, `${outputName}: input ${inputIndex + 1}`),
-        representation: valueEnums.find((definition) => definition.id === stringValue(rawInput.enumId).trim())?.name ?? stringValue(rawInput.representation ?? rawInput.name ?? rawInput.variable),
+        representation: stringValue(rawInput.representation ?? rawInput.name ?? rawInput.variable),
         explanation: stringValue(rawInput.explanation ?? rawInput.description),
         valueType: repairValueType(rawInput.valueType ?? rawInput.dataType ?? rawInput.type),
         options: (() => {
@@ -2462,7 +2459,7 @@ const repairKpiDimensions = (rawValue: unknown, valueEnums: ValueEnumDefinition[
     const record = isRecord(rawDimension) ? rawDimension : undefined;
     const enumId = stringValue(record?.enumId).trim();
     const valueEnum = valueEnumById.get(enumId);
-    const name = valueEnum?.name ?? stringValue(record?.name ?? record?.label ?? rawDimension).trim();
+    const name = stringValue(record?.name ?? record?.label ?? rawDimension).trim() || valueEnum?.name || `Dimension ${index + 1}`;
     const normalizedName = name.toLocaleLowerCase();
     if (!name || seenNames.has(normalizedName)) return [];
     seenNames.add(normalizedName);
@@ -2480,7 +2477,7 @@ const repairKpiDimensions = (rawValue: unknown, valueEnums: ValueEnumDefinition[
 
     return [{
       id: ensureUniqueId(record?.id, 'kpi-dimension', usedIds, warnings, `${kpiName}: dimension ${index + 1}`),
-      name: valueEnum?.name ?? name,
+      name,
       options: valueEnum ? [...valueEnum.options] : options,
       ...(valueEnum ? { enumId } : {})
     }];

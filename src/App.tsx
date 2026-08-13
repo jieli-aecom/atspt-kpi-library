@@ -3194,8 +3194,16 @@ const sourceItemDimensions = (config: KpiPoolConfig, item: KpiSourceItem): DataS
 const dimensionOptionsLabel = (dimension: DataSourceFieldDimension) =>
   dimension.options.length ? dimension.options.join(', ') : 'No options defined';
 
-const sourceDimensionsSummary = (dimensions: DataSourceFieldDimension[]) => dimensions
-  .map((dimension) => `by ${dimension.name || 'Untitled dimension'}: ${dimensionOptionsLabel(dimension)}`)
+const linkedDomainDefinition = (config: KpiPoolConfig, enumId?: string) => enumId
+  ? config.valueEnums.find((definition) => definition.id === enumId)
+  : undefined;
+
+const sourceDimensionsSummary = (config: KpiPoolConfig, dimensions: DataSourceFieldDimension[]) => dimensions
+  .map((dimension) => {
+    const globalDomain = linkedDomainDefinition(config, dimension.enumId);
+    const domainLabel = globalDomain ? ` · Domain ${globalDomain.name || 'Untitled domain'}` : '';
+    return `by ${dimension.name || 'Untitled dimension'}${domainLabel}: ${dimensionOptionsLabel(dimension)}`;
+  })
   .join(' · ');
 
 type SourceFieldDomain = {
@@ -3250,9 +3258,10 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
 const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const label = sourceItemLabel(config, item);
   const fieldDomain = sourceItemFieldDomain(config, item);
-  const dimensionDetails = sourceItemDimensions(config, item).map((dimension) =>
-    `By ${dimension.name || 'Untitled dimension'}: ${dimensionOptionsLabel(dimension)}${dimension.enumId ? ' (global)' : ' (custom)'}`
-  );
+  const dimensionDetails = sourceItemDimensions(config, item).map((dimension) => {
+    const globalDomain = linkedDomainDefinition(config, dimension.enumId);
+    return `By ${dimension.name || 'Untitled dimension'}: ${dimensionOptionsLabel(dimension)}${globalDomain ? ` (global domain: ${globalDomain.name})` : ' (custom domain)'}`;
+  });
   if (item.type === 'lookup') {
     const lookup = config.lookups.find((entry) => entry.id === item.lookupId);
     if (!lookup) return label;
@@ -3598,7 +3607,7 @@ function DataSourceHeader({
     if (!current) return;
     const updated = { ...current, ...partial };
     const syncDimension = (dimension: DataSourceFieldDimension) => dimension.enumId === current.id
-      ? { ...dimension, name: updated.name, options: [...updated.options] }
+      ? { ...dimension, options: [...updated.options] }
       : dimension;
     onConfigChange({
       ...config,
@@ -3633,7 +3642,7 @@ function DataSourceHeader({
           ...lookup,
           outputOptions: hasLinkedOutput ? [...updated.options] : lookup.outputOptions,
           inputs: hasLinkedInput
-            ? lookup.inputs.map((input) => input.enumId === current.id ? { ...input, representation: updated.name, options: [...updated.options] } : input)
+            ? lookup.inputs.map((input) => input.enumId === current.id ? { ...input, options: [...updated.options] } : input)
             : lookup.inputs
         };
       }),
@@ -4672,7 +4681,7 @@ function DataSourceHeader({
               <div className="lookup-input-card" key={input.id}>
                 <div className="lookup-input-card-heading">Input {inputIndex + 1}</div>
                 <div className="lookup-input-row">
-                  <input disabled={Boolean(input.enumId)} value={input.representation} aria-label={`Input ${inputIndex + 1} representation`} placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
+                  <input value={input.representation} aria-label={`Input ${inputIndex + 1} representation`} placeholder="Short text" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { representation: event.target.value })} />
                   <select value={input.valueType} aria-label={`Input ${inputIndex + 1} value type`} onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { valueType: event.target.value as LookupValueType })}><option value="number">Number</option><option value="enum">Domain</option></select>
                   <input value={input.explanation} aria-label={`Input ${inputIndex + 1} explanation`} placeholder="What this input represents" onChange={(event) => updateLookupInput(lookupIndex, inputIndex, { explanation: event.target.value })} />
                   <div className="lookup-definition-actions">
@@ -4687,7 +4696,7 @@ function DataSourceHeader({
                   input.enumId,
                   (enumId) => {
                     const definition = config.valueEnums.find((entry) => entry.id === enumId);
-                    updateLookupInput(lookupIndex, inputIndex, { enumId, ...(definition ? { representation: definition.name, options: [...definition.options] } : {}) });
+                    updateLookupInput(lookupIndex, inputIndex, { enumId, ...(definition ? { options: [...definition.options] } : {}) });
                   }
                 ) : null}
               </div>
@@ -5533,36 +5542,38 @@ function DataSourceHeader({
                       </div>
                       <div className="data-source-field-group-settings">
                         <div className="field-group-dimension-list">
-                          {group.dimensions.map((dimension) => (
-                            <div className={`field-group-dimension-row ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
+                          {group.dimensions.map((dimension) => {
+                            const globalDomain = linkedDomainDefinition(config, dimension.enumId);
+                            return <div className={`field-group-dimension-row ${globalDomain ? 'is-global' : 'is-custom'}`} key={dimension.id}>
                               <label className="data-source-field-group-control">
                                 <small>By:</small>
                                 <input
                                   value={dimension.name}
                                   aria-label="Dimension name"
                                   placeholder="Mode"
-                                  readOnly={Boolean(dimension.enumId)}
-                                  title={dimension.enumId ? 'Managed in Domains' : undefined}
                                   onChange={(event) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { name: event.target.value })}
                                 />
                               </label>
-                              <div className="data-source-field-group-control">
+                              {globalDomain ? <div className="global-domain-definition field-group-domain-definition">
+                                <small>Global domain</small>
+                                <strong>{globalDomain.name || 'Untitled domain'}</strong>
+                                <span>{globalDomain.options.length ? globalDomain.options.join(', ') : 'No options defined'}</span>
+                              </div> : <div className="data-source-field-group-control">
                                 <small>Options:</small>
                                 <div className="field-group-dimension-options">
-                                  {dimension.enumId && dimension.options.length === 0 ? <span className="empty-option">No options defined</span> : <EnumOptionEditor
+                                  <EnumOptionEditor
                                     options={dimension.options}
                                     label={`${dimension.name || 'dimension'} dimension`}
-                                    disabled={Boolean(dimension.enumId)}
                                     onChange={(options) => updateFieldGroupDimension(sourceIndex, group.id, dimension.id, { options })}
-                                  />}
+                                  />
                                 </div>
-                              </div>
-                              {dimension.enumId
-                                ? <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })} />
+                              </div>}
+                              {globalDomain
+                                ? <ViewDomainButton domainId={globalDomain.id} domainName={globalDomain.name} onView={(domainId) => onEditLibrarySource({ kind: 'domain', domainId })} />
                                 : <span className="field-group-dimension-action-spacer" aria-hidden="true" />}
                               <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeFieldGroupDimension(sourceIndex, group.id, dimension.id)}><Trash2 size={12} /></button>
-                            </div>
-                          ))}
+                            </div>;
+                          })}
                           <div className="dimension-add-actions">
                             <button className="secondary-action tiny" type="button" onClick={() => { setFieldGroupDomainPickerId(undefined); addFieldGroupDimension(sourceIndex, group.id); }}><Plus size={11} /> Add custom dimension</button>
                             <div className="global-domain-add-control">
@@ -6111,10 +6122,10 @@ function KpiSourceEditor({
     const dimensions = selectedDataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id))?.dimensions ?? [];
     const sourceItem = kpi.sources.find((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)
       ?? { id: '', type: 'dataField' as const, dataSourceId: selectedDataSource.id, fieldId: field.id, latex: '' };
-    return !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit} ${field.options.join(' ')} ${sourceFieldDomainSummary(sourceItemFieldDomain(config, sourceItem))} ${sourceDimensionsSummary(dimensions)}`).includes(normalizedQuery);
+    return !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit} ${field.options.join(' ')} ${sourceFieldDomainSummary(sourceItemFieldDomain(config, sourceItem))} ${sourceDimensionsSummary(config, dimensions)}`).includes(normalizedQuery);
   }) ?? [];
   const visibleKpis = config.kpis.filter((entry) =>
-    entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview} ${sourceDimensionsSummary(entry.dimensions)}`).includes(normalizedQuery))
+    entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview} ${sourceDimensionsSummary(config, entry.dimensions)}`).includes(normalizedQuery))
   );
   const lookupMatchesQuery = (lookup: LookupDefinition) =>
     !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.outputValueType} ${lookup.outputOptions.join(' ')} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation} ${input.valueType} ${input.options.join(' ')}`).join(' ')}`).includes(normalizedQuery);
@@ -6208,13 +6219,16 @@ function KpiSourceEditor({
             {fieldDomain.enumId ? <ViewDomainButton domainId={fieldDomain.enumId} domainName={fieldDomain.name} onView={viewSourceDimensionDomain} /> : null}
           </div> : null}
           {dimensions.length ? <div className="selected-source-dimensions" aria-label={`Dimensions for ${label}`}>
-            {dimensions.map((dimension) => <div className={`selected-source-dimension ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
-              <span>
-                <b>by {dimension.name || 'Untitled dimension'}</b>
-                <small>{dimensionOptionsLabel(dimension)}</small>
-              </span>
-              {dimension.enumId ? <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={viewSourceDimensionDomain} /> : null}
-            </div>)}
+            {dimensions.map((dimension) => {
+              const globalDomain = linkedDomainDefinition(config, dimension.enumId);
+              return <div className={`selected-source-dimension ${globalDomain ? 'is-global' : 'is-custom'}`} key={dimension.id}>
+                <span>
+                  <b>by {dimension.name || 'Untitled dimension'}</b>
+                  <small>{globalDomain ? `Domain ${globalDomain.name || 'Untitled domain'} · ` : ''}{dimensionOptionsLabel(dimension)}</small>
+                </span>
+                {globalDomain ? <ViewDomainButton domainId={globalDomain.id} domainName={globalDomain.name} onView={viewSourceDimensionDomain} /> : null}
+              </div>;
+            })}
           </div> : null}
         </div>}
       <DebouncedInput className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
@@ -6364,7 +6378,7 @@ function KpiSourceEditor({
                   <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'kpi' && item.kpiId === entry.id)} onChange={() => toggleKpi(entry.id)} />
                   <span>
                     <strong>{dimensionedSourceLabel(entry.name, entry.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', '))}</strong>
-                    <small>{[entry.description.overview, sourceDimensionsSummary(entry.dimensions)].filter(Boolean).join(' · ')}</small>
+                    <small>{[entry.description.overview, sourceDimensionsSummary(config, entry.dimensions)].filter(Boolean).join(' · ')}</small>
                   </span>
                 </label>
               ))}
@@ -6410,7 +6424,7 @@ function KpiSourceEditor({
                 return (
                   <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
                     <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(group.dimensions)}` : ''}</small></span>
+                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(config, group.dimensions)}` : ''}</small></span>
                   </label>
                 );
               })}
@@ -8179,31 +8193,32 @@ function KpiDimensionControl({
           <div className="popover-title">Dimensions</div>
           <div className="kpi-dimension-list">
             {kpi.dimensions.length === 0 ? <span className="empty-option">This KPI has no dimensions.</span> : null}
-            {kpi.dimensions.map((dimension) => (
-              <section className={`kpi-dimension-row ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
+            {kpi.dimensions.map((dimension) => {
+              const globalDomain = linkedDomainDefinition(config, dimension.enumId);
+              return <section className={`kpi-dimension-row ${globalDomain ? 'is-global' : 'is-custom'}`} key={dimension.id}>
                 <div className="kpi-dimension-heading">
-                  {dimension.enumId ? <div className="global-domain-definition">
-                    <small>Global domain</small>
-                    <strong>{dimension.name || 'Untitled domain'}</strong>
-                    <span>{dimension.options.length ? dimension.options.join(', ') : 'No options defined'}</span>
-                    <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={onViewDomain} />
-                  </div> : <DebouncedInput
+                  <DebouncedInput
                     value={dimension.name}
                     aria-label="Dimension name"
                     placeholder="Dimension name"
                     onValueChange={(name) => updateDimension(dimension.id, { name })}
-                  />}
+                  />
                   <button className="mini-icon-button danger" type="button" title="Delete dimension" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeDimension(dimension.id)}><Trash2 size={12} /></button>
                 </div>
-                {!dimension.enumId ? <div className="kpi-dimension-options">
+                {globalDomain ? <div className="global-domain-definition">
+                    <small>Global domain</small>
+                    <strong>{globalDomain.name || 'Untitled domain'}</strong>
+                    <span>{globalDomain.options.length ? globalDomain.options.join(', ') : 'No options defined'}</span>
+                    <ViewDomainButton domainId={globalDomain.id} domainName={globalDomain.name} onView={onViewDomain} />
+                  </div> : <div className="kpi-dimension-options">
                   <EnumOptionEditor
                     options={dimension.options}
                     label={`${dimension.name || 'dimension'} dimension`}
                     onChange={(options) => updateDimension(dimension.id, { options })}
                   />
-                </div> : null}
-              </section>
-            ))}
+                </div>}
+              </section>;
+            })}
           </div>
           <div className="dimension-add-actions kpi-dimension-add-actions">
             <button className="primary-action tiny" type="button" onClick={() => { setDomainPickerOpen(false); addDimension(); }}><Plus size={11} /> Add custom dimension</button>
