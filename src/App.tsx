@@ -412,6 +412,39 @@ const compileFilters = (filters: ColumnFilters, indexes: AppIndexes): CompiledFi
   };
 };
 
+const consumeOutsidePopupPointerDown = (event: PointerEvent) => {
+  event.preventDefault();
+  event.stopPropagation();
+
+  const pointerId = event.pointerId;
+  let cleanupTimer: number | undefined;
+
+  const cleanup = () => {
+    if (cleanupTimer !== undefined) window.clearTimeout(cleanupTimer);
+    document.removeEventListener('click', suppressClick, true);
+    document.removeEventListener('pointerup', finishPointer, true);
+    document.removeEventListener('pointercancel', finishPointer, true);
+  };
+  const suppressClick = (clickEvent: MouseEvent) => {
+    if ('pointerId' in clickEvent && clickEvent.pointerId !== pointerId) return;
+    clickEvent.preventDefault();
+    clickEvent.stopPropagation();
+    cleanup();
+  };
+  const finishPointer = (pointerEvent: PointerEvent) => {
+    if (pointerEvent.pointerId !== pointerId) return;
+    pointerEvent.preventDefault();
+    pointerEvent.stopPropagation();
+    // The browser dispatches click after pointerup, so defer cleanup long enough
+    // for suppressClick to consume the rest of this dismissal gesture.
+    cleanupTimer = window.setTimeout(cleanup, 0);
+  };
+
+  document.addEventListener('click', suppressClick, true);
+  document.addEventListener('pointerup', finishPointer, true);
+  document.addEventListener('pointercancel', finishPointer, true);
+};
+
 function useCloseOnOutsideClick<T extends HTMLElement>(
   open: boolean,
   onClose: () => void,
@@ -430,6 +463,7 @@ function useCloseOnOutsideClick<T extends HTMLElement>(
         return;
       }
 
+      consumeOutsidePopupPointerDown(event);
       onClose();
     };
 
@@ -3519,6 +3553,7 @@ function DataSourceHeader({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
+      consumeOutsidePopupPointerDown(event);
       const activeElement = document.activeElement;
       if (activeElement instanceof HTMLElement && activeElement.classList.contains('markdown-editable-text')) activeElement.blur();
       setOpen(false);
