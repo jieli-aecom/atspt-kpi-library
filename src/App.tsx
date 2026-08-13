@@ -200,7 +200,9 @@ const clickIntersectsRenderedText = (root: Element, clientX: number, clientY: nu
 const isRowBackgroundClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
   if (event.defaultPrevented || event.button !== 0) return false;
   const target = event.target;
-  if (!(target instanceof Element) || target.closest(rowToggleBlockedSelector)) return false;
+  if (!(target instanceof Element)) return false;
+  const blockedTarget = target.closest(rowToggleBlockedSelector);
+  if (blockedTarget && event.currentTarget.contains(blockedTarget)) return false;
   return !clickIntersectsRenderedText(event.currentTarget, event.clientX, event.clientY);
 };
 
