@@ -701,7 +701,6 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       currentLookups.every((lookup) =>
         (lookup.outputEnumId === undefined || (
           validValueEnumIds.has(lookup.outputEnumId) &&
-          lookup.outputName === valueEnumById.get(lookup.outputEnumId)?.name &&
           JSON.stringify(lookup.outputOptions) === JSON.stringify(valueEnumById.get(lookup.outputEnumId)?.options)
         )) &&
         lookup.inputs.every((entry) => entry.enumId === undefined || (
@@ -2286,7 +2285,7 @@ const repairLookups = (rawValue: unknown, valueEnums: ValueEnumDefinition[], war
     });
     return [{
       id,
-      outputName: valueEnums.find((definition) => definition.id === stringValue(rawLookup.outputEnumId).trim())?.name ?? outputName,
+      outputName,
       outputExplanation: stringValue(rawLookup.outputExplanation ?? rawLookup.explanation ?? rawLookup.description),
       outputValueType: repairValueType(rawLookup.outputValueType ?? rawLookup.outputType),
       outputOptions: valueEnums.find((definition) => definition.id === stringValue(rawLookup.outputEnumId).trim())?.options.slice() ?? repairOptions(rawLookup.outputOptions ?? rawLookup.enumOptions),

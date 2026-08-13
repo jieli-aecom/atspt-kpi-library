@@ -3538,7 +3538,6 @@ function DataSourceHeader({
 
         return {
           ...lookup,
-          outputName: hasLinkedOutput ? updated.name : lookup.outputName,
           outputOptions: hasLinkedOutput ? [...updated.options] : lookup.outputOptions,
           inputs: hasLinkedInput
             ? lookup.inputs.map((input) => input.enumId === current.id ? { ...input, representation: updated.name, options: [...updated.options] } : input)
@@ -4527,7 +4526,6 @@ function DataSourceHeader({
             <span>Lookup Name</span>
             <span className="lookup-summary-title-main">
               <input
-                disabled={Boolean(lookup.outputEnumId)}
                 value={lookup.outputName}
                 size={Math.min(36, Math.max(12, lookup.outputName.length || 'Untitled lookup'.length))}
                 placeholder="Untitled lookup"
@@ -4568,7 +4566,7 @@ function DataSourceHeader({
               lookup.outputEnumId,
               (enumId) => {
                 const definition = config.valueEnums.find((entry) => entry.id === enumId);
-                updateLookup(lookupIndex, { outputEnumId: enumId, ...(definition ? { outputName: definition.name, outputOptions: [...definition.options] } : {}) });
+                updateLookup(lookupIndex, { outputEnumId: enumId, ...(definition ? { outputOptions: [...definition.options] } : {}) });
               }
             ) : null}
           </section>
