@@ -125,6 +125,7 @@ const transientSourceHighlightDurationMs = 2500;
 
 type FormulaSemanticTarget =
   | { kind: 'source'; sourceId: string }
+  | { kind: 'dimension' }
   | { kind: 'formula'; formulaIndex: number };
 
 type FormulaSourceHighlight = { sourceId: string; requestId: number };
@@ -3147,6 +3148,22 @@ const dimensionedSourceLabel = (name: string, dimensionLabel: string) =>
 const spatiallyScaledTableLabel = (name: string, spatialUnit: string) =>
   `${name}${spatialUnit.trim() ? ` [by ${spatialUnit.trim()}]` : ''}`;
 
+const sourceItemDimensions = (config: KpiPoolConfig, item: KpiSourceItem): DataSourceFieldDimension[] => {
+  if (item.type === 'kpi') {
+    return config.kpis.find((kpi) => kpi.id === item.kpiId)?.dimensions ?? [];
+  }
+  if (item.type !== 'dataField') return [];
+  const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
+  return source?.fieldGroups.find((group) => group.fieldIds.includes(item.fieldId))?.dimensions ?? [];
+};
+
+const dimensionOptionsLabel = (dimension: DataSourceFieldDimension) =>
+  dimension.options.length ? dimension.options.join(', ') : 'No options defined';
+
+const sourceDimensionsSummary = (dimensions: DataSourceFieldDimension[]) => dimensions
+  .map((dimension) => `by ${dimension.name || 'Untitled dimension'}: ${dimensionOptionsLabel(dimension)}`)
+  .join(' · ');
+
 const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   if (item.type === 'custom') {
     return item.name || 'Untitled custom source';
@@ -3154,7 +3171,7 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   if (item.type === 'kpi') {
     const referencedKpi = config.kpis.find((kpi) => kpi.id === item.kpiId);
     if (!referencedKpi) return 'Missing KPI';
-    const dimensionLabel = referencedKpi.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ');
+    const dimensionLabel = sourceItemDimensions(config, item).map((dimension) => dimension.name.trim()).filter(Boolean).join(', ');
     return dimensionedSourceLabel(referencedKpi.name, dimensionLabel);
   }
   if (item.type === 'lookup') {
@@ -3172,6 +3189,9 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
 
 const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const label = sourceItemLabel(config, item);
+  const dimensionDetails = sourceItemDimensions(config, item).map((dimension) =>
+    `By ${dimension.name || 'Untitled dimension'}: ${dimensionOptionsLabel(dimension)}${dimension.enumId ? ' (global)' : ' (custom)'}`
+  );
   if (item.type === 'lookup') {
     const lookup = config.lookups.find((entry) => entry.id === item.lookupId);
     if (!lookup) return label;
@@ -3185,7 +3205,7 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
     const details = [variable?.explanation.trim(), variable?.unit.trim() ? `Unit: ${variable.unit.trim()}` : ''].filter(Boolean);
     return details.length ? `${label}\n${details.join('\n')}` : label;
   }
-  if (item.type !== 'dataField') return label;
+  if (item.type !== 'dataField') return [label, ...dimensionDetails].join('\n');
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
   const details = [
@@ -3194,7 +3214,7 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
     field?.meaning.trim(),
     field?.valueUnit ? `Unit: ${field.valueUnit}` : ''
   ].filter(Boolean);
-  return details.length ? `${label}\n${details.join('\n')}` : label;
+  return [...dimensionDetails, ...details].length ? `${label}\n${[...dimensionDetails, ...details].join('\n')}` : label;
 };
 
 const lookupDefaultLatex = (lookup: LookupDefinition) => {
@@ -5718,7 +5738,7 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
           })}</span>
         </span>
       ) : null}
@@ -6017,11 +6037,12 @@ function KpiSourceEditor({
   const selectedDataSource = pickerScope.startsWith('data:')
     ? config.dataSources.find((source) => source.id === pickerScope.slice(5))
     : undefined;
-  const visibleFields = selectedDataSource?.fields.filter((field) =>
-    !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit} ${field.options.join(' ')}`).includes(normalizedQuery)
-  ) ?? [];
+  const visibleFields = selectedDataSource?.fields.filter((field) => {
+    const dimensions = selectedDataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id))?.dimensions ?? [];
+    return !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit} ${field.options.join(' ')} ${sourceDimensionsSummary(dimensions)}`).includes(normalizedQuery);
+  }) ?? [];
   const visibleKpis = config.kpis.filter((entry) =>
-    entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview}`).includes(normalizedQuery))
+    entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview} ${sourceDimensionsSummary(entry.dimensions)}`).includes(normalizedQuery))
   );
   const lookupMatchesQuery = (lookup: LookupDefinition) =>
     !normalizedQuery || normalize(`${lookup.outputName} ${lookup.outputExplanation} ${lookup.outputValueType} ${lookup.outputOptions.join(' ')} ${lookup.text} ${lookup.inputs.map((input) => `${input.representation} ${input.explanation} ${input.valueType} ${input.options.join(' ')}`).join(' ')}`).includes(normalizedQuery);
@@ -6083,10 +6104,15 @@ function KpiSourceEditor({
     const item = kpi.sources.find((source) => source.id === sourceId);
     if (item) editSelectedSource(item);
   };
+  const viewSourceDimensionDomain = (domainId: string) => {
+    setOpen(false);
+    onEditLibrarySource({ kind: 'domain', domainId });
+  };
   const renderSelectedSourceRow = (item: KpiSourceItem, label: string) => {
     const isCollection = item.type === 'dataField' && config.dataSources
       .find((source) => source.id === item.dataSourceId)?.fields
       .find((field) => field.id === item.fieldId)?.dataType === 'collection';
+    const dimensions = sourceItemDimensions(config, item);
     return (
     <div
       className={`selected-source-row ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${transientHighlightedSourceId === item.id ? 'is-kpi-source-highlighted' : ''}`}
@@ -6099,7 +6125,18 @@ function KpiSourceEditor({
     >
       {item.type === 'custom'
         ? <DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />
-        : <span title={sourceItemTooltip(config, item)}>{label}</span>}
+        : <div className="selected-source-term" title={sourceItemTooltip(config, item)}>
+          <strong>{label}</strong>
+          {dimensions.length ? <div className="selected-source-dimensions" aria-label={`Dimensions for ${label}`}>
+            {dimensions.map((dimension) => <div className={`selected-source-dimension ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
+              <span>
+                <b>by {dimension.name || 'Untitled dimension'}</b>
+                <small>{dimensionOptionsLabel(dimension)}</small>
+              </span>
+              {dimension.enumId ? <ViewDomainButton domainId={dimension.enumId} domainName={dimension.name} onView={viewSourceDimensionDomain} /> : null}
+            </div>)}
+          </div> : null}
+        </div>}
       <DebouncedInput className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
       <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={() => editSelectedSource(item)}><Eye size={12} /></button>
@@ -6245,7 +6282,10 @@ function KpiSourceEditor({
               {visibleKpis.map((entry) => (
                 <label className="source-choice-row" key={entry.id}>
                   <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'kpi' && item.kpiId === entry.id)} onChange={() => toggleKpi(entry.id)} />
-                  <span><strong>{entry.name}</strong><small>{entry.description.overview}</small></span>
+                  <span>
+                    <strong>{dimensionedSourceLabel(entry.name, entry.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', '))}</strong>
+                    <small>{[entry.description.overview, sourceDimensionsSummary(entry.dimensions)].filter(Boolean).join(' · ')}</small>
+                  </span>
                 </label>
               ))}
             </fieldset>
@@ -6288,7 +6328,7 @@ function KpiSourceEditor({
                 return (
                   <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
                     <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.dataType === 'enum' && field.options.length ? ` · Options: ${field.options.join(', ')}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}</small></span>
+                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.dataType === 'enum' && field.options.length ? ` · Options: ${field.options.join(', ')}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(group.dimensions)}` : ''}</small></span>
                   </label>
                 );
               })}
@@ -6936,18 +6976,42 @@ function InteractiveFormulaPreview({
     [currentConfig, currentItem, currentKpi]
   );
   const { config, kpi, item } = useDeferredValue(previewInput);
-  const dimensionTokens = useMemo(() => formulaDimensions(config, kpi).flatMap((dimension): FormulaSemanticToken[] => [
-      {
-        latex: latexIdentifier(dimension.name),
-        kind: 'dimension',
-        label: `Dimension: ${dimension.name}`
-      },
-      ...dimension.options.map((option) => ({
-        latex: latexIdentifier(option),
-        kind: 'dimension' as const,
-        label: `${dimension.name} option: ${option}`
-      }))
-    ]), [config, kpi]);
+  const dimensionTokens = useMemo(() => {
+    const currentDimensionNames = new Set(kpi.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase()).filter(Boolean));
+    const sourceIdsByDimensionName = new Map<string, string[]>();
+    kpi.sources.forEach((source) => {
+      sourceItemDimensions(config, source).forEach((dimension) => {
+        const key = dimension.name.trim().toLocaleLowerCase();
+        if (!key) return;
+        const sourceIds = sourceIdsByDimensionName.get(key) ?? [];
+        if (!sourceIds.includes(source.id)) sourceIds.push(source.id);
+        sourceIdsByDimensionName.set(key, sourceIds);
+      });
+    });
+    return formulaDimensions(config, kpi).flatMap((dimension): FormulaSemanticToken[] => {
+      const key = dimension.name.trim().toLocaleLowerCase();
+      const sourceIds = sourceIdsByDimensionName.get(key) ?? [];
+      const target: FormulaSemanticTarget | undefined = currentDimensionNames.has(key)
+        ? { kind: 'dimension' }
+        : sourceIds.length === 1
+          ? { kind: 'source', sourceId: sourceIds[0] }
+          : undefined;
+      return [
+        {
+          latex: latexIdentifier(dimension.name),
+          kind: 'dimension',
+          label: `Dimension: ${dimension.name}`,
+          target
+        },
+        ...dimension.options.map((option) => ({
+          latex: latexIdentifier(option),
+          kind: 'dimension' as const,
+          label: `${dimension.name} option: ${option}`,
+          target
+        }))
+      ];
+    });
+  }, [config, kpi]);
   const collectionDomainTokens = useMemo(() => formulaCollectionDomains(config, kpi).flatMap((domain): FormulaSemanticToken[] =>
     domain.options.flatMap((option) => {
       const latex = latexIdentifier(option);
@@ -7095,8 +7159,23 @@ function InteractiveFormulaPreview({
         element.classList.add('is-actionable');
         element.setAttribute('role', 'button');
         const activate = (event: Event) => {
+          const closestSemanticToken = event.target instanceof Element
+            ? event.target.closest('.formula-semantic-token') as HTMLElement | null
+            : null;
+          if (closestSemanticToken && closestSemanticToken !== element && closestSemanticToken.classList.contains('is-actionable')) return;
+          let semanticTarget = token.target;
+          if (token.kind === 'dimension') {
+            const parentSourceElement = element.parentElement?.closest('.formula-source-token, .formula-collection-token, .formula-lookup-token, .formula-variable-token') as HTMLElement | null;
+            const parentIndexClass = parentSourceElement
+              ? [...parentSourceElement.classList].find((className) => className.startsWith('formula-token-'))
+              : undefined;
+            const parentIndex = parentIndexClass ? Number.parseInt(parentIndexClass.slice('formula-token-'.length), 10) : Number.NaN;
+            const parentTarget = Number.isNaN(parentIndex) ? undefined : semantic.tokens.find((entry) => entry.index === parentIndex)?.target;
+            if (parentTarget?.kind === 'source') semanticTarget = parentTarget;
+          }
+          if (!semanticTarget) return;
           event.stopPropagation();
-          onSemanticTarget(token.target!);
+          onSemanticTarget(semanticTarget);
         };
         const handleKeyDown = (event: KeyboardEvent) => {
           if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -8118,6 +8197,9 @@ function KpiRow({
   const [dimensionControlOpen, setDimensionControlOpen] = useState(false);
   const [semanticHighlight, setSemanticHighlight] = useState<{ target: FormulaSemanticTarget; requestId: number }>();
   const highlightSemanticTarget = useCallback((target: FormulaSemanticTarget) => {
+    if (target.kind === 'dimension') {
+      setDimensionControlOpen(true);
+    }
     setSemanticHighlight((current) => ({ target, requestId: (current?.requestId ?? 0) + 1 }));
   }, []);
   useEffect(() => {
