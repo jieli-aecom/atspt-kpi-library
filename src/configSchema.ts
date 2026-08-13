@@ -597,7 +597,6 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       return hasDuplicate(source.fields.map((field) => field.id)) ||
         source.fields.some((field) => field.enumId !== undefined && (
           !validValueEnumIds.has(field.enumId) ||
-          (field.dataType === 'enum' && field.name !== valueEnumById.get(field.enumId)?.name) ||
           JSON.stringify(field.options) !== JSON.stringify(valueEnumById.get(field.enumId)?.options)
         )) ||
         (source.primaryKeyFieldId !== undefined && (
@@ -2000,7 +1999,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
         : undefined;
       return [{
         id: ensureUniqueId(rawField.id, 'field', usedFieldIds, warnings, `${name}: field "${fieldName}"`),
-        name: dataType === 'enum' ? applicableValueEnum?.name ?? fieldName : fieldName,
+        name: fieldName,
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
         dataType,
         ...(collectionItemType ? { collectionItemType } : {}),

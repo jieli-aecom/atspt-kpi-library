@@ -3164,6 +3164,32 @@ const sourceDimensionsSummary = (dimensions: DataSourceFieldDimension[]) => dime
   .map((dimension) => `by ${dimension.name || 'Untitled dimension'}: ${dimensionOptionsLabel(dimension)}`)
   .join(' · ');
 
+type SourceFieldDomain = {
+  name: string;
+  options: string[];
+  enumId?: string;
+};
+
+const sourceItemFieldDomain = (config: KpiPoolConfig, item: KpiSourceItem): SourceFieldDomain | undefined => {
+  if (item.type !== 'dataField') return undefined;
+  const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
+  const field = source?.fields.find((entry) => entry.id === item.fieldId);
+  const isDomain = field?.dataType === 'enum' || (field?.dataType === 'collection' && field.collectionItemType === 'enum');
+  if (!field || !isDomain) return undefined;
+  const globalDomain = field.enumId
+    ? config.valueEnums.find((definition) => definition.id === field.enumId)
+    : undefined;
+  return {
+    name: globalDomain?.name.trim() || 'Custom domain',
+    options: [...(globalDomain?.options ?? field.options)],
+    ...(globalDomain ? { enumId: globalDomain.id } : {})
+  };
+};
+
+const sourceFieldDomainSummary = (domain?: SourceFieldDomain) => domain
+  ? `Domain ${domain.name}: ${domain.options.length ? domain.options.join(', ') : 'No options defined'}`
+  : '';
+
 const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   if (item.type === 'custom') {
     return item.name || 'Untitled custom source';
@@ -3189,6 +3215,7 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
 
 const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const label = sourceItemLabel(config, item);
+  const fieldDomain = sourceItemFieldDomain(config, item);
   const dimensionDetails = sourceItemDimensions(config, item).map((dimension) =>
     `By ${dimension.name || 'Untitled dimension'}: ${dimensionOptionsLabel(dimension)}${dimension.enumId ? ' (global)' : ' (custom)'}`
   );
@@ -3209,8 +3236,8 @@ const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const source = config.dataSources.find((entry) => entry.id === item.dataSourceId);
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
   const details = [
+    sourceFieldDomainSummary(fieldDomain),
     field ? `Type: ${dataSourceFieldTypeLabels[field.dataType]}` : '',
-    field?.dataType === 'enum' && field.options.length ? `Options: ${field.options.join(', ')}` : '',
     field?.meaning.trim(),
     field?.valueUnit ? `Unit: ${field.valueUnit}` : ''
   ].filter(Boolean);
@@ -3312,35 +3339,42 @@ const formulaDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFie
   return value;
 };
 
-type FormulaCollectionDomain = {
+type FormulaFieldDomain = {
   key: string;
   name: string;
   options: string[];
+  sourceIds: string[];
 };
 
-const formulaCollectionDomainsCache = new WeakMap<KpiMetric, { config: KpiPoolConfig; value: FormulaCollectionDomain[] }>();
+const formulaFieldDomainsCache = new WeakMap<KpiMetric, { config: KpiPoolConfig; value: FormulaFieldDomain[] }>();
 
-const formulaCollectionDomains = (config: KpiPoolConfig, kpi: KpiMetric): FormulaCollectionDomain[] => {
-  const cached = formulaCollectionDomainsCache.get(kpi);
+const formulaFieldDomains = (config: KpiPoolConfig, kpi: KpiMetric): FormulaFieldDomain[] => {
+  const cached = formulaFieldDomainsCache.get(kpi);
   if (cached?.config === config) return cached.value;
-  const domains = new Map<string, FormulaCollectionDomain>();
+  const domains = new Map<string, FormulaFieldDomain>();
   kpi.sources.forEach((source) => {
     if (source.type !== 'dataField') return;
     const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
     const field = dataSource?.fields.find((entry) => entry.id === source.fieldId);
-    if (!field || field.dataType !== 'collection' || field.collectionItemType !== 'enum') return;
+    if (!field || (field.dataType !== 'enum' && !(field.dataType === 'collection' && field.collectionItemType === 'enum'))) return;
     const globalDomain = field.enumId
       ? config.valueEnums.find((definition) => definition.id === field.enumId)
       : undefined;
     const key = globalDomain ? `global:${globalDomain.id}` : `field:${dataSource?.id ?? source.dataSourceId}:${field.id}`;
-    domains.set(key, {
-      key,
-      name: globalDomain?.name.trim() || field.name.trim() || 'Domain',
-      options: [...(globalDomain?.options ?? field.options)]
-    });
+    const existing = domains.get(key);
+    if (existing) {
+      if (!existing.sourceIds.includes(source.id)) existing.sourceIds.push(source.id);
+    } else {
+      domains.set(key, {
+        key,
+        name: globalDomain?.name.trim() || 'Custom domain',
+        options: [...(globalDomain?.options ?? field.options)],
+        sourceIds: [source.id]
+      });
+    }
   });
   const value = [...domains.values()];
-  formulaCollectionDomainsCache.set(kpi, { config, value });
+  formulaFieldDomainsCache.set(kpi, { config, value });
   return value;
 };
 
@@ -3541,7 +3575,7 @@ function DataSourceHeader({
           ...source,
           fields: hasLinkedField
             ? source.fields.map((field) => field.enumId === current.id
-                ? { ...field, ...(field.dataType === 'enum' ? { name: updated.name } : {}), options: [...updated.options] }
+                ? { ...field, options: [...updated.options] }
                 : field)
             : source.fields,
           fieldGroups: hasLinkedGroupDimension
@@ -4219,10 +4253,6 @@ function DataSourceHeader({
           : current.collectionItemType ?? 'number';
       } else {
         next.collectionItemType = undefined;
-      }
-      if (partial.dataType === 'enum' && current.enumId) {
-        const definition = config.valueEnums.find((entry) => entry.id === current.enumId);
-        if (definition) next.name = definition.name;
       }
       if (partial.dataType !== 'enum' && partial.dataType !== 'collection') {
         next.enumId = undefined;
@@ -5353,7 +5383,7 @@ function DataSourceHeader({
                       <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationIsDuplicate} onClick={addTableRelation}>{relationIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
                     </div> : null}
                   </div>
-                  <input disabled={field.dataType === 'enum' && Boolean(field.enumId)} value={field.name} aria-label="Field name" onChange={(event) => updateField(sourceIndex, fieldIndex, { name: event.target.value })} />
+                  <input value={field.name} aria-label="Field name" onChange={(event) => updateField(sourceIndex, fieldIndex, { name: event.target.value })} />
                   <select className="data-source-field-type" value={field.dataType} disabled={Boolean(field.generatedRelationId || source.primaryKeyFieldId === field.id)} aria-label="Field data type" onChange={(event) => updateField(sourceIndex, fieldIndex, { dataType: event.target.value as DataSourceFieldType })}>
                     {dataSourceFieldTypes.map((type) => <option value={type} key={type}>{dataSourceFieldTypeLabels[type]}</option>)}
                   </select>
@@ -5399,7 +5429,6 @@ function DataSourceHeader({
                         updateField(sourceIndex, fieldIndex, {
                           enumId,
                           ...(definition ? {
-                            ...(field.dataType === 'enum' ? { name: definition.name } : {}),
                             options: [...definition.options]
                           } : {})
                         });
@@ -6039,7 +6068,9 @@ function KpiSourceEditor({
     : undefined;
   const visibleFields = selectedDataSource?.fields.filter((field) => {
     const dimensions = selectedDataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id))?.dimensions ?? [];
-    return !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit} ${field.options.join(' ')} ${sourceDimensionsSummary(dimensions)}`).includes(normalizedQuery);
+    const sourceItem = kpi.sources.find((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)
+      ?? { id: '', type: 'dataField' as const, dataSourceId: selectedDataSource.id, fieldId: field.id, latex: '' };
+    return !normalizedQuery || normalize(`${field.name} ${field.dataType} ${field.meaning} ${field.valueUnit} ${field.options.join(' ')} ${sourceFieldDomainSummary(sourceItemFieldDomain(config, sourceItem))} ${sourceDimensionsSummary(dimensions)}`).includes(normalizedQuery);
   }) ?? [];
   const visibleKpis = config.kpis.filter((entry) =>
     entry.id !== kpi.id && (!normalizedQuery || normalize(`${entry.name} ${entry.description.overview} ${sourceDimensionsSummary(entry.dimensions)}`).includes(normalizedQuery))
@@ -6112,6 +6143,7 @@ function KpiSourceEditor({
     const isCollection = item.type === 'dataField' && config.dataSources
       .find((source) => source.id === item.dataSourceId)?.fields
       .find((field) => field.id === item.fieldId)?.dataType === 'collection';
+    const fieldDomain = sourceItemFieldDomain(config, item);
     const dimensions = sourceItemDimensions(config, item);
     return (
     <div
@@ -6127,6 +6159,13 @@ function KpiSourceEditor({
         ? <DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />
         : <div className="selected-source-term" title={sourceItemTooltip(config, item)}>
           <strong>{label}</strong>
+          {fieldDomain ? <div className={`selected-source-domain ${fieldDomain.enumId ? 'is-global' : 'is-custom'}`}>
+            <span>
+              <b>{fieldDomain.name}</b>
+              <small>{fieldDomain.options.length ? fieldDomain.options.join(', ') : 'No options defined'}</small>
+            </span>
+            {fieldDomain.enumId ? <ViewDomainButton domainId={fieldDomain.enumId} domainName={fieldDomain.name} onView={viewSourceDimensionDomain} /> : null}
+          </div> : null}
           {dimensions.length ? <div className="selected-source-dimensions" aria-label={`Dimensions for ${label}`}>
             {dimensions.map((dimension) => <div className={`selected-source-dimension ${dimension.enumId ? 'is-global' : 'is-custom'}`} key={dimension.id}>
               <span>
@@ -6325,10 +6364,12 @@ function KpiSourceEditor({
               {visibleFields.map((field) => {
                 const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));
                 const dimensionLabel = fieldGroupDimensionLabel(group);
+                const fieldItem = { id: '', type: 'dataField' as const, dataSourceId: selectedDataSource.id, fieldId: field.id, latex: '' };
+                const fieldDomain = sourceItemFieldDomain(config, fieldItem);
                 return (
                   <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
                     <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{field.dataType === 'enum' && field.options.length ? ` · Options: ${field.options.join(', ')}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(group.dimensions)}` : ''}</small></span>
+                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(group.dimensions)}` : ''}</small></span>
                   </label>
                 );
               })}
@@ -6430,7 +6471,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const aggregationShortcut = spatialScale
     ? `\\sum_{${basicUnitScale ? latexIdentifier(spatialScaleLabels[basicUnitScale]) : ''} \\in ${latexIdentifier(spatialScaleLabels[spatialScale])}}`
     : '';
-  const collectionDomains = useMemo(() => formulaCollectionDomains(config, kpi), [config, kpi]);
+  const fieldDomains = useMemo(() => formulaFieldDomains(config, kpi), [config, kpi]);
   const dimensionShortcuts = useMemo(() => {
     const shortcuts = new Map<string, { latex: string; label: string; kind: 'Dimension' | 'Option' | 'Set' }>();
     formulaDimensions(config, kpi).forEach((dimension) => {
@@ -6456,18 +6497,18 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
           });
         }
     });
-    collectionDomains.forEach((domain) => {
+    fieldDomains.forEach((domain) => {
       domain.options
         .map((option) => ({ option, latex: latexIdentifier(option) }))
         .filter((option) => option.latex)
-        .forEach(({ option, latex }) => shortcuts.set(`collection-domain-option:${domain.key}:${latex}`, {
+        .forEach(({ option, latex }) => shortcuts.set(`field-domain-option:${domain.key}:${latex}`, {
           latex,
           label: `${domain.name} option: ${option}`,
           kind: 'Option'
         }));
     });
     return [...shortcuts.values()];
-  }, [collectionDomains, config, kpi]);
+  }, [fieldDomains, config, kpi]);
   useLayoutEffect(() => {
     const container = paletteOptionsRef.current;
     if (!container || paletteExpanded) return undefined;
@@ -6565,7 +6606,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             </div>
           </section> : null}
           {dimensionShortcuts.length ? <section className="formula-shortcut-group">
-            <span className="formula-shortcut-group-label">{collectionDomains.some((domain) => domain.options.some((option) => latexIdentifier(option))) ? 'Dimensions & domain options' : 'Dimensions'}</span>
+            <span className="formula-shortcut-group-label">{fieldDomains.some((domain) => domain.options.some((option) => latexIdentifier(option))) ? 'Dimensions & domain options' : 'Dimensions'}</span>
             <div className="formula-shortcut-group-options">
               {dimensionShortcuts.map((shortcut) => <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
                 <span className="formula-shortcut-kind">{shortcut.kind}</span>
@@ -7012,13 +7053,14 @@ function InteractiveFormulaPreview({
       ];
     });
   }, [config, kpi]);
-  const collectionDomainTokens = useMemo(() => formulaCollectionDomains(config, kpi).flatMap((domain): FormulaSemanticToken[] =>
+  const fieldDomainTokens = useMemo(() => formulaFieldDomains(config, kpi).flatMap((domain): FormulaSemanticToken[] =>
     domain.options.flatMap((option) => {
       const latex = latexIdentifier(option);
       return latex ? [{
         latex,
         kind: 'dimension' as const,
-        label: `${domain.name} option: ${option}`
+        label: `${domain.name} option: ${option}`,
+        target: domain.sourceIds.length === 1 ? { kind: 'source' as const, sourceId: domain.sourceIds[0] } : undefined
       }] : [];
     })
   ), [config, kpi]);
@@ -7062,7 +7104,7 @@ function InteractiveFormulaPreview({
     () => decorateFormulaTokens(item.formula, [
       ...sourceTokens,
       ...dimensionTokens,
-      ...collectionDomainTokens,
+      ...fieldDomainTokens,
       ...spatialScaleFormulaKeywords.map((keyword) => ({
         latex: keyword,
         kind: 'scale' as const,
@@ -7077,7 +7119,7 @@ function InteractiveFormulaPreview({
         originFormulaIndex: currentFormulaIndex >= 0 ? currentFormulaIndex : undefined
       }
     ]),
-    [collectionDomainTokens, currentFormulaIndex, dimensionTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
+    [currentFormulaIndex, dimensionTokens, fieldDomainTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
   const renderedHtml = useMemo(
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),
