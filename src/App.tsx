@@ -8173,7 +8173,7 @@ function KpiDimensionControl({
   };
 
   return (
-    <div className="kpi-dimension-control" ref={controlRef}>
+    <div className="kpi-dimension-control" ref={controlRef} onClick={(event) => event.stopPropagation()}>
       <button
         className={`mini-icon-button kpi-dimension-trigger ${kpi.dimensions.length ? 'is-active' : ''}`}
         type="button"
@@ -8229,6 +8229,7 @@ function KpiDimensionControl({
                 ref={domainPickerRef}
                 role="menu"
                 style={domainPickerPosition}
+                onClick={(event) => event.stopPropagation()}
               >
                 <GroupedDomainPickerOptions
                   definitions={config.valueEnums.filter((definition) => !kpi.dimensions.some((dimension) => dimension.enumId === definition.id))}
@@ -8782,6 +8783,8 @@ const summarizeKpiCatalogChanges = (previous: KpiPoolConfig, next: KpiPoolConfig
 const kpiCatalogChangeAffectsRow = (previous: KpiPoolConfig, next: KpiPoolConfig, rowKpiId: string) => {
   if (
     previous.enums !== next.enums ||
+    previous.valueEnums !== next.valueEnums ||
+    previous.valueEnumGroups !== next.valueEnumGroups ||
     previous.dataSources !== next.dataSources ||
     previous.lookups !== next.lookups ||
     previous.lookupGroups !== next.lookupGroups ||
