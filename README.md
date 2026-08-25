@@ -140,3 +140,9 @@ See [`src/types.ts`](src/types.ts) for the complete current model.
 ## Systematic JSON export
 
 **Export as JSON** downloads the KPIs in the current filtered and sorted view. Each exported KPI contains only Name, Source, Formula, Spatial Scales, Performance Areas, User Group, and Use Case. The file also includes the domain definitions used by those columns and the library's complete data-source definitions.
+
+## Excel export
+
+**Export as Excel** downloads the current filtered KPI view as an `.xlsx` workbook. The worksheet contains one row
+per user-group/use-case assignment with the KPI name, overview description, and the performance areas scoped to that
+use case. User-group, use-case, and performance-area filters also narrow the assignment rows included in the export.

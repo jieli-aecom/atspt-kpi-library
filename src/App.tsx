@@ -45,6 +45,7 @@ import {
 } from './configSchema';
 import { mergeImportedConfig } from './configMerge';
 import { buildSystematicJsonExport } from './systematicJsonExport';
+import { buildKpiExcelRows, downloadKpiExcelWorkbook } from './excelExport';
 import {
   forceRemoteConfig,
   loadRemoteConfig,
@@ -9933,6 +9934,19 @@ function EditorApp({
     );
   };
 
+  const exportExcel = async () => {
+    const rows = buildKpiExcelRows(config, visibleKpis, {
+      userGroups: filters.userGroups,
+      useCases: filters.useCases,
+      performanceAreas: filters.enums.performanceArea
+    });
+    await downloadKpiExcelWorkbook(
+      `${configFileStem(config.title)}-filtered-kpis.xlsx`,
+      config.title,
+      rows
+    );
+  };
+
   const saveBusy = saveState === 'saving' || saveState === 'loading';
   const remoteActionTitle = exportedSnapshot
     ? 'This exported HTML is an offline snapshot and cannot write to the hosted JSON.'
@@ -10014,6 +10028,15 @@ function EditorApp({
             >
               <FileJson size={15} aria-hidden="true" />
               Export as JSON
+            </button>
+            <button
+              className="secondary-action small"
+              type="button"
+              onClick={exportExcel}
+              title={`Export the ${visibleKpis.length} currently filtered KPI${visibleKpis.length === 1 ? '' : 's'} as Excel rows by user group and use case`}
+            >
+              <Table2 size={15} aria-hidden="true" />
+              Export as Excel
             </button>
             <button className="primary-action small" type="button" onClick={exportHtml}>
               <Download size={15} aria-hidden="true" />

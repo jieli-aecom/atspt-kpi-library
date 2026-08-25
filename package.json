@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@vercel/blob": "^2.6.1",
+    "jszip": "^3.10.1",
     "katex": "^0.16.22",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
