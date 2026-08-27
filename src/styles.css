@@ -2402,7 +2402,7 @@ h1 {
 
 .data-source-field-heading,
 .data-source-field-row {
-  grid-template-columns: 26px 58px minmax(110px, 0.8fr) minmax(88px, 0.5fr) minmax(96px, 0.55fr) minmax(100px, 0.7fr) minmax(78px, 0.5fr) 72px;
+  grid-template-columns: 26px 58px minmax(104px, 0.8fr) minmax(84px, 0.5fr) minmax(92px, 0.55fr) minmax(96px, 0.7fr) minmax(52px, 0.32fr) 98px;
 }
 
 .data-source-field-row {
@@ -2422,10 +2422,19 @@ h1 {
 }
 
 .data-source-field-row input,
-.data-source-field-row select {
+.data-source-field-row select,
+.data-source-field-row textarea {
   min-height: 29px;
   padding: 5px 7px;
-  font-size: 12px;
+  font-size: 11px;
+}
+
+.data-source-field-textarea {
+  max-height: 92px;
+  overflow-y: auto;
+  resize: none;
+  line-height: 1.25;
+  white-space: pre-wrap;
 }
 
 .data-source-field-meaning.is-wide {
@@ -2658,6 +2667,13 @@ h1 {
 
 .data-source-field-actions {
   position: relative;
+  flex-wrap: nowrap;
+}
+
+.field-details-button.has-details {
+  border-color: #6f8fa0;
+  background: #dcebed;
+  color: #24566a;
 }
 
 .data-source-field-group-list {

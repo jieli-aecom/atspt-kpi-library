@@ -73,6 +73,7 @@ const dataSourceFieldSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   meaning: z.string(),
+  details: z.string(),
   dataType: z.enum(dataSourceFieldTypes),
   collectionItemType: z.enum(dataSourceCollectionItemTypes).optional(),
   valueUnit: z.string(),
@@ -439,6 +440,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
             typeof field.id === 'string' &&
             typeof field.name === 'string' &&
             typeof field.meaning === 'string' &&
+            typeof field.details === 'string' &&
             dataSourceFieldTypes.some((type) => type === field.dataType) &&
             (field.dataType === 'collection'
               ? dataSourceCollectionItemTypes.some((type) => type === field.collectionItemType)
@@ -2001,6 +2003,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
         id: ensureUniqueId(rawField.id, 'field', usedFieldIds, warnings, `${name}: field "${fieldName}"`),
         name: fieldName,
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
+        details: stringValue(rawField.details ?? rawField.note ?? rawField.Details),
         dataType,
         ...(collectionItemType ? { collectionItemType } : {}),
         valueUnit: dataType === 'number' || (dataType === 'collection' && collectionItemType === 'number') ? legacyUnit : '',
@@ -2191,6 +2194,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           id: createId('field'),
           name: collectionRelationFieldName(targetPrimaryKey?.name || fallbackRelationKeyName(target)),
           meaning: `Related ${target?.name ?? 'table'} record IDs`,
+          details: '',
           dataType: 'collection',
           collectionItemType: 'id',
           valueUnit: '',
@@ -2204,6 +2208,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           id: createId('field'),
           name: sourcePrimaryKey?.name.trim() ? relationFieldBaseName(sourcePrimaryKey.name) : fallbackRelationKeyName(relationSource),
           meaning: `ID of the related ${relationSource?.name ?? 'table'} record`,
+          details: '',
           dataType: 'id',
           valueUnit: '',
           options: [],
@@ -2216,6 +2221,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           id: createId('field'),
           name: collectionRelationFieldName(targetPrimaryKey?.name || fallbackRelationKeyName(target)),
           meaning: `Related ${target?.name ?? 'table'} record IDs`,
+          details: '',
           dataType: 'collection',
           collectionItemType: 'id',
           valueUnit: '',
@@ -2229,6 +2235,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
           id: createId('field'),
           name: collectionRelationFieldName(sourcePrimaryKey?.name || fallbackRelationKeyName(relationSource)),
           meaning: `Related ${relationSource?.name ?? 'table'} record IDs`,
+          details: '',
           dataType: 'collection',
           collectionItemType: 'id',
           valueUnit: '',

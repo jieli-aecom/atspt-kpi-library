@@ -3603,6 +3603,7 @@ function DataSourceHeader({
     anchor: 'primaryKey' | 'table';
   } | null>(null);
   const [fieldGroupDomainPickerId, setFieldGroupDomainPickerId] = useState<string>();
+  const [fieldDetailsEditor, setFieldDetailsEditor] = useState<{ dataSourceId: string; fieldId: string }>();
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const navigatedEditRequestIdRef = useRef<number>();
@@ -3712,6 +3713,7 @@ function DataSourceHeader({
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
+      if (fieldDetailsEditor && target instanceof Element && target.closest('.kpi-note-dialog-backdrop')) return;
       consumeOutsidePopupPointerDown(event);
       const activeElement = document.activeElement;
       if (activeElement instanceof HTMLElement && activeElement.classList.contains('markdown-rich-editor')) activeElement.blur();
@@ -3720,6 +3722,7 @@ function DataSourceHeader({
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (fieldDetailsEditor) return;
         if (relationEditor) {
           setRelationEditor(null);
         } else {
@@ -3735,7 +3738,7 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [open, relationEditor]);
+  }, [fieldDetailsEditor, open, relationEditor]);
   const patchDataSources = (dataSources: DataSource[]) => {
     onConfigChange({ ...config, dataSources });
   };
@@ -4307,6 +4310,7 @@ function DataSourceHeader({
         id: createLocalId('field'),
         name: uniqueFieldName(current, fallbackPrimaryKeyName(current)),
         meaning: `Primary key for ${current.name || 'this table'}`,
+        details: '',
         dataType: 'id',
         valueUnit: '',
         options: []
@@ -4335,6 +4339,7 @@ function DataSourceHeader({
         id: createLocalId('field'),
         name: collectionFieldName,
         meaning: `Related ${target.name || 'table'} keys`,
+        details: '',
         dataType: 'collection',
         collectionItemType: 'id',
         valueUnit: '',
@@ -4346,6 +4351,7 @@ function DataSourceHeader({
         id: createLocalId('field'),
         name: foreignKeyFieldName,
         meaning: `ID of the related ${source.name || 'table'} record`,
+        details: '',
         dataType: 'id',
         valueUnit: '',
         options: [],
@@ -4359,6 +4365,7 @@ function DataSourceHeader({
         id: createLocalId('field'),
         name: collectionFieldName,
         meaning: `Related ${target.name || 'table'} keys`,
+        details: '',
         dataType: 'collection',
         collectionItemType: 'id',
         valueUnit: '',
@@ -4370,6 +4377,7 @@ function DataSourceHeader({
         id: createLocalId('field'),
         name: targetCollectionFieldName,
         meaning: `Related ${source.name || 'table'} keys`,
+        details: '',
         dataType: 'collection',
         collectionItemType: 'id',
         valueUnit: '',
@@ -4447,7 +4455,11 @@ function DataSourceHeader({
     const current = source.fields[fieldIndex];
     if (!current) return;
     const editablePartial = current.generatedRelationId
-      ? { ...(partial.name !== undefined ? { name: partial.name } : {}), ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}) }
+      ? {
+          ...(partial.name !== undefined ? { name: partial.name } : {}),
+          ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}),
+          ...(partial.details !== undefined ? { details: partial.details } : {})
+        }
       : partial;
     const next = { ...current, ...editablePartial };
     if (partial.dataType) {
@@ -4490,7 +4502,7 @@ function DataSourceHeader({
   const addField = (sourceIndex: number, insertionIndex?: number, groupId?: string, shiftGroupsAtPosition = false) => {
     const source = config.dataSources[sourceIndex];
     const index = Math.max(0, Math.min(insertionIndex ?? source.fields.length, source.fields.length));
-    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', dataType: 'number', valueUnit: '', options: [] };
+    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', details: '', dataType: 'number', valueUnit: '', options: [] };
     updateDataSource(sourceIndex, {
       fields: [...source.fields.slice(0, index), field, ...source.fields.slice(index)],
       fieldGroups: source.fieldGroups.map((group) => ({
@@ -5240,6 +5252,15 @@ function DataSourceHeader({
   const groupedLookupIds = new Set(config.lookupGroups.flatMap((group) => group.itemIds));
   const groupedVariableIds = new Set(config.variableGroups.flatMap((group) => group.itemIds));
   const groupedValueEnumIds = new Set(config.valueEnumGroups.flatMap((group) => group.itemIds));
+  const fieldDetailsSourceIndex = fieldDetailsEditor
+    ? config.dataSources.findIndex((source) => source.id === fieldDetailsEditor.dataSourceId)
+    : -1;
+  const fieldDetailsFieldIndex = fieldDetailsEditor && fieldDetailsSourceIndex >= 0
+    ? config.dataSources[fieldDetailsSourceIndex].fields.findIndex((field) => field.id === fieldDetailsEditor.fieldId)
+    : -1;
+  const fieldDetailsField = fieldDetailsSourceIndex >= 0 && fieldDetailsFieldIndex >= 0
+    ? config.dataSources[fieldDetailsSourceIndex].fields[fieldDetailsFieldIndex]
+    : undefined;
   return (
     <div className="library-manager-control" ref={controlRef}>
       <div className="library-manager-tray" aria-label="Shared definition libraries">
@@ -5588,7 +5609,7 @@ function DataSourceHeader({
                       <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationIsDuplicate} onClick={addTableRelation}>{relationIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
                     </div> : null}
                   </div>
-                  <input value={field.name} aria-label="Field name" onChange={(event) => updateField(sourceIndex, fieldIndex, { name: event.target.value })} />
+                  <AutoGrowTextarea className="data-source-field-textarea" rows={1} value={field.name} aria-label="Field name" preventLineBreaks onValueChange={(name) => updateField(sourceIndex, fieldIndex, { name })} />
                   <select className="data-source-field-type" value={field.dataType} disabled={Boolean(field.generatedRelationId || source.primaryKeyFieldId === field.id)} aria-label="Field data type" onChange={(event) => updateField(sourceIndex, fieldIndex, { dataType: event.target.value as DataSourceFieldType })}>
                     {dataSourceFieldTypes.map((type) => <option value={type} key={type}>{dataSourceFieldTypeLabels[type]}</option>)}
                   </select>
@@ -5602,11 +5623,19 @@ function DataSourceHeader({
                   >
                     {dataSourceCollectionItemTypes.map((type) => <option value={type} key={type}>{dataSourceCollectionItemTypeLabels[type]}</option>)}
                   </select> : null}
-                  <input className={`data-source-field-meaning ${field.dataType === 'collection' ? '' : 'is-wide'}`} value={field.meaning} aria-label="Field meaning" placeholder="What the field represents" onChange={(event) => updateField(sourceIndex, fieldIndex, { meaning: event.target.value })} />
+                  <AutoGrowTextarea className={`data-source-field-textarea data-source-field-meaning ${field.dataType === 'collection' ? '' : 'is-wide'}`} rows={1} value={field.meaning} aria-label="Field meaning" placeholder="What the field represents" preventLineBreaks onValueChange={(meaning) => updateField(sourceIndex, fieldIndex, { meaning })} />
                   {field.dataType === 'number' || (field.dataType === 'collection' && field.collectionItemType === 'number')
-                    ? <input value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onChange={(event) => updateField(sourceIndex, fieldIndex, { valueUnit: event.target.value })} />
+                    ? <AutoGrowTextarea className="data-source-field-textarea data-source-field-unit" rows={1} value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." preventLineBreaks onValueChange={(valueUnit) => updateField(sourceIndex, fieldIndex, { valueUnit })} />
                     : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
+                    <button
+                      className={`mini-icon-button field-details-button ${field.details.trim() ? 'has-details' : ''}`}
+                      type="button"
+                      title={field.details.trim() ? 'Edit field details' : 'Add field details'}
+                      aria-label={`${field.details.trim() ? 'Edit' : 'Add'} details for ${field.name || 'field'}`}
+                      aria-haspopup="dialog"
+                      onClick={() => setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id })}
+                    ><Info size={12} aria-hidden="true" /></button>
                     {field.generatedRelationId ? <><span className="relation-field-badge">Linked</span><button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <><button
                       className="mini-icon-button"
                       type="button"
@@ -5927,6 +5956,11 @@ function DataSourceHeader({
         </div>,
         document.body
       ) : null}
+      {fieldDetailsField ? <FieldDetailsDialog
+        field={fieldDetailsField}
+        onChange={(details) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { details })}
+        onClose={() => setFieldDetailsEditor(undefined)}
+      /> : null}
     </div>
   );
 }
@@ -6598,6 +6632,94 @@ function KpiSourceEditor({
         document.body
       ) : null}
     </div>
+  );
+}
+
+function FieldDetailsDialog({
+  field,
+  onChange,
+  onClose
+}: {
+  field: DataSourceField;
+  onChange: (details: string) => void;
+  onClose: () => void;
+}) {
+  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const titleId = `field-details-dialog-title-${field.id}`;
+  const closeDialog = useCallback(() => {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && dialogRef.current?.contains(activeElement)) activeElement.blur();
+    onClose();
+  }, [onClose]);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDialog();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [closeDialog]);
+
+  return createPortal(
+    <div className="kpi-note-dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) closeDialog();
+    }}>
+      <section ref={dialogRef} className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header className="kpi-note-dialog-header">
+          <div>
+            <span>Field details</span>
+            <strong id={titleId}>{field.name || 'Untitled field'}</strong>
+          </div>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close field details" onClick={closeDialog}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="kpi-note-dialog-body">
+          <div className="lookup-details-heading">
+            <span>Details</span>
+            <label className="lookup-details-mode">
+              <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={`Show raw Markdown for ${field.name || 'untitled field'} details`}
+                checked={showRawMarkdown}
+                onChange={(event) => setShowRawMarkdown(event.target.checked)}
+              />
+              <span className={showRawMarkdown ? 'is-active' : ''}>Raw</span>
+            </label>
+          </div>
+          {showRawMarkdown ? (
+            <textarea
+              className="markdown-source-textarea kpi-note-source"
+              value={field.details}
+              rows={14}
+              aria-label={`Raw Markdown details for ${field.name || 'untitled field'}`}
+              placeholder="# Field details\n\nDocument definitions, assumptions, sources, caveats, and examples."
+              onChange={(event) => onChange(event.target.value)}
+            />
+          ) : (
+            <MarkdownContent
+              value={field.details}
+              placeholder="Click to add field details"
+              onValueChange={onChange}
+            />
+          )}
+          <small className="kpi-note-dialog-hint">Markdown is preserved with the source-table definition.</small>
+        </div>
+      </section>
+    </div>,
+    document.body
   );
 }
 
