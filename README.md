@@ -110,7 +110,7 @@ All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use 
 
 ## Schema compatibility
 
-`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `34`.
+`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `35`.
 
 The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to domain IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
 
@@ -126,23 +126,24 @@ When introducing a future schema:
 
 ## Config shape
 
-- `schemaVersion`: currently `34`
+- `schemaVersion`: currently `35`
 - `title`: library title
 - `updatedAt`: ISO timestamp written by the server or during HTML export
 - `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned domain definitions
 - `valueEnums` / `valueEnumGroups`: global, grouped domain definitions that can supply names and options to fields, lookup values, and dimensions (the internal property names are retained for backward compatibility)
 - `dataSources`: reusable source-table definitions and fields; domain fields and dimensions can retain inline options or reference a global domain
 - `lookups`: reusable lookup definitions with documented inputs and output; domain inputs and outputs can retain inline options or reference a global domain
-- `kpis`: KPI definitions with stable IDs, `lastModified`, optional dimensions, sources, formulas, prerequisites, spatial scales, use-case assignments, performance areas, and notes
+- `kpis`: KPI definitions with stable IDs, `lastModified`, a Markdown remaining-ambiguities note, optional dimensions, sources, formulas, prerequisites, spatial scales, use-case assignments, performance areas, and use-case notes
 
 See [`src/types.ts`](src/types.ts) for the complete current model.
 
 ## Systematic JSON export
 
-**Export as JSON** downloads the KPIs in the current filtered and sorted view. Each exported KPI contains only Name, Source, Formula, Spatial Scales, Performance Areas, User Group, and Use Case. The file also includes the domain definitions used by those columns and the library's complete data-source definitions.
+**Export as JSON** downloads the KPIs in the current filtered and sorted view. Each exported KPI contains only Name, Note, Source, Formula, Spatial Scales, Performance Areas, User Group, and Use Case. The file also includes the domain definitions used by those columns and the library's complete data-source definitions.
 
 ## Excel export
 
 **Export as Excel** downloads the current filtered KPI view as an `.xlsx` workbook. The worksheet contains one row
-per user-group/use-case assignment with the KPI name, overview description, and the performance areas scoped to that
-use case. User-group, use-case, and performance-area filters also narrow the assignment rows included in the export.
+per user-group/use-case assignment with the KPI name, overview description, remaining-ambiguities note, and the
+performance areas scoped to that use case. Common Markdown decorations in the note are converted to readable plain
+text. User-group, use-case, performance-area, and note-presence filters also narrow the exported rows.

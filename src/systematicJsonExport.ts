@@ -18,6 +18,7 @@ export const buildSystematicJsonExport = (config: KpiPoolConfig, kpis: readonly 
   'Data Sources': config.dataSources,
   KPIs: kpis.map((kpi) => ({
     Name: kpi.name,
+    Note: kpi.note,
     Source: kpi.sources,
     Formula: {
       Comment: kpi.description.formulaComment,

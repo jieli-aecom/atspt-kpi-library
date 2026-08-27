@@ -8,6 +8,7 @@ import {
   Check,
   ChevronDown,
   ChevronsUp,
+  CircleHelp,
   Columns3,
   Copy,
   Cloud,
@@ -103,6 +104,7 @@ const EXPORTED_SNAPSHOT_ATTRIBUTE = 'data-kpi-exported-snapshot';
 type ColumnFilters = {
   name: string;
   description: string;
+  notesOnly: boolean;
   formula: string;
   prerequisite: string;
   prerequisiteModules: string[];
@@ -211,6 +213,7 @@ const isRowBackgroundClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
 const emptyFilters = (): ColumnFilters => ({
   name: '',
   description: '',
+  notesOnly: false,
   formula: '',
   prerequisite: '',
   prerequisiteModules: [],
@@ -287,6 +290,7 @@ type CompiledFilters = {
   source: ColumnFilters;
   name: string;
   description: string;
+  notesOnly: boolean;
   formula: string;
   prerequisite: string;
   prerequisiteModules: Set<string>;
@@ -396,6 +400,7 @@ const compileFilters = (filters: ColumnFilters, indexes: AppIndexes): CompiledFi
     source: filters,
     name: normalize(filters.name),
     description: normalize(filters.description),
+    notesOnly: filters.notesOnly,
     formula: normalize(filters.formula),
     prerequisite: normalize(filters.prerequisite),
     prerequisiteModules: new Set(filters.prerequisiteModules),
@@ -988,6 +993,7 @@ const preserveUnchangedEntries = <T extends { id: string }>(previous: T[], next:
 const sameKpiMaterial = (left: KpiMetric, right: KpiMetric) =>
   left.id === right.id &&
   left.name === right.name &&
+  left.note === right.note &&
   sameStructuredValue(left.dimensions, right.dimensions) &&
   sameStructuredValue(left.sources, right.sources) &&
   sameStructuredValue(left.description, right.description) &&
@@ -1022,6 +1028,7 @@ const formatLastModified = (timestamp: string) => {
 
 const activeFilterCount = (filters: ColumnFilters) =>
   (filters.name || filters.description ? 1 : 0) +
+  (filters.notesOnly ? 1 : 0) +
   (filters.formula ? 1 : 0) +
   (filters.prerequisite ? 1 : 0) +
   filters.prerequisiteModules.length +
@@ -1044,6 +1051,10 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
 
   if (filters.nameOnly) {
     return true;
+  }
+
+  if (filters.notesOnly && !kpi.note.trim()) {
+    return false;
   }
 
   if (filters.description && !search?.name.includes(filters.description) && !search?.description.includes(filters.description)) {
@@ -1199,6 +1210,7 @@ const duplicateKpiMetric = (kpi: KpiMetric, focusAssignment?: UseCaseAssignment)
     id: createBlankKpi().id,
     lastModified: new Date().toISOString(),
     name: `${kpi.name || 'Untitled KPI'} Copy`,
+    note: kpi.note,
     dimensions: kpi.dimensions.map((dimension) => ({
       ...dimension,
       id: createLocalId('kpi-dimension'),
@@ -1272,18 +1284,35 @@ function TextHeaderFilter({
   label,
   value,
   placeholder,
-  onChange
+  onChange,
+  notesOnly,
+  onNotesOnlyChange
 }: {
   label: string;
   value: string;
   placeholder: string;
   onChange: (value: string) => void;
+  notesOnly?: boolean;
+  onNotesOnlyChange?: (value: boolean) => void;
 }) {
+  const activeCount = (value ? 1 : 0) + (notesOnly ? 1 : 0);
   return (
     <div className="header-control">
       <div className="header-title">
         <span>{label}</span>
-        {value ? <strong>1</strong> : null}
+        {activeCount ? <strong>{activeCount}</strong> : null}
+        {typeof notesOnly === 'boolean' && onNotesOnlyChange ? (
+          <label className="note-filter-toggle" title="Show only KPIs with remaining-ambiguities notes">
+            <CircleHelp size={12} aria-hidden="true" />
+            <input
+              type="checkbox"
+              role="switch"
+              aria-label="Show only KPIs with notes"
+              checked={notesOnly}
+              onChange={(event) => onNotesOnlyChange(event.target.checked)}
+            />
+          </label>
+        ) : null}
       </div>
       <label className="header-search">
         <Search size={13} aria-hidden="true" />
@@ -2995,14 +3024,22 @@ function renderMarkdownBlocks(value: string, keyPrefix: string, onTextEdit?: Mar
   return blocks;
 }
 
-function MarkdownContent({ value, onTextEdit }: { value: string; onTextEdit: MarkdownTextEdit }) {
+function MarkdownContent({
+  value,
+  onTextEdit,
+  placeholder = 'Click to add details'
+}: {
+  value: string;
+  onTextEdit: MarkdownTextEdit;
+  placeholder?: string;
+}) {
   if (!value.trim()) {
     return (
       <div className="markdown-content is-empty">
         <EditableMarkdownText
           end={value.length}
           onTextEdit={(start, end, text) => onTextEdit(start, end, encodeMarkdownText(text))}
-          placeholder="Click to add lookup details"
+          placeholder={placeholder}
           start={0}
           value=""
         />
@@ -4708,30 +4745,32 @@ function DataSourceHeader({
             <div className="lookup-details-heading">
               <span>Lookup details</span>
               <label className="lookup-details-mode">
-                <span className={!lookupDetailsSourceIds.includes(lookup.id) ? 'is-active' : ''}>Rendered</span>
+                <span className={!lookupDetailsSourceIds.includes(lookup.id) ? 'is-active' : ''}>Styled</span>
                 <input
                   type="checkbox"
                   role="switch"
-                  aria-label={`Show Markdown source for ${lookup.outputName.trim() || 'untitled lookup'}`}
+                  aria-label={`Show raw Markdown for ${lookup.outputName.trim() || 'untitled lookup'}`}
                   checked={lookupDetailsSourceIds.includes(lookup.id)}
                   onChange={(event) => setLookupDetailsSourceIds((current) => event.target.checked
                     ? [...new Set([...current, lookup.id])]
                     : current.filter((id) => id !== lookup.id))}
                 />
-                <span className={lookupDetailsSourceIds.includes(lookup.id) ? 'is-active' : ''}>Source</span>
+                <span className={lookupDetailsSourceIds.includes(lookup.id) ? 'is-active' : ''}>Raw</span>
               </label>
             </div>
             {lookupDetailsSourceIds.includes(lookup.id) ? (
               <AutoGrowTextarea
+                className="markdown-source-textarea"
                 value={lookup.text}
                 rows={3}
-                aria-label={`Markdown source for ${lookup.outputName.trim() || 'untitled lookup'}`}
+                aria-label={`Raw Markdown for ${lookup.outputName.trim() || 'untitled lookup'}`}
                 placeholder="# Lookup details\n\nUse Markdown headings, lists, links, tables, and code."
                 onValueChange={(text) => updateLookup(lookupIndex, { text })}
               />
             ) : (
               <MarkdownContent
                 value={lookup.text}
+                placeholder="Click to add lookup details"
                 onTextEdit={(start, end, text) => updateLookup(lookupIndex, {
                   text: `${lookup.text.slice(0, start)}${text}${lookup.text.slice(end)}`
                 })}
@@ -8247,6 +8286,90 @@ function KpiDimensionControl({
   );
 }
 
+function KpiNoteDialog({
+  kpi,
+  onChange,
+  onClose
+}: {
+  kpi: KpiMetric;
+  onChange: (next: KpiMetric) => void;
+  onClose: () => void;
+}) {
+  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const titleId = `kpi-note-dialog-title-${kpi.id}`;
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
+
+  const updateNote = (note: string) => onChange({ ...kpi, note });
+
+  return createPortal(
+    <div className="kpi-note-dialog-backdrop" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header className="kpi-note-dialog-header">
+          <div>
+            <span>Remaining ambiguities</span>
+            <strong id={titleId}>{kpi.name || 'Untitled KPI'}</strong>
+          </div>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close KPI note" onClick={onClose}>
+            <X size={16} aria-hidden="true" />
+          </button>
+        </header>
+        <div className="kpi-note-dialog-body">
+          <div className="lookup-details-heading">
+            <span>KPI note</span>
+            <label className="lookup-details-mode">
+              <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={`Show raw Markdown for ${kpi.name || 'untitled KPI'} note`}
+                checked={showRawMarkdown}
+                onChange={(event) => setShowRawMarkdown(event.target.checked)}
+              />
+              <span className={showRawMarkdown ? 'is-active' : ''}>Raw</span>
+            </label>
+          </div>
+          {showRawMarkdown ? (
+            <textarea
+              className="markdown-source-textarea kpi-note-source"
+              value={kpi.note}
+              rows={14}
+              aria-label={`Raw Markdown note for ${kpi.name || 'untitled KPI'}`}
+              placeholder="# Remaining ambiguities\n\nDescribe open questions, assumptions, and decisions still needed."
+              onChange={(event) => updateNote(event.target.value)}
+            />
+          ) : (
+            <MarkdownContent
+              value={kpi.note}
+              placeholder="Click to document remaining ambiguities"
+              onTextEdit={(start, end, text) => updateNote(`${kpi.note.slice(0, start)}${text}${kpi.note.slice(end)}`)}
+            />
+          )}
+          <small className="kpi-note-dialog-hint">Markdown formatting is preserved in the library and converted to readable text for Excel.</small>
+        </div>
+      </section>
+    </div>,
+    document.body
+  );
+}
+
 function KpiRow({
   config,
   kpi,
@@ -8295,6 +8418,8 @@ function KpiRow({
   const patch = (partial: Partial<KpiMetric>) => onChange({ ...kpi, ...partial });
   const stopRowToggle = (event: React.SyntheticEvent) => event.stopPropagation();
   const [dimensionControlOpen, setDimensionControlOpen] = useState(false);
+  const [noteOpen, setNoteOpen] = useState(false);
+  const closeNoteDialog = useCallback(() => setNoteOpen(false), []);
   const [semanticHighlight, setSemanticHighlight] = useState<{ target: FormulaSemanticTarget; requestId: number }>();
   const highlightSemanticTarget = useCallback((target: FormulaSemanticTarget) => {
     if (target.kind === 'dimension') {
@@ -8394,6 +8519,19 @@ function KpiRow({
                   ) : null}
                 </div>
               </div>
+              <button
+                className={`kpi-note-button ${kpi.note.trim() ? 'has-note' : ''}`}
+                type="button"
+                aria-label={`Edit remaining ambiguities note for ${kpi.name}`}
+                aria-haspopup="dialog"
+                title={kpi.note.trim() ? 'Edit remaining ambiguities note' : 'Add remaining ambiguities note'}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setNoteOpen(true);
+                }}
+              >
+                <CircleHelp size={14} aria-hidden="true" />
+              </button>
             </div>
             <AutoGrowTextarea
               className="inline-textarea description-input"
@@ -8534,6 +8672,7 @@ function KpiRow({
           </td>
         </tr>
       ) : null}
+      {noteOpen ? <KpiNoteDialog kpi={kpi} onChange={onChange} onClose={closeNoteDialog} /> : null}
     </>
   );
 }
@@ -9222,6 +9361,8 @@ function KpiTable({
                   value={filters.name || filters.description}
                   placeholder="Search name or description..."
                   onChange={(name) => onFiltersChange({ ...filters, name, description: '' })}
+                  notesOnly={filters.notesOnly}
+                  onNotesOnlyChange={(notesOnly) => onFiltersChange({ ...filters, notesOnly })}
                 />
                 {resizeHandle(0, 'Name and description')}
               </th>
@@ -9536,13 +9677,14 @@ function EditorApp({
   const filterMatchCacheRef = useRef<{
     filters: ColumnFilters;
     focusedAssignment?: UseCaseAssignment;
+    kpis: KpiMetric[];
     ids: Set<string>;
   }>();
   const activeDeferredFilterCount = activeFilterCount(deferredFilters);
   let filterMatchIds: Set<string> | undefined;
   if (activeDeferredFilterCount > 0) {
     const cached = filterMatchCacheRef.current;
-    if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment) {
+    if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment && cached.kpis === config.kpis) {
       filterMatchIds = cached.ids;
     } else {
       const compiledFilters = compileFilters(deferredFilters, indexes);
@@ -9551,7 +9693,7 @@ function EditorApp({
           .filter((kpi) => matchesFilters(indexes, kpi, compiledFilters, pinnedFilterIdSet, focusedAssignment))
           .map((kpi) => kpi.id)
       );
-      filterMatchCacheRef.current = { filters: deferredFilters, focusedAssignment, ids: filterMatchIds };
+      filterMatchCacheRef.current = { filters: deferredFilters, focusedAssignment, kpis: config.kpis, ids: filterMatchIds };
     }
   }
   const filteredKpis = useMemo(

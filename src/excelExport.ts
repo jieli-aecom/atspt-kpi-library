@@ -14,10 +14,62 @@ export type KpiExcelRow = {
   useCase: string;
   name: string;
   description: string;
+  note: string;
   performanceAreas: string;
 };
 
 const unique = (values: readonly string[]) => [...new Set(values)];
+
+const decodeMarkdownEntities = (value: string) => value
+  .replace(/&nbsp;/gi, ' ')
+  .replace(/&amp;/gi, '&')
+  .replace(/&lt;/gi, '<')
+  .replace(/&gt;/gi, '>')
+  .replace(/&quot;/gi, '"')
+  .replace(/&#39;|&apos;/gi, "'");
+
+const plainMarkdownInline = (value: string) => decodeMarkdownEntities(value
+  .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt: string, url: string) => alt.trim() ? `${alt.trim()} (${url.trim()})` : url.trim())
+  .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, url: string) => label.trim() === url.trim() ? label.trim() : `${label.trim()} (${url.trim()})`)
+  .replace(/<((?:https?:\/\/|mailto:)[^>]+)>/g, '$1')
+  .replace(/<[^>]+>/g, '')
+  .replace(/~~([^~]+)~~/g, '$1')
+  .replace(/\*\*([^*]+)\*\*/g, '$1')
+  .replace(/__([^_]+)__/g, '$1')
+  .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1')
+  .replace(/(?<!_)_([^_\n]+)_(?!_)/g, '$1')
+  .replace(/`([^`]+)`/g, '$1')
+  .replace(/\\([\\`*{}\[\]()#+\-.!_>])/g, '$1'));
+
+/** Converts common Markdown constructs to readable plain text for an Excel cell. */
+export const markdownToExcelText = (markdown: string) => {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  let inFence = false;
+  const output = lines.flatMap((sourceLine) => {
+    const line = sourceLine.trimEnd();
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      return [];
+    }
+    if (inFence) return [line];
+    if (/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)) return [];
+
+    const tableLine = line.trim();
+    if (tableLine.includes('|') && /^\|.*\|$/.test(tableLine)) {
+      return [tableLine.slice(1, -1).split('|').map((cell) => plainMarkdownInline(cell.trim())).join('\t')];
+    }
+
+    return [plainMarkdownInline(line
+      .replace(/^\s{0,3}#{1,6}\s+/, '')
+      .replace(/^\s*>\s?/, '› ')
+      .replace(/^\s*[-+*]\s+\[[ xX]\]\s+/, (marker) => /[xX]/.test(marker) ? '☑ ' : '☐ ')
+      .replace(/^\s*[-+*]\s+/, '• ')
+      .replace(/^\s*(\d+)[.)]\s+/, '$1. ')
+      .replace(/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/, '────────────────'))];
+  });
+
+  return output.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+};
 
 export const buildKpiExcelRows = (
   config: KpiPoolConfig,
@@ -65,6 +117,7 @@ export const buildKpiExcelRows = (
         useCase: useCaseLabelById.get(useCase) ?? useCase,
         name: kpi.name,
         description: kpi.description.overview,
+        note: markdownToExcelText(kpi.note),
         performanceAreas: performanceAreaLabels.join('; ')
       }];
     });
@@ -111,8 +164,8 @@ function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
   const headerRow = 3;
   const firstDataRow = headerRow + 1;
   const lastRow = Math.max(headerRow, headerRow + rows.length);
-  const headers = ['User Group', 'Use Case', 'Name', 'Description', 'Performance Areas'];
-  const widths = [24, 32, 34, 72, 44];
+  const headers = ['User Group', 'Use Case', 'Name', 'Description', 'Remaining Ambiguities', 'Performance Areas'];
+  const widths = [24, 32, 34, 58, 58, 44];
   const columns = widths
     .map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
     .join('');
@@ -126,12 +179,13 @@ function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
       row.useCase,
       row.name,
       row.description,
+      row.note,
       row.performanceAreas
     ].map((value, columnIndex) => stringCell(`${columnName(columnIndex + 1)}${rowNumber}`, value, 4)).join('')}</row>`;
   }).join('');
 
   return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <dimension ref="A1:E${lastRow}"/>
+  <dimension ref="A1:F${lastRow}"/>
   <sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="15"/>
   <cols>${columns}</cols>
@@ -141,8 +195,8 @@ function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
     <row r="${headerRow}" ht="24" customHeight="1">${headerCells}</row>
     ${dataRows}
   </sheetData>
-  <autoFilter ref="A${headerRow}:E${lastRow}"/>
-  <mergeCells count="2"><mergeCell ref="A1:E1"/><mergeCell ref="A2:E2"/></mergeCells>
+  <autoFilter ref="A${headerRow}:F${lastRow}"/>
+  <mergeCells count="2"><mergeCell ref="A1:F1"/><mergeCell ref="A2:F2"/></mergeCells>
   <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
 </worksheet>`);

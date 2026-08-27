@@ -214,6 +214,7 @@ const kpiSchema = z.object({
   id: z.string().min(1),
   lastModified: z.string().datetime(),
   name: z.string(),
+  note: z.string(),
   dimensions: z.array(dataSourceFieldDimensionSchema),
   sources: z.array(kpiSourceItemSchema),
   description: z.object({
@@ -2511,6 +2512,7 @@ export const createBlankKpi = (): KpiMetric => ({
   id: createId('kpi'),
   lastModified: new Date().toISOString(),
   name: 'Untitled KPI',
+  note: '',
   dimensions: [],
   sources: [],
   description: {
@@ -2621,6 +2623,7 @@ export const repairConfig = (input: unknown): RepairResult => {
         return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : importTimestamp;
       })(),
       name,
+      note: stringValue(record.note ?? record.Note ?? record.ambiguities ?? record.Ambiguities),
       dimensions: repairKpiDimensions(record.dimensions, valueEnums, warnings, name),
       sources: repairKpiSources(record.sources ?? record.source ?? record.Source, warnings, name),
       description: {
