@@ -1799,6 +1799,7 @@ h1 {
 
 .markdown-source-textarea {
   font-family: "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 11px;
 }
 
 .lookup-details-field .markdown-content {
