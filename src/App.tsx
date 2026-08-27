@@ -3714,6 +3714,7 @@ function DataSourceHeader({
       const target = event.target;
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
       if (fieldDetailsEditor && target instanceof Element && target.closest('.kpi-note-dialog-backdrop')) return;
+      if (target instanceof Element && target.closest('[data-preserve-source-library-state]')) return;
       consumeOutsidePopupPointerDown(event);
       const activeElement = document.activeElement;
       if (activeElement instanceof HTMLElement && activeElement.classList.contains('markdown-rich-editor')) activeElement.blur();
@@ -5625,7 +5626,7 @@ function DataSourceHeader({
                   </select> : null}
                   <AutoGrowTextarea className={`data-source-field-textarea data-source-field-meaning ${field.dataType === 'collection' ? '' : 'is-wide'}`} rows={1} value={field.meaning} aria-label="Field meaning" placeholder="What the field represents" preventLineBreaks onValueChange={(meaning) => updateField(sourceIndex, fieldIndex, { meaning })} />
                   {field.dataType === 'number' || (field.dataType === 'collection' && field.collectionItemType === 'number')
-                    ? <AutoGrowTextarea className="data-source-field-textarea data-source-field-unit" rows={1} value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." preventLineBreaks onValueChange={(valueUnit) => updateField(sourceIndex, fieldIndex, { valueUnit })} />
+                    ? <DebouncedInput className="data-source-field-unit" value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onValueChange={(valueUnit) => updateField(sourceIndex, fieldIndex, { valueUnit })} />
                     : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
                     <button
@@ -6149,6 +6150,17 @@ function KpiSourceEditor({
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
   const stopSourceControlClick = (event: React.MouseEvent) => event.stopPropagation();
+  const stopSourcePopoverPointerEvent = (event: React.PointerEvent) => event.stopPropagation();
+  const stopSourcePopoverMouseEvent = (event: React.MouseEvent) => event.stopPropagation();
+  const preventSourcePopoverSelectionClick = (event: React.MouseEvent) => {
+    if (window.getSelection()?.isCollapsed !== false) return;
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  const blockSourcePopoverShieldWheel = (event: React.WheelEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
   const updatePopoverPosition = useCallback((renderedHeight?: number) => {
     const anchor = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
     if (!anchor) return;
@@ -6393,6 +6405,7 @@ function KpiSourceEditor({
       key={item.id}
       onClick={(event) => {
         if ((event.target as HTMLElement).closest('button, input')) return;
+        if (!window.getSelection()?.isCollapsed) return;
         editSelectedSource(item);
       }}
     >
@@ -6495,14 +6508,30 @@ function KpiSourceEditor({
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
       {open && popoverPosition ? createPortal(
-        <div
-          className="kpi-source-popover"
-          ref={popoverRef}
-          role="dialog"
-          aria-label="KPI sources"
-          style={popoverPosition}
-          onClick={stopSourceControlClick}
-        >
+        <>
+          <div
+            className="kpi-source-popover-shield"
+            aria-hidden="true"
+            onClick={stopSourceControlClick}
+            onMouseDown={stopSourcePopoverMouseEvent}
+            onMouseUp={stopSourcePopoverMouseEvent}
+            onPointerDown={stopSourcePopoverPointerEvent}
+            onPointerUp={stopSourcePopoverPointerEvent}
+            onWheel={blockSourcePopoverShieldWheel}
+          />
+          <div
+            className="kpi-source-popover"
+            ref={popoverRef}
+            role="dialog"
+            aria-label="KPI sources"
+            style={popoverPosition}
+            onClick={stopSourceControlClick}
+            onClickCapture={preventSourcePopoverSelectionClick}
+            onMouseDown={stopSourcePopoverMouseEvent}
+            onMouseUp={stopSourcePopoverMouseEvent}
+            onPointerDown={stopSourcePopoverPointerEvent}
+            onPointerUp={stopSourcePopoverPointerEvent}
+          >
           <div className="popover-title">KPI sources</div>
           <section className="selected-source-section">
             <div className="popover-title">Selected sources</div>
@@ -6628,7 +6657,8 @@ function KpiSourceEditor({
             </section>
             ) : null}
           </section>
-        </div>,
+          </div>
+        </>,
         document.body
       ) : null}
     </div>
@@ -10384,6 +10414,7 @@ function EditorApp({
             <button
               className="primary-action small"
               type="button"
+              data-preserve-source-library-state
               onClick={saveToHostedJson}
               disabled={exportedSnapshot || saveBusy || !hasUnsavedChanges}
               title={remoteActionTitle ?? 'Merge changes while preserving every deletion made in this editor'}

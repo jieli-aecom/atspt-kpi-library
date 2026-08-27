@@ -2407,6 +2407,7 @@ h1 {
 
 .data-source-field-row {
   position: relative;
+  align-items: center;
   gap: 4px;
 }
 
@@ -2430,11 +2431,14 @@ h1 {
 }
 
 .data-source-field-textarea {
-  max-height: 92px;
-  overflow-y: auto;
+  overflow: hidden;
   resize: none;
   line-height: 1.25;
   white-space: pre-wrap;
+}
+
+.data-source-field-unit {
+  white-space: nowrap;
 }
 
 .data-source-field-meaning.is-wide {
@@ -4144,6 +4148,14 @@ h1 {
   text-decoration: underline;
   text-decoration-thickness: 1px;
   text-underline-offset: 2px;
+}
+
+.kpi-source-popover-shield {
+  position: fixed;
+  z-index: 9999;
+  inset: 0;
+  background: transparent;
+  touch-action: none;
 }
 
 .kpi-source-popover {
