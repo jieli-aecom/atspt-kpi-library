@@ -1819,6 +1819,22 @@ h1 {
   line-height: 1.5;
 }
 
+.markdown-rich-editor {
+  cursor: text;
+}
+
+.markdown-rich-editor:empty::before {
+  color: #858c95;
+  font-style: italic;
+  content: attr(data-placeholder);
+}
+
+.markdown-rich-editor:focus {
+  border-color: #3f6b83;
+  box-shadow: 0 0 0 2px rgba(63, 107, 131, 0.16);
+  outline: none;
+}
+
 .markdown-content.is-empty {
   color: #858c95;
   font-style: italic;

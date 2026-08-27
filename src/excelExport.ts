@@ -15,7 +15,15 @@ export type KpiExcelRow = {
   name: string;
   description: string;
   note: string;
+  noteMarkdown?: string;
   performanceAreas: string;
+};
+
+export type ExcelRichTextRun = {
+  text: string;
+  bold?: boolean;
+  italic?: boolean;
+  strike?: boolean;
 };
 
 const unique = (values: readonly string[]) => [...new Set(values)];
@@ -28,48 +36,200 @@ const decodeMarkdownEntities = (value: string) => value
   .replace(/&quot;/gi, '"')
   .replace(/&#39;|&apos;/gi, "'");
 
-const plainMarkdownInline = (value: string) => decodeMarkdownEntities(value
-  .replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (_match, alt: string, url: string) => alt.trim() ? `${alt.trim()} (${url.trim()})` : url.trim())
-  .replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label: string, url: string) => label.trim() === url.trim() ? label.trim() : `${label.trim()} (${url.trim()})`)
-  .replace(/<((?:https?:\/\/|mailto:)[^>]+)>/g, '$1')
-  .replace(/<[^>]+>/g, '')
-  .replace(/~~([^~]+)~~/g, '$1')
-  .replace(/\*\*([^*]+)\*\*/g, '$1')
-  .replace(/__([^_]+)__/g, '$1')
-  .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '$1')
-  .replace(/(?<!_)_([^_\n]+)_(?!_)/g, '$1')
-  .replace(/`([^`]+)`/g, '$1')
-  .replace(/\\([\\`*{}\[\]()#+\-.!_>])/g, '$1'));
+const appendRichTextRun = (
+  runs: ExcelRichTextRun[],
+  text: string,
+  style: Omit<ExcelRichTextRun, 'text'> = {}
+) => {
+  const decodedText = decodeMarkdownEntities(text);
+  if (!decodedText) return;
+  const previous = runs[runs.length - 1];
+  if (
+    previous &&
+    Boolean(previous.bold) === Boolean(style.bold) &&
+    Boolean(previous.italic) === Boolean(style.italic) &&
+    Boolean(previous.strike) === Boolean(style.strike)
+  ) {
+    previous.text += decodedText;
+    return;
+  }
+  runs.push({ text: decodedText, ...style });
+};
 
-/** Converts common Markdown constructs to readable plain text for an Excel cell. */
-export const markdownToExcelText = (markdown: string) => {
+const parseMarkdownInlineSegment = (
+  value: string,
+  startIndex: number,
+  inheritedStyle: Omit<ExcelRichTextRun, 'text'>,
+  closingDelimiter?: string
+): { runs: ExcelRichTextRun[]; index: number; closed: boolean } => {
+  const runs: ExcelRichTextRun[] = [];
+  let index = startIndex;
+
+  const appendRuns = (nestedRuns: ExcelRichTextRun[]) => {
+    nestedRuns.forEach((run) => appendRichTextRun(runs, run.text, run));
+  };
+
+  while (index < value.length) {
+    if (closingDelimiter && value.startsWith(closingDelimiter, index)) {
+      const delimiterRun = value.slice(index).match(new RegExp(`^\\${closingDelimiter[0]}+`))?.[0] ?? '';
+      if (closingDelimiter.length > 1 || delimiterRun.length % 2 === 1) {
+        return { runs, index: index + closingDelimiter.length, closed: true };
+      }
+    }
+
+    if (value[index] === '\\' && index + 1 < value.length && /[\\`*{}\[\]()#+\-.!_>|~]/.test(value[index + 1])) {
+      appendRichTextRun(runs, value[index + 1], inheritedStyle);
+      index += 2;
+      continue;
+    }
+
+    const remainder = value.slice(index);
+    const image = remainder.match(/^!\[([^\]]*)\]\(([^)]+)\)/);
+    if (image) {
+      const label = image[1].trim();
+      const target = image[2].trim();
+      if (label) {
+        appendRuns(parseMarkdownInlineSegment(label, 0, inheritedStyle).runs);
+        appendRichTextRun(runs, ` (${target})`, inheritedStyle);
+      } else {
+        appendRichTextRun(runs, target, inheritedStyle);
+      }
+      index += image[0].length;
+      continue;
+    }
+
+    const link = remainder.match(/^\[([^\]]+)\]\(([^)]+)\)/);
+    if (link) {
+      const label = link[1].trim();
+      const target = link[2].trim();
+      appendRuns(parseMarkdownInlineSegment(label, 0, inheritedStyle).runs);
+      if (label !== target) appendRichTextRun(runs, ` (${target})`, inheritedStyle);
+      index += link[0].length;
+      continue;
+    }
+
+    const automaticLink = remainder.match(/^<((?:https?:\/\/|mailto:)[^>]+)>/);
+    if (automaticLink) {
+      appendRichTextRun(runs, automaticLink[1], inheritedStyle);
+      index += automaticLink[0].length;
+      continue;
+    }
+
+    const htmlTag = remainder.match(/^<[^>]+>/);
+    if (htmlTag) {
+      index += htmlTag[0].length;
+      continue;
+    }
+
+    if (value[index] === '`') {
+      const openingFence = value.slice(index).match(/^`+/)?.[0] ?? '`';
+      const closingIndex = value.indexOf(openingFence, index + openingFence.length);
+      if (closingIndex >= 0) {
+        appendRichTextRun(
+          runs,
+          value.slice(index + openingFence.length, closingIndex).replace(/^ | $/g, ''),
+          inheritedStyle
+        );
+        index = closingIndex + openingFence.length;
+        continue;
+      }
+    }
+
+    const emphasis = ([
+      ['***', { bold: true, italic: true }],
+      ['___', { bold: true, italic: true }],
+      ['**', { bold: true }],
+      ['__', { bold: true }],
+      ['~~', { strike: true }],
+      ['*', { italic: true }],
+      ['_', { italic: true }]
+    ] as const).find(([delimiter]) => value.startsWith(delimiter, index));
+    if (emphasis) {
+      const [delimiter, style] = emphasis;
+      const nested = parseMarkdownInlineSegment(
+        value,
+        index + delimiter.length,
+        { ...inheritedStyle, ...style },
+        delimiter
+      );
+      if (nested.closed) {
+        appendRuns(nested.runs);
+        index = nested.index;
+        continue;
+      }
+    }
+
+    const nextSpecialOffset = value.slice(index + 1).search(/[\\!\[<`*_~]/);
+    const end = nextSpecialOffset < 0 ? value.length : index + 1 + nextSpecialOffset;
+    appendRichTextRun(runs, value.slice(index, end), inheritedStyle);
+    index = end;
+  }
+
+  return { runs, index, closed: false };
+};
+
+const parseMarkdownInlineRuns = (
+  value: string,
+  inheritedStyle: Omit<ExcelRichTextRun, 'text'> = {}
+): ExcelRichTextRun[] => parseMarkdownInlineSegment(value, 0, inheritedStyle).runs;
+
+const joinRichTextLines = (lines: ExcelRichTextRun[][]) => {
+  const runs: ExcelRichTextRun[] = [];
+  lines.forEach((line, index) => {
+    if (index > 0) appendRichTextRun(runs, '\n');
+    line.forEach((run) => appendRichTextRun(runs, run.text, run));
+  });
+  if (runs.length > 0) runs[0].text = runs[0].text.trimStart();
+  if (runs.length > 0) runs[runs.length - 1].text = runs[runs.length - 1].text.trimEnd();
+  return runs.filter((run) => run.text.length > 0);
+};
+
+/** Converts common Markdown constructs to readable Excel rich text. */
+export const markdownToExcelRichText = (markdown: string): ExcelRichTextRun[] => {
   const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
   let inFence = false;
-  const output = lines.flatMap((sourceLine) => {
+  const output: ExcelRichTextRun[][] = [];
+  lines.forEach((sourceLine) => {
     const line = sourceLine.trimEnd();
     if (/^\s*```/.test(line)) {
       inFence = !inFence;
-      return [];
+      return;
     }
-    if (inFence) return [line];
-    if (/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)) return [];
+    if (inFence) {
+      output.push([{ text: line }]);
+      return;
+    }
+    if (/^\s*\|?\s*:?-{3,}:?\s*(?:\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line)) return;
 
     const tableLine = line.trim();
     if (tableLine.includes('|') && /^\|.*\|$/.test(tableLine)) {
-      return [tableLine.slice(1, -1).split('|').map((cell) => plainMarkdownInline(cell.trim())).join('\t')];
+      const tableRuns: ExcelRichTextRun[] = [];
+      tableLine.slice(1, -1).split('|').forEach((cell, index) => {
+        if (index > 0) appendRichTextRun(tableRuns, '\t');
+        parseMarkdownInlineRuns(cell.trim()).forEach((run) => appendRichTextRun(tableRuns, run.text, run));
+      });
+      output.push(tableRuns);
+      return;
     }
 
-    return [plainMarkdownInline(line
+    output.push(parseMarkdownInlineRuns(line
       .replace(/^\s{0,3}#{1,6}\s+/, '')
       .replace(/^\s*>\s?/, '› ')
       .replace(/^\s*[-+*]\s+\[[ xX]\]\s+/, (marker) => /[xX]/.test(marker) ? '☑ ' : '☐ ')
       .replace(/^\s*[-+*]\s+/, '• ')
       .replace(/^\s*(\d+)[.)]\s+/, '$1. ')
-      .replace(/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/, '────────────────'))];
+      .replace(/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/, '────────────────')));
   });
 
-  return output.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  const compactOutput = output.filter((line, index) =>
+    line.length > 0 || index === 0 || output[index - 1].length > 0
+  );
+  return joinRichTextLines(compactOutput);
 };
+
+/** Converts common Markdown constructs to readable plain text for an Excel cell. */
+export const markdownToExcelText = (markdown: string) =>
+  markdownToExcelRichText(markdown).map((run) => run.text).join('');
 
 export const buildKpiExcelRows = (
   config: KpiPoolConfig,
@@ -118,6 +278,7 @@ export const buildKpiExcelRows = (
         name: kpi.name,
         description: kpi.description.overview,
         note: markdownToExcelText(kpi.note),
+        noteMarkdown: kpi.note,
         performanceAreas: performanceAreaLabels.join('; ')
       }];
     });
@@ -181,7 +342,12 @@ function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
       row.description,
       row.note,
       row.performanceAreas
-    ].map((value, columnIndex) => stringCell(`${columnName(columnIndex + 1)}${rowNumber}`, value, 4)).join('')}</row>`;
+    ].map((value, columnIndex) => {
+      const reference = `${columnName(columnIndex + 1)}${rowNumber}`;
+      return columnIndex === 4 && row.noteMarkdown !== undefined
+        ? richMarkdownCell(reference, row.noteMarkdown, 4)
+        : stringCell(reference, value, 4);
+    }).join('')}</row>`;
   }).join('');
 
   return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -204,6 +370,22 @@ function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
 
 function stringCell(reference: string, value: string, style: number) {
   return `<c r="${reference}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value.slice(0, 32767))}</t></is></c>`;
+}
+
+function richMarkdownCell(reference: string, markdown: string, style: number) {
+  const runs = markdownToExcelRichText(markdown);
+  let remainingCharacters = 32767;
+  const runXml = runs.flatMap((run) => {
+    if (remainingCharacters <= 0) return [];
+    const text = run.text.slice(0, remainingCharacters);
+    remainingCharacters -= text.length;
+    if (!text) return [];
+    const properties = [run.bold ? '<b/>' : '', run.italic ? '<i/>' : '', run.strike ? '<strike/>' : ''].join('');
+    return `<r>${properties ? `<rPr>${properties}</rPr>` : ''}<t xml:space="preserve">${escapeXml(text)}</t></r>`;
+  }).join('');
+  return runXml
+    ? `<c r="${reference}" s="${style}" t="inlineStr"><is>${runXml}</is></c>`
+    : stringCell(reference, '', style);
 }
 
 function columnName(index: number) {

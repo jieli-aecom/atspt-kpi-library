@@ -2819,10 +2819,10 @@ function renderMarkdownInline(
     if (token.startsWith('`')) {
       nodes.push(<code key={key}>{renderMarkdownText(token.slice(1, -1), `${key}-code`, baseOffset + index + 1, onTextEdit)}</code>);
     } else if (token.startsWith('[')) {
-      const link = token.match(/^\[((?:\\.|[^\\\]])+)\]\((\S+?)(?:\s+"[^"]*")?\)$/);
+      const link = token.match(/^\[((?:\\.|[^\\\]])+)\]\((\S+?)(?:\s+"([^"]*)")?\)$/);
       const href = link ? safeMarkdownHref(link[2]) : undefined;
       nodes.push(link && href
-        ? <a href={href} key={key} onClick={(event) => onTextEdit && event.preventDefault()} rel="noreferrer" target={href.startsWith('#') ? undefined : '_blank'} title={onTextEdit ? `Link target: ${href}` : undefined}>{renderMarkdownInline(link[1], `${key}-link`, baseOffset + index + 1, onTextEdit)}</a>
+        ? <a href={href} key={key} data-markdown-title={link[3] || undefined} onClick={(event) => onTextEdit && event.preventDefault()} rel="noreferrer" target={href.startsWith('#') ? undefined : '_blank'} title={onTextEdit ? `Link target: ${href}` : link[3] || undefined}>{renderMarkdownInline(link[1], `${key}-link`, baseOffset + index + 1, onTextEdit)}</a>
         : renderMarkdownText(token, `${key}-text`, baseOffset + index, onTextEdit));
     } else if (token.startsWith('**') || token.startsWith('__')) {
       nodes.push(<strong key={key}>{renderMarkdownInline(token.slice(2, -2), `${key}-strong`, baseOffset + index + 2, onTextEdit)}</strong>);
@@ -3024,29 +3024,141 @@ function renderMarkdownBlocks(value: string, keyPrefix: string, onTextEdit?: Mar
   return blocks;
 }
 
+const markdownCodeSpan = (value: string) => {
+  const longestBacktickRun = Math.max(0, ...[...value.matchAll(/`+/g)].map((match) => match[0].length));
+  const fence = '`'.repeat(longestBacktickRun + 1);
+  const padding = value.startsWith('`') || value.endsWith('`') ? ' ' : '';
+  return `${fence}${padding}${value}${padding}${fence}`;
+};
+
+const markdownFromInlineDom = (node: Node): string => {
+  if (node.nodeType === Node.TEXT_NODE) {
+    return encodeMarkdownText((node.nodeValue ?? '').replace(/\u00a0/g, ' '));
+  }
+  if (!(node instanceof HTMLElement)) return '';
+
+  const tag = node.tagName.toLowerCase();
+  if (tag === 'br') return '\n';
+  if (tag === 'code') return markdownCodeSpan((node.textContent ?? '').replace(/\r?\n/g, ' '));
+
+  let content = [...node.childNodes].map(markdownFromInlineDom).join('');
+  if (tag === 'strong' || tag === 'b') return `**${content}**`;
+  if (tag === 'em' || tag === 'i') return `*${content}*`;
+  if (tag === 'del' || tag === 's' || tag === 'strike') return `~~${content}~~`;
+  if (tag === 'a') {
+    const href = safeMarkdownHref(node.getAttribute('href') ?? '');
+    const title = node.dataset.markdownTitle;
+    return href ? `[${content}](${href}${title ? ` "${title}"` : ''})` : content;
+  }
+  if (tag === 'span') {
+    const fontWeight = Number.parseInt(node.style.fontWeight, 10);
+    if (node.style.fontWeight === 'bold' || fontWeight >= 600) content = `**${content}**`;
+    if (node.style.fontStyle === 'italic') content = `*${content}*`;
+    if (node.style.textDecoration.includes('line-through')) content = `~~${content}~~`;
+  }
+  return content;
+};
+
+const markdownTableFromDom = (table: HTMLTableElement) => {
+  const headerCells = table.tHead?.rows[0] ? [...table.tHead.rows[0].cells] : [];
+  if (headerCells.length === 0) return '';
+  const rowText = (cells: HTMLCollectionOf<HTMLTableCellElement>) =>
+    `| ${[...cells].map((cell) => [...cell.childNodes].map(markdownFromInlineDom).join('').trim()).join(' | ')} |`;
+  const divider = `| ${headerCells.map((cell) => {
+    const alignment = cell.style.textAlign;
+    return alignment === 'center' ? ':---:' : alignment === 'right' ? '---:' : ':---';
+  }).join(' | ')} |`;
+  const bodyRows = [...(table.tBodies[0]?.rows ?? [])].map((row) => rowText(row.cells));
+  return [rowText(table.tHead!.rows[0].cells), divider, ...bodyRows].join('\n');
+};
+
+const markdownFromBlockDom = (node: Node): string => {
+  if (node.nodeType === Node.TEXT_NODE) return markdownFromInlineDom(node).trim();
+  if (!(node instanceof HTMLElement)) return '';
+  const tag = node.tagName.toLowerCase();
+  const inline = () => [...node.childNodes].map(markdownFromInlineDom).join('').trim();
+
+  if (/^h[1-6]$/.test(tag)) return `${'#'.repeat(Number(tag[1]))} ${inline()}`;
+  if (tag === 'hr') return '---';
+  if (tag === 'pre') {
+    const code = node.firstElementChild;
+    const language = code instanceof HTMLElement && code.tagName.toLowerCase() === 'code'
+      ? code.dataset.language ?? ''
+      : '';
+    return `\`\`\`${language}\n${(node.textContent ?? '').replace(/\r\n?/g, '\n').trimEnd()}\n\`\`\``;
+  }
+  if (tag === 'blockquote') return inline().split('\n').map((line) => `> ${line}`).join('\n');
+  if (tag === 'ul' || tag === 'ol') {
+    return [...node.children]
+      .filter((child): child is HTMLLIElement => child instanceof HTMLLIElement)
+      .map((item, index) => `${tag === 'ol' ? `${index + 1}.` : '-'} ${[...item.childNodes].map(markdownFromInlineDom).join('').trim()}`)
+      .join('\n');
+  }
+  if (tag === 'table') return markdownTableFromDom(node as HTMLTableElement);
+  if (tag === 'div') {
+    const table = node.querySelector(':scope > table');
+    if (table instanceof HTMLTableElement) return markdownTableFromDom(table);
+  }
+  return inline();
+};
+
+const markdownFromEditableDom = (root: HTMLElement) => [...root.childNodes]
+  .map(markdownFromBlockDom)
+  .filter((block) => block.length > 0)
+  .join('\n\n')
+  .replace(/\n{3,}/g, '\n\n')
+  .trim();
+
 function MarkdownContent({
   value,
-  onTextEdit,
+  onValueChange,
   placeholder = 'Click to add details'
 }: {
   value: string;
-  onTextEdit: MarkdownTextEdit;
+  onValueChange: (value: string) => void;
   placeholder?: string;
 }) {
-  if (!value.trim()) {
-    return (
-      <div className="markdown-content is-empty">
-        <EditableMarkdownText
-          end={value.length}
-          onTextEdit={(start, end, text) => onTextEdit(start, end, encodeMarkdownText(text))}
-          placeholder={placeholder}
-          start={0}
-          value=""
-        />
-      </div>
-    );
-  }
-  return <div className="markdown-content">{renderMarkdownBlocks(value, 'markdown', onTextEdit)}</div>;
+  const editableRef = useRef<HTMLDivElement | null>(null);
+  const dirtyRef = useRef(false);
+  const renderedContent = useMemo(
+    () => value.trim() ? renderMarkdownBlocks(value, 'markdown-rich-editor') : null,
+    [value]
+  );
+  const commit = () => {
+    const editable = editableRef.current;
+    if (!editable || !dirtyRef.current) return;
+    const nextValue = markdownFromEditableDom(editable);
+    dirtyRef.current = false;
+    if (nextValue !== value) onValueChange(nextValue);
+  };
+
+  return (
+    <div
+      className="markdown-content markdown-rich-editor"
+      contentEditable
+      data-placeholder={placeholder}
+      ref={editableRef}
+      role="textbox"
+      aria-label="Styled Markdown editor"
+      aria-multiline="true"
+      spellCheck
+      suppressContentEditableWarning
+      onInput={() => {
+        dirtyRef.current = true;
+      }}
+      onBlur={(event) => {
+        if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) commit();
+      }}
+      onClick={(event) => {
+        if ((event.target as Element).closest('a')) event.preventDefault();
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') event.currentTarget.blur();
+      }}
+    >
+      {renderedContent}
+    </div>
+  );
 }
 
 function RowEnumSelect({
@@ -3602,14 +3714,19 @@ function DataSourceHeader({
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
       consumeOutsidePopupPointerDown(event);
       const activeElement = document.activeElement;
-      if (activeElement instanceof HTMLElement && activeElement.classList.contains('markdown-editable-text')) activeElement.blur();
+      if (activeElement instanceof HTMLElement && activeElement.classList.contains('markdown-rich-editor')) activeElement.blur();
       setOpen(false);
       setRelationEditor(null);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (relationEditor) setRelationEditor(null);
-        else setOpen(false);
+        if (relationEditor) {
+          setRelationEditor(null);
+        } else {
+          const activeElement = document.activeElement;
+          if (activeElement instanceof HTMLElement && activeElement.classList.contains('markdown-rich-editor')) activeElement.blur();
+          setOpen(false);
+        }
       }
     };
     document.addEventListener('pointerdown', handlePointerDown, true);
@@ -4771,9 +4888,7 @@ function DataSourceHeader({
               <MarkdownContent
                 value={lookup.text}
                 placeholder="Click to add lookup details"
-                onTextEdit={(start, end, text) => updateLookup(lookupIndex, {
-                  text: `${lookup.text.slice(0, start)}${text}${lookup.text.slice(end)}`
-                })}
+                onValueChange={(text) => updateLookup(lookupIndex, { text })}
               />
             )}
           </div>
@@ -8297,7 +8412,13 @@ function KpiNoteDialog({
 }) {
   const [showRawMarkdown, setShowRawMarkdown] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
   const titleId = `kpi-note-dialog-title-${kpi.id}`;
+  const closeDialog = useCallback(() => {
+    const activeElement = document.activeElement;
+    if (activeElement instanceof HTMLElement && dialogRef.current?.contains(activeElement)) activeElement.blur();
+    onClose();
+  }, [onClose]);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -8305,7 +8426,7 @@ function KpiNoteDialog({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        closeDialog();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
@@ -8313,21 +8434,21 @@ function KpiNoteDialog({
       document.removeEventListener('keydown', handleKeyDown);
       previouslyFocused?.focus();
     };
-  }, [onClose]);
+  }, [closeDialog]);
 
   const updateNote = (note: string) => onChange({ ...kpi, note });
 
   return createPortal(
     <div className="kpi-note-dialog-backdrop" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) onClose();
+      if (event.target === event.currentTarget) closeDialog();
     }}>
-      <section className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <section ref={dialogRef} className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="kpi-note-dialog-header">
           <div>
             <span>Remaining ambiguities</span>
             <strong id={titleId}>{kpi.name || 'Untitled KPI'}</strong>
           </div>
-          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close KPI note" onClick={onClose}>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close KPI note" onClick={closeDialog}>
             <X size={16} aria-hidden="true" />
           </button>
         </header>
@@ -8359,10 +8480,10 @@ function KpiNoteDialog({
             <MarkdownContent
               value={kpi.note}
               placeholder="Click to document remaining ambiguities"
-              onTextEdit={(start, end, text) => updateNote(`${kpi.note.slice(0, start)}${text}${kpi.note.slice(end)}`)}
+              onValueChange={updateNote}
             />
           )}
-          <small className="kpi-note-dialog-hint">Markdown formatting is preserved in the library and converted to readable text for Excel.</small>
+          <small className="kpi-note-dialog-hint">Markdown is preserved in the library; bold and italic text remain styled in Excel.</small>
         </div>
       </section>
     </div>,
@@ -10078,8 +10199,8 @@ function EditorApp({
 
   const exportExcel = async () => {
     const rows = buildKpiExcelRows(config, visibleKpis, {
-      userGroups: filters.userGroups,
-      useCases: filters.useCases,
+      userGroups: focusedAssignment ? [focusedAssignment.userGroup] : filters.userGroups,
+      useCases: focusedAssignment ? [focusedAssignment.useCase] : filters.useCases,
       performanceAreas: filters.enums.performanceArea
     });
     await downloadKpiExcelWorkbook(
