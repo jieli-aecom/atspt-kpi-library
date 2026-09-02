@@ -10449,7 +10449,7 @@ function EditorApp({
               className="secondary-action small"
               type="button"
               onClick={exportExcel}
-              title={`Export the ${visibleKpis.length} currently filtered KPI${visibleKpis.length === 1 ? '' : 's'} as Excel rows by user group and use case`}
+              title={`Export the ${visibleKpis.length} currently filtered KPI${visibleKpis.length === 1 ? '' : 's'} to Excel`}
             >
               <Table2 size={15} aria-hidden="true" />
               Export as Excel

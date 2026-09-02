@@ -252,7 +252,7 @@ export const buildKpiExcelRows = (
     });
     const rowsForKpi = assignments.length > 0 ? assignments : [{ userGroup: '', useCase: '' }];
 
-    return rowsForKpi.flatMap(({ userGroup, useCase }) => {
+    const matchingAssignments = rowsForKpi.flatMap(({ userGroup, useCase }) => {
       if (filters.userGroups.length > 0 && !filters.userGroups.includes(userGroup)) return [];
       if (filters.useCases.length > 0 && !filters.useCases.includes(useCase)) return [];
 
@@ -272,16 +272,30 @@ export const buildKpiExcelRows = (
         return [];
       }
 
-      return [{
-        userGroup: userGroupLabelById.get(userGroup) ?? userGroup,
-        useCase: useCaseLabelById.get(useCase) ?? useCase,
-        name: kpi.name,
-        description: kpi.description.overview,
-        note: markdownToExcelText(kpi.note),
-        noteMarkdown: kpi.note,
-        performanceAreas: performanceAreaLabels.join('; ')
-      }];
+      return [{ userGroup, useCase, performanceAreaLabels }];
     });
+
+    if (matchingAssignments.length === 0) return [];
+
+    return [{
+      userGroup: unique(
+        matchingAssignments
+          .map(({ userGroup }) => userGroupLabelById.get(userGroup) ?? userGroup)
+          .filter(Boolean)
+      ).join(', '),
+      useCase: unique(
+        matchingAssignments
+          .map(({ useCase }) => useCaseLabelById.get(useCase) ?? useCase)
+          .filter(Boolean)
+      ).join(', '),
+      name: kpi.name,
+      description: kpi.description.overview,
+      note: markdownToExcelText(kpi.note),
+      noteMarkdown: kpi.note,
+      performanceAreas: unique(
+        matchingAssignments.flatMap(({ performanceAreaLabels }) => performanceAreaLabels)
+      ).join('; ')
+    }];
   });
 };
 
@@ -357,7 +371,7 @@ function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
   <cols>${columns}</cols>
   <sheetData>
     <row r="1" ht="26" customHeight="1">${stringCell('A1', title, 1)}</row>
-    <row r="2" ht="20" customHeight="1">${stringCell('A2', `${rows.length} filtered user group / use case entr${rows.length === 1 ? 'y' : 'ies'}`, 2)}</row>
+    <row r="2" ht="20" customHeight="1">${stringCell('A2', `${rows.length} filtered KPI${rows.length === 1 ? '' : 's'}`, 2)}</row>
     <row r="${headerRow}" ht="24" customHeight="1">${headerCells}</row>
     ${dataRows}
   </sheetData>
