@@ -8833,7 +8833,11 @@ function KpiNoteDialog({
                 onChange={(event) => addLabel(event.target.value)}
               >
                 <option value="">{availableLabels.length ? 'Add an existing label...' : 'All labels are added'}</option>
-                {availableLabels.map((label) => <option value={label.id} key={label.id}>{label.name}</option>)}
+                {config.noteLabels.map((label) => (
+                  <option value={label.id} key={label.id} disabled={selectedLabelIdSet.has(label.id)}>
+                    {label.name}{selectedLabelIdSet.has(label.id) ? ' (added)' : ''}
+                  </option>
+                ))}
               </select>
               <form onSubmit={(event) => { event.preventDefault(); createAndAddLabel(); }}>
                 <input
