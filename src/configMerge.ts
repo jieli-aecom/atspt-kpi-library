@@ -7,6 +7,8 @@ export type ConfigMergeResult = {
   updatedKpis: number;
   addedEnumOptions: number;
   enumConflicts: number;
+  addedNoteLabels: number;
+  noteLabelConflicts: number;
   addedValueEnums: number;
   valueEnumConflicts: number;
   addedDataSources: number;
@@ -79,6 +81,7 @@ export const mergeConcurrentConfig = (
   defaultFocus: !sameValue(incoming.defaultFocus, base.defaultFocus)
     ? incoming.defaultFocus
     : current.defaultFocus,
+  noteLabels: mergeConcurrentCollection(current.noteLabels, base.noteLabels, incoming.noteLabels),
   enums: Object.fromEntries(
     enumCategoryKeys.map((category) => [
       category,
@@ -153,6 +156,14 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     if (!sameValue(existing, definition)) valueEnumConflicts += 1;
     return false;
   });
+  let noteLabelConflicts = 0;
+  const currentNoteLabelsById = new Map(current.noteLabels.map((label) => [label.id, label]));
+  const addedNoteLabels = incoming.noteLabels.filter((label) => {
+    const existing = currentNoteLabelsById.get(label.id);
+    if (!existing) return true;
+    if (!sameValue(existing, label)) noteLabelConflicts += 1;
+    return false;
+  });
 
   const incomingById = new Map(incoming.kpis.map((kpi) => [kpi.id, kpi]));
   const currentIds = new Set(current.kpis.map((kpi) => kpi.id));
@@ -222,6 +233,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     current.variableGroups.length === 0 &&
     current.valueEnums.length === 0 &&
     current.valueEnumGroups.length === 0 &&
+    current.noteLabels.length === 0 &&
     enumCategoryKeys.every((category) => current.enums[category].length === 0);
 
   return {
@@ -230,6 +242,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
       schemaVersion: CURRENT_SCHEMA_VERSION,
       title: currentIsEmpty ? incoming.title : current.title,
       defaultFocus: currentIsEmpty ? incoming.defaultFocus : current.defaultFocus,
+      noteLabels: [...current.noteLabels, ...addedNoteLabels],
       enums,
       valueEnums: [...current.valueEnums, ...addedValueEnums],
       valueEnumGroups: mergeImportedLibraryGroups(
@@ -264,6 +277,8 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     updatedKpis,
     addedEnumOptions,
     enumConflicts,
+    addedNoteLabels: addedNoteLabels.length,
+    noteLabelConflicts,
     addedValueEnums: addedValueEnums.length,
     valueEnumConflicts,
     addedDataSources: addedDataSources.length,

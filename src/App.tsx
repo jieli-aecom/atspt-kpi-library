@@ -14,6 +14,7 @@ import {
   Cloud,
   Database,
   Download,
+  Ellipsis,
   Eye,
   FileJson,
   GitFork,
@@ -31,6 +32,7 @@ import {
   SortAsc,
   SortDesc,
   Settings2,
+  Tags,
   Trash2,
   Table2,
   Upload,
@@ -46,7 +48,12 @@ import {
 } from './configSchema';
 import { mergeImportedConfig } from './configMerge';
 import { buildSystematicJsonExport } from './systematicJsonExport';
-import { buildKpiExcelRows, downloadKpiExcelWorkbook } from './excelExport';
+import {
+  buildKpiExcelRows,
+  downloadKpiExcelWorkbook,
+  KPI_EXCEL_COLUMNS,
+  type KpiExcelColumnKey
+} from './excelExport';
 import {
   forceRemoteConfig,
   loadRemoteConfig,
@@ -105,6 +112,7 @@ type ColumnFilters = {
   name: string;
   description: string;
   notesOnly: boolean;
+  noteLabels: string[];
   formula: string;
   prerequisite: string;
   prerequisiteModules: string[];
@@ -214,6 +222,7 @@ const emptyFilters = (): ColumnFilters => ({
   name: '',
   description: '',
   notesOnly: false,
+  noteLabels: [],
   formula: '',
   prerequisite: '',
   prerequisiteModules: [],
@@ -291,6 +300,7 @@ type CompiledFilters = {
   name: string;
   description: string;
   notesOnly: boolean;
+  noteLabels: Set<string>;
   formula: string;
   prerequisite: string;
   prerequisiteModules: Set<string>;
@@ -401,6 +411,7 @@ const compileFilters = (filters: ColumnFilters, indexes: AppIndexes): CompiledFi
     name: normalize(filters.name),
     description: normalize(filters.description),
     notesOnly: filters.notesOnly,
+    noteLabels: new Set(filters.noteLabels),
     formula: normalize(filters.formula),
     prerequisite: normalize(filters.prerequisite),
     prerequisiteModules: new Set(filters.prerequisiteModules),
@@ -994,6 +1005,7 @@ const sameKpiMaterial = (left: KpiMetric, right: KpiMetric) =>
   left.id === right.id &&
   left.name === right.name &&
   left.note === right.note &&
+  sameStructuredValue(left.noteLabels, right.noteLabels) &&
   sameStructuredValue(left.dimensions, right.dimensions) &&
   sameStructuredValue(left.sources, right.sources) &&
   sameStructuredValue(left.description, right.description) &&
@@ -1029,6 +1041,7 @@ const formatLastModified = (timestamp: string) => {
 const activeFilterCount = (filters: ColumnFilters) =>
   (filters.name || filters.description ? 1 : 0) +
   (filters.notesOnly ? 1 : 0) +
+  filters.noteLabels.length +
   (filters.formula ? 1 : 0) +
   (filters.prerequisite ? 1 : 0) +
   filters.prerequisiteModules.length +
@@ -1053,7 +1066,11 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
     return true;
   }
 
-  if (filters.notesOnly && !kpi.note.trim()) {
+  if (filters.notesOnly && !kpi.note.trim() && kpi.noteLabels.length === 0) {
+    return false;
+  }
+
+  if (filters.noteLabels.size > 0 && !kpi.noteLabels.some((id) => filters.noteLabels.has(id))) {
     return false;
   }
 
@@ -1147,6 +1164,7 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
   return {
     ...kpi,
     name: nameFilter || kpi.name,
+    noteLabels: [...filters.noteLabels],
     description: {
       overview: descriptionFilter,
       formulaComment: '',
@@ -1211,6 +1229,7 @@ const duplicateKpiMetric = (kpi: KpiMetric, focusAssignment?: UseCaseAssignment)
     lastModified: new Date().toISOString(),
     name: `${kpi.name || 'Untitled KPI'} Copy`,
     note: kpi.note,
+    noteLabels: [...kpi.noteLabels],
     dimensions: kpi.dimensions.map((dimension) => ({
       ...dimension,
       id: createLocalId('kpi-dimension'),
@@ -1286,7 +1305,10 @@ function TextHeaderFilter({
   placeholder,
   onChange,
   notesOnly,
-  onNotesOnlyChange
+  onNotesOnlyChange,
+  noteLabelOptions = [],
+  noteLabels = [],
+  onNoteLabelsChange
 }: {
   label: string;
   value: string;
@@ -1294,30 +1316,92 @@ function TextHeaderFilter({
   onChange: (value: string) => void;
   notesOnly?: boolean;
   onNotesOnlyChange?: (value: boolean) => void;
+  noteLabelOptions?: { id: string; name: string }[];
+  noteLabels?: string[];
+  onNoteLabelsChange?: (value: string[]) => void;
 }) {
-  const activeCount = (value ? 1 : 0) + (notesOnly ? 1 : 0);
+  const activeCount = (value ? 1 : 0) + (notesOnly ? 1 : 0) + noteLabels.length;
   return (
     <div className="header-control">
       <div className="header-title">
         <span>{label}</span>
         {activeCount ? <strong>{activeCount}</strong> : null}
         {typeof notesOnly === 'boolean' && onNotesOnlyChange ? (
-          <label className="note-filter-toggle" title="Show only KPIs with remaining-ambiguities notes">
-            <CircleHelp size={12} aria-hidden="true" />
-            <input
-              type="checkbox"
-              role="switch"
-              aria-label="Show only KPIs with notes"
-              checked={notesOnly}
-              onChange={(event) => onNotesOnlyChange(event.target.checked)}
-            />
-          </label>
+          <div className="note-filter-actions">
+            <label className="note-filter-toggle" title="Show only KPIs with notes">
+              <CircleHelp size={12} aria-hidden="true" />
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label="Show only KPIs with notes"
+                checked={notesOnly}
+                onChange={(event) => onNotesOnlyChange(event.target.checked)}
+              />
+            </label>
+            {onNoteLabelsChange ? (
+              <NoteLabelHeaderFilter
+                options={noteLabelOptions}
+                value={noteLabels}
+                onChange={onNoteLabelsChange}
+              />
+            ) : null}
+          </div>
         ) : null}
       </div>
       <label className="header-search">
         <Search size={13} aria-hidden="true" />
         <input value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
       </label>
+    </div>
+  );
+}
+
+function NoteLabelHeaderFilter({
+  options,
+  value,
+  onChange
+}: {
+  options: { id: string; name: string }[];
+  value: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const toggleLabel = (id: string) => {
+    onChange(value.includes(id) ? value.filter((selected) => selected !== id) : [...value, id]);
+  };
+
+  return (
+    <div className="note-label-filter-control" ref={controlRef}>
+      <button
+        className={`note-label-filter-button ${value.length ? 'is-active' : ''}`}
+        type="button"
+        aria-label={value.length ? `Filter notes by label, ${value.length} selected` : 'Filter notes by label'}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        title={options.length ? 'Filter notes by label' : 'No note labels available'}
+        disabled={options.length === 0 && value.length === 0}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Tags size={11} aria-hidden="true" />
+        {value.length ? <span>{value.length}</span> : null}
+      </button>
+      {open ? (
+        <div className="header-popover note-label-filter-popover" role="dialog" aria-label="Filter notes by label">
+          <div className="note-label-filter-heading">
+            <strong>Note labels</strong>
+            <button className="text-action" type="button" disabled={value.length === 0} onClick={() => onChange([])}>Clear</button>
+          </div>
+          <small>Matches any selected label</small>
+          {options.map((option) => (
+            <label className="check-row" key={option.id}>
+              <input type="checkbox" checked={value.includes(option.id)} onChange={() => toggleLabel(option.id)} />
+              <span>{option.name}</span>
+            </label>
+          ))}
+          {options.length === 0 ? <span className="empty-option">No note labels available</span> : null}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -8554,15 +8638,21 @@ function KpiDimensionControl({
 }
 
 function KpiNoteDialog({
+  config,
   kpi,
   onChange,
+  onConfigChange,
   onClose
 }: {
+  config: KpiPoolConfig;
   kpi: KpiMetric;
   onChange: (next: KpiMetric) => void;
+  onConfigChange: (next: KpiPoolConfig) => void;
   onClose: () => void;
 }) {
-  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
+  const [newLabelName, setNewLabelName] = useState('');
+  const [manageLabels, setManageLabels] = useState(false);
+  const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   const titleId = `kpi-note-dialog-title-${kpi.id}`;
@@ -8589,6 +8679,65 @@ function KpiNoteDialog({
   }, [closeDialog]);
 
   const updateNote = (note: string) => onChange({ ...kpi, note });
+  const selectedLabelIdSet = new Set(kpi.noteLabels);
+  const selectedLabels = config.noteLabels.filter((label) => selectedLabelIdSet.has(label.id));
+  const availableLabels = config.noteLabels.filter((label) => !selectedLabelIdSet.has(label.id));
+  const addLabel = (labelId: string) => {
+    if (!labelId || selectedLabelIdSet.has(labelId)) return;
+    onChange({ ...kpi, noteLabels: [...kpi.noteLabels, labelId] });
+  };
+  const removeLabel = (labelId: string) => {
+    onChange({ ...kpi, noteLabels: kpi.noteLabels.filter((id) => id !== labelId) });
+  };
+  const createAndAddLabel = () => {
+    const name = newLabelName.trim();
+    if (!name) return;
+    const existing = config.noteLabels.find((label) => normalize(label.name) === normalize(name));
+    if (existing) {
+      addLabel(existing.id);
+      setNewLabelName('');
+      return;
+    }
+
+    const label = { id: createLocalId('note-label'), name };
+    onConfigChange({
+      ...config,
+      noteLabels: [...config.noteLabels, label],
+      kpis: config.kpis.map((entry) => entry.id === kpi.id
+        ? { ...entry, noteLabels: [...entry.noteLabels, label.id] }
+        : entry)
+    });
+    setNewLabelName('');
+  };
+  const renameLabel = (labelId: string) => {
+    const current = config.noteLabels.find((label) => label.id === labelId);
+    const name = (labelDrafts[labelId] ?? current?.name ?? '').trim();
+    if (!current || !name || config.noteLabels.some((label) => label.id !== labelId && normalize(label.name) === normalize(name))) return;
+    if (name !== current.name) {
+      onConfigChange({
+        ...config,
+        noteLabels: config.noteLabels.map((label) => label.id === labelId ? { ...label, name } : label)
+      });
+    }
+    setLabelDrafts((drafts) => {
+      const next = { ...drafts };
+      delete next[labelId];
+      return next;
+    });
+  };
+  const deleteLabel = (labelId: string) => {
+    const label = config.noteLabels.find((entry) => entry.id === labelId);
+    if (!label) return;
+    const usageCount = config.kpis.filter((entry) => entry.noteLabels.includes(labelId)).length;
+    if (!window.confirm(`Delete the global label "${label.name}"${usageCount ? ` and remove it from ${usageCount} KPI${usageCount === 1 ? '' : 's'}` : ''}?`)) return;
+    onConfigChange({
+      ...config,
+      noteLabels: config.noteLabels.filter((entry) => entry.id !== labelId),
+      kpis: config.kpis.map((entry) => entry.noteLabels.includes(labelId)
+        ? { ...entry, noteLabels: entry.noteLabels.filter((id) => id !== labelId) }
+        : entry)
+    });
+  };
 
   return createPortal(
     <div className="kpi-note-dialog-backdrop" onMouseDown={(event) => {
@@ -8597,45 +8746,110 @@ function KpiNoteDialog({
       <section ref={dialogRef} className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="kpi-note-dialog-header">
           <div>
-            <span>Remaining ambiguities</span>
             <strong id={titleId}>{kpi.name || 'Untitled KPI'}</strong>
           </div>
-          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close KPI note" onClick={closeDialog}>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close notes" onClick={closeDialog}>
             <X size={16} aria-hidden="true" />
           </button>
         </header>
         <div className="kpi-note-dialog-body">
-          <div className="lookup-details-heading">
-            <span>KPI note</span>
-            <label className="lookup-details-mode">
-              <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={`Show raw Markdown for ${kpi.name || 'untitled KPI'} note`}
-                checked={showRawMarkdown}
-                onChange={(event) => setShowRawMarkdown(event.target.checked)}
-              />
-              <span className={showRawMarkdown ? 'is-active' : ''}>Raw</span>
-            </label>
-          </div>
-          {showRawMarkdown ? (
-            <textarea
-              className="markdown-source-textarea kpi-note-source"
-              value={kpi.note}
-              rows={14}
-              aria-label={`Raw Markdown note for ${kpi.name || 'untitled KPI'}`}
-              placeholder="# Remaining ambiguities\n\nDescribe open questions, assumptions, and decisions still needed."
-              onChange={(event) => updateNote(event.target.value)}
-            />
-          ) : (
-            <MarkdownContent
-              value={kpi.note}
-              placeholder="Click to document remaining ambiguities"
-              onValueChange={updateNote}
-            />
-          )}
-          <small className="kpi-note-dialog-hint">Markdown is preserved in the library; bold and italic text remain styled in Excel.</small>
+          <textarea
+            className="markdown-source-textarea kpi-note-source"
+            value={kpi.note}
+            rows={12}
+            aria-label={`Notes for ${kpi.name || 'untitled KPI'}`}
+            placeholder="Add notes..."
+            onChange={(event) => updateNote(event.target.value)}
+            onPaste={(event) => {
+              event.preventDefault();
+              const text = event.clipboardData.getData('text/plain');
+              if (!text) return;
+              const target = event.currentTarget;
+              const selectionStart = target.selectionStart;
+              const selectionEnd = target.selectionEnd;
+              updateNote(`${kpi.note.slice(0, selectionStart)}${text}${kpi.note.slice(selectionEnd)}`);
+              window.requestAnimationFrame(() => {
+                const caret = selectionStart + text.length;
+                target.setSelectionRange(caret, caret);
+              });
+            }}
+          />
+          <section className="kpi-note-labels" aria-labelledby={`kpi-note-labels-title-${kpi.id}`}>
+            <div className="kpi-note-labels-heading">
+              <strong id={`kpi-note-labels-title-${kpi.id}`}>Labels</strong>
+              <button className="secondary-action tiny" type="button" aria-expanded={manageLabels} onClick={() => setManageLabels((current) => !current)}>
+                {manageLabels ? 'Done' : 'Manage label pool'}
+              </button>
+            </div>
+            <div className="kpi-note-label-badges" aria-label="Labels assigned to this KPI">
+              {selectedLabels.map((label) => (
+                <span className="kpi-note-label-badge" key={label.id}>
+                  <span>{label.name}</span>
+                  <button type="button" title={`Remove ${label.name} from this KPI`} aria-label={`Remove ${label.name} from this KPI`} onClick={() => removeLabel(label.id)}>
+                    <X size={12} aria-hidden="true" />
+                  </button>
+                </span>
+              ))}
+              {selectedLabels.length === 0 ? <span className="kpi-note-label-empty">No labels added</span> : null}
+            </div>
+            <div className="kpi-note-label-add-controls">
+              <select
+                aria-label="Add an existing label"
+                value=""
+                disabled={availableLabels.length === 0}
+                onChange={(event) => addLabel(event.target.value)}
+              >
+                <option value="">{availableLabels.length ? 'Add an existing label...' : 'All labels are added'}</option>
+                {availableLabels.map((label) => <option value={label.id} key={label.id}>{label.name}</option>)}
+              </select>
+              <form onSubmit={(event) => { event.preventDefault(); createAndAddLabel(); }}>
+                <input
+                  value={newLabelName}
+                  aria-label="New global label name"
+                  placeholder="Create a new label"
+                  onChange={(event) => setNewLabelName(event.target.value)}
+                />
+                <button className="secondary-action tiny" type="submit" disabled={!newLabelName.trim()}>
+                  <Plus size={12} aria-hidden="true" /> Create &amp; add
+                </button>
+              </form>
+            </div>
+            {manageLabels ? (
+              <div className="kpi-note-label-pool" aria-label="Global label pool">
+                {config.noteLabels.map((label) => {
+                  const draft = labelDrafts[label.id] ?? label.name;
+                  const duplicate = config.noteLabels.some((entry) => entry.id !== label.id && normalize(entry.name) === normalize(draft));
+                  const invalid = !draft.trim() || duplicate;
+                  return (
+                    <div className="kpi-note-label-pool-row" key={label.id}>
+                      <input
+                        value={draft}
+                        aria-label={`Rename ${label.name}`}
+                        aria-invalid={invalid}
+                        onChange={(event) => setLabelDrafts((current) => ({ ...current, [label.id]: event.target.value }))}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            renameLabel(label.id);
+                          } else if (event.key === 'Escape') {
+                            setLabelDrafts((current) => ({ ...current, [label.id]: label.name }));
+                          }
+                        }}
+                      />
+                      <button className="mini-icon-button" type="button" disabled={invalid || draft.trim() === label.name} title={`Save ${label.name} label name`} aria-label={`Save ${label.name} label name`} onClick={() => renameLabel(label.id)}>
+                        <Check size={13} aria-hidden="true" />
+                      </button>
+                      <button className="mini-icon-button danger" type="button" title={`Delete global label ${label.name}`} aria-label={`Delete global label ${label.name}`} onClick={() => deleteLabel(label.id)}>
+                        <Trash2 size={13} aria-hidden="true" />
+                      </button>
+                      {duplicate ? <small>That label name already exists.</small> : null}
+                    </div>
+                  );
+                })}
+                {config.noteLabels.length === 0 ? <span className="kpi-note-label-empty">The global label pool is empty.</span> : null}
+              </div>
+            ) : null}
+          </section>
         </div>
       </section>
     </div>,
@@ -8658,6 +8872,7 @@ function KpiRow({
   sortingActive,
   onExpand,
   onChange,
+  onConfigChange,
   onDelete,
   onDuplicate,
   onDragHandleMouseDown,
@@ -8680,6 +8895,7 @@ function KpiRow({
   sortingActive: boolean;
   onExpand: (id: string) => void;
   onChange: (next: KpiMetric) => void;
+  onConfigChange: (next: KpiPoolConfig) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onDragHandleMouseDown: (id: string, event: React.MouseEvent<HTMLButtonElement>) => void;
@@ -8793,11 +9009,11 @@ function KpiRow({
                 </div>
               </div>
               <button
-                className={`kpi-note-button ${kpi.note.trim() ? 'has-note' : ''}`}
+                className={`kpi-note-button ${kpi.note.trim() || kpi.noteLabels.length ? 'has-note' : ''}`}
                 type="button"
-                aria-label={`Edit remaining ambiguities note for ${kpi.name}`}
+                aria-label={`Edit notes for ${kpi.name}`}
                 aria-haspopup="dialog"
-                title={kpi.note.trim() ? 'Edit remaining ambiguities note' : 'Add remaining ambiguities note'}
+                title={kpi.note.trim() || kpi.noteLabels.length ? 'Edit notes' : 'Add notes'}
                 onClick={(event) => {
                   event.stopPropagation();
                   setNoteOpen(true);
@@ -8945,7 +9161,7 @@ function KpiRow({
           </td>
         </tr>
       ) : null}
-      {noteOpen ? <KpiNoteDialog kpi={kpi} onChange={onChange} onClose={closeNoteDialog} /> : null}
+      {noteOpen ? <KpiNoteDialog config={config} kpi={kpi} onChange={onChange} onConfigChange={onConfigChange} onClose={closeNoteDialog} /> : null}
     </>
   );
 }
@@ -8957,6 +9173,7 @@ function PrerequisiteKpiDialog({
   useCaseAssignment,
   onClose,
   onChange,
+  onConfigChange,
   onDelete,
   onDuplicate,
   onInsertBefore,
@@ -8970,6 +9187,7 @@ function PrerequisiteKpiDialog({
   useCaseAssignment?: UseCaseAssignment;
   onClose: () => void;
   onChange: (next: KpiMetric) => void;
+  onConfigChange: (next: KpiPoolConfig) => void;
   onDelete: (id: string) => void;
   onDuplicate: (id: string) => void;
   onInsertBefore: (id: string) => void;
@@ -9087,6 +9305,7 @@ function PrerequisiteKpiDialog({
                     ? current.filter((id) => id !== kpiId)
                     : [...current, kpiId])}
                   onChange={onChange}
+                  onConfigChange={onConfigChange}
                   onDelete={onDelete}
                   onDuplicate={onDuplicate}
                   onInsertBefore={onInsertBefore}
@@ -9196,6 +9415,7 @@ const summarizeKpiCatalogChanges = (previous: KpiPoolConfig, next: KpiPoolConfig
 const kpiCatalogChangeAffectsRow = (previous: KpiPoolConfig, next: KpiPoolConfig, rowKpiId: string) => {
   if (
     previous.enums !== next.enums ||
+    previous.noteLabels !== next.noteLabels ||
     previous.valueEnums !== next.valueEnums ||
     previous.valueEnumGroups !== next.valueEnumGroups ||
     previous.dataSources !== next.dataSources ||
@@ -9543,6 +9763,7 @@ function KpiTable({
     () => new Set(performanceAreaHeaderOptions.map((option) => option.id)),
     [performanceAreaHeaderOptions]
   );
+  const noteLabelIds = useMemo(() => new Set(config.noteLabels.map((label) => label.id)), [config.noteLabels]);
 
   useEffect(() => {
     const nextPerformanceAreaFilter = filters.enums.performanceArea.filter((id) => performanceAreaFilterIds.has(id));
@@ -9556,6 +9777,13 @@ function KpiTable({
       });
     }
   }, [filters, onFiltersChange, performanceAreaFilterIds]);
+
+  useEffect(() => {
+    const nextNoteLabels = filters.noteLabels.filter((id) => noteLabelIds.has(id));
+    if (nextNoteLabels.length !== filters.noteLabels.length) {
+      onFiltersChange({ ...filters, noteLabels: nextNoteLabels });
+    }
+  }, [filters, noteLabelIds, onFiltersChange]);
 
   const startRowDrag = useCallback((kpiId: string, event: React.MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -9636,6 +9864,9 @@ function KpiTable({
                   onChange={(name) => onFiltersChange({ ...filters, name, description: '' })}
                   notesOnly={filters.notesOnly}
                   onNotesOnlyChange={(notesOnly) => onFiltersChange({ ...filters, notesOnly })}
+                  noteLabelOptions={config.noteLabels}
+                  noteLabels={filters.noteLabels}
+                  onNoteLabelsChange={(noteLabels) => onFiltersChange({ ...filters, noteLabels })}
                 />
                 {resizeHandle(0, 'Name and description')}
               </th>
@@ -9770,6 +10001,7 @@ function KpiTable({
                 sortingActive={Boolean(performanceAreaSort)}
                 onExpand={stableOnToggleExpanded}
                 onChange={stableOnKpiChange}
+                onConfigChange={onConfigChange}
                 onDelete={stableOnDelete}
                 onDuplicate={stableOnDuplicate}
                 onInsertBefore={stableOnAddKpi}
@@ -9800,6 +10032,201 @@ function KpiTable({
 }
 
 type SaveState = 'idle' | 'loading' | 'saving' | 'saved' | 'error';
+
+function SaveActions({
+  saveDisabled,
+  forceSaveDisabled,
+  remoteActionTitle,
+  onSave,
+  onForceSave
+}: {
+  saveDisabled: boolean;
+  forceSaveDisabled: boolean;
+  remoteActionTitle?: string;
+  onSave: () => void;
+  onForceSave: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+
+  return (
+    <div className="topbar-menu save-split-action" ref={controlRef} data-preserve-source-library-state>
+      <button
+        className="primary-action small save-main-action"
+        type="button"
+        onClick={onSave}
+        disabled={saveDisabled}
+        title={remoteActionTitle ?? 'Merge changes while preserving every deletion made in this editor'}
+      >
+        <Save size={15} aria-hidden="true" />
+        Save
+      </button>
+      <button
+        className="primary-action small topbar-menu-toggle save-menu-toggle"
+        type="button"
+        aria-label="Show save options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        disabled={forceSaveDisabled}
+        title={remoteActionTitle ?? 'Show save options'}
+      >
+        <ChevronDown size={14} aria-hidden="true" className={open ? 'rotate' : ''} />
+      </button>
+      {open ? (
+        <div className="topbar-action-menu" role="menu">
+          <button
+            className="topbar-action-menu-item danger-action"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onForceSave();
+            }}
+            disabled={forceSaveDisabled}
+            title={remoteActionTitle ?? 'Replace the complete hosted JSON, including deletions'}
+          >
+            Force Save
+          </button>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function HtmlActions({
+  onImport,
+  onExport
+}: {
+  onImport: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  onExport: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+
+  return (
+    <div className="topbar-menu" ref={controlRef}>
+      <button
+        className="secondary-action small topbar-menu-toggle overflow-menu-toggle"
+        type="button"
+        aria-label="Show HTML import and export options"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        title="More HTML actions"
+      >
+        <Ellipsis size={17} aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="topbar-action-menu" role="menu">
+          <button
+            className="topbar-action-menu-item"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              importInputRef.current?.click();
+            }}
+          >
+            <Upload size={15} aria-hidden="true" />
+            Import HTML
+          </button>
+          <button
+            className="topbar-action-menu-item"
+            type="button"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false);
+              onExport();
+            }}
+          >
+            <Download size={15} aria-hidden="true" />
+            Export HTML
+          </button>
+        </div>
+      ) : null}
+      <input
+        ref={importInputRef}
+        className="hidden-file"
+        type="file"
+        accept="text/html,.html,.htm"
+        onChange={onImport}
+      />
+    </div>
+  );
+}
+
+function ExcelExportActions({
+  resultCount,
+  onExport
+}: {
+  resultCount: number;
+  onExport: (selectedColumns: readonly KpiExcelColumnKey[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selectedColumns, setSelectedColumns] = useState<KpiExcelColumnKey[]>(() =>
+    KPI_EXCEL_COLUMNS.map(({ key }) => key)
+  );
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const selectedColumnSet = new Set(selectedColumns);
+
+  const toggleColumn = (key: KpiExcelColumnKey) => {
+    setSelectedColumns((current) => current.includes(key)
+      ? current.filter((columnKey) => columnKey !== key)
+      : KPI_EXCEL_COLUMNS
+        .map((column) => column.key)
+        .filter((columnKey) => columnKey === key || current.includes(columnKey))
+    );
+  };
+
+  return (
+    <div className="topbar-menu" ref={controlRef}>
+      <button
+        className="secondary-action small topbar-menu-toggle excel-export-toggle"
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        title={`Choose columns for the ${resultCount} currently filtered KPI${resultCount === 1 ? '' : 's'} and export to Excel`}
+      >
+        <Table2 size={15} aria-hidden="true" />
+        Export Excel
+        <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
+      </button>
+      {open ? (
+        <div className="topbar-action-menu excel-export-menu" role="dialog" aria-label="Choose Excel export columns">
+          <div className="excel-export-column-list">
+            {KPI_EXCEL_COLUMNS.map((column) => (
+              <label className="check-row excel-export-option" key={column.key}>
+                <input
+                  type="checkbox"
+                  checked={selectedColumnSet.has(column.key)}
+                  onChange={() => toggleColumn(column.key)}
+                />
+                <span>{column.label}</span>
+              </label>
+            ))}
+          </div>
+          <div className="excel-export-footer">
+            <button
+              className="primary-action small"
+              type="button"
+              disabled={selectedColumns.length === 0}
+              onClick={() => {
+                setOpen(false);
+                onExport(selectedColumns);
+              }}
+            >
+              <Download size={14} aria-hidden="true" />
+              Export
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 function EditorApp({
   initialConfig,
@@ -10319,6 +10746,9 @@ function EditorApp({
         ...(merged.valueEnumConflicts > 0
           ? [`${merged.valueEnumConflicts} imported global domain${merged.valueEnumConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept and linked uses were synchronized.`]
           : []),
+        ...(merged.noteLabelConflicts > 0
+          ? [`${merged.noteLabelConflicts} imported note label${merged.noteLabelConflicts === 1 ? '' : 's'} had an existing ID with a different name; the current name was kept.`]
+          : []),
         ...(merged.dataSourceConflicts > 0
           ? [`${merged.dataSourceConflicts} imported data source${merged.dataSourceConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : []),
@@ -10349,7 +10779,7 @@ function EditorApp({
     );
   };
 
-  const exportExcel = async () => {
+  const exportExcel = async (selectedColumns: readonly KpiExcelColumnKey[]) => {
     const rows = buildKpiExcelRows(config, visibleKpis, {
       userGroups: focusedAssignment ? [focusedAssignment.userGroup] : filters.userGroups,
       useCases: focusedAssignment ? [focusedAssignment.useCase] : filters.useCases,
@@ -10358,7 +10788,8 @@ function EditorApp({
     await downloadKpiExcelWorkbook(
       `${configFileStem(config.title)}-filtered-kpis.xlsx`,
       config.title,
-      rows
+      rows,
+      selectedColumns
     );
   };
 
@@ -10411,31 +10842,13 @@ function EditorApp({
               <RefreshCw size={15} aria-hidden="true" />
               Refresh
             </button>
-            <button
-              className="primary-action small"
-              type="button"
-              data-preserve-source-library-state
-              onClick={saveToHostedJson}
-              disabled={exportedSnapshot || saveBusy || !hasUnsavedChanges}
-              title={remoteActionTitle ?? 'Merge changes while preserving every deletion made in this editor'}
-            >
-              <Save size={15} aria-hidden="true" />
-              Save
-            </button>
-            <button
-              className="secondary-action small danger-action"
-              type="button"
-              onClick={forceSaveToHostedJson}
-              disabled={exportedSnapshot || saveBusy}
-              title={remoteActionTitle ?? 'Replace the complete hosted JSON, including deletions'}
-            >
-              Force Save
-            </button>
-            <label className="secondary-action small file-action">
-              <Upload size={15} aria-hidden="true" />
-              Import HTML
-              <input className="hidden-file" type="file" accept="text/html,.html,.htm" onChange={importHtml} />
-            </label>
+            <SaveActions
+              saveDisabled={exportedSnapshot || saveBusy || !hasUnsavedChanges}
+              forceSaveDisabled={exportedSnapshot || saveBusy}
+              remoteActionTitle={remoteActionTitle}
+              onSave={saveToHostedJson}
+              onForceSave={forceSaveToHostedJson}
+            />
             <button
               className="secondary-action small"
               type="button"
@@ -10443,21 +10856,10 @@ function EditorApp({
               title={`Export the ${visibleKpis.length} currently filtered KPI${visibleKpis.length === 1 ? '' : 's'} as JSON`}
             >
               <FileJson size={15} aria-hidden="true" />
-              Export as JSON
+              Export JSON
             </button>
-            <button
-              className="secondary-action small"
-              type="button"
-              onClick={exportExcel}
-              title={`Export the ${visibleKpis.length} currently filtered KPI${visibleKpis.length === 1 ? '' : 's'} to Excel`}
-            >
-              <Table2 size={15} aria-hidden="true" />
-              Export as Excel
-            </button>
-            <button className="primary-action small" type="button" onClick={exportHtml}>
-              <Download size={15} aria-hidden="true" />
-              Export HTML
-            </button>
+            <ExcelExportActions resultCount={visibleKpis.length} onExport={exportExcel} />
+            <HtmlActions onImport={importHtml} onExport={exportHtml} />
           </div>
         </div>
         <div className="topbar-row topbar-secondary-row">
@@ -10529,6 +10931,7 @@ function EditorApp({
           useCaseAssignment={focusedAssignment}
           onClose={closePrerequisiteKpi}
           onChange={updateKpiFromRow}
+          onConfigChange={setConfigAndRepairExpansion}
           onDelete={deleteKpi}
           onDuplicate={duplicateKpi}
           onInsertBefore={addKpi}

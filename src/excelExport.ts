@@ -16,8 +16,28 @@ export type KpiExcelRow = {
   description: string;
   note: string;
   noteMarkdown?: string;
+  noteLabels?: string;
   performanceAreas: string;
 };
+
+type KpiExcelColumnDefinition = {
+  key: Exclude<keyof KpiExcelRow, 'noteMarkdown'>;
+  label: string;
+  width: number;
+  richTextKey?: 'noteMarkdown';
+};
+
+export const KPI_EXCEL_COLUMNS = [
+  { key: 'userGroup', label: 'User Group', width: 24 },
+  { key: 'useCase', label: 'Use Case', width: 32 },
+  { key: 'name', label: 'Name', width: 34 },
+  { key: 'description', label: 'Description', width: 58 },
+  { key: 'note', label: 'Notes', width: 58, richTextKey: 'noteMarkdown' },
+  { key: 'noteLabels', label: 'Labels', width: 34 },
+  { key: 'performanceAreas', label: 'Performance Areas', width: 44 }
+] as const satisfies readonly KpiExcelColumnDefinition[];
+
+export type KpiExcelColumnKey = (typeof KPI_EXCEL_COLUMNS)[number]['key'];
 
 export type ExcelRichTextRun = {
   text: string;
@@ -35,6 +55,20 @@ const decodeMarkdownEntities = (value: string) => value
   .replace(/&gt;/gi, '>')
   .replace(/&quot;/gi, '"')
   .replace(/&#39;|&apos;/gi, "'");
+
+/**
+ * Some imported notes contain Markdown emphasis delimiters with every marker
+ * escaped (for example, `\*\*important\*\*`). Treat a complete escaped pair as
+ * formatting while continuing to preserve isolated escaped punctuation.
+ */
+const restoreEscapedMarkdownEmphasis = (value: string) => value
+  .replace(/\\\*\\\*\\\*([^\n]+?)\\\*\\\*\\\*/g, '***$1***')
+  .replace(/\\_\\_\\_([^\n]+?)\\_\\_\\_/g, '___$1___')
+  .replace(/\\\*\\\*([^\n]+?)\\\*\\\*/g, '**$1**')
+  .replace(/\\_\\_([^\n]+?)\\_\\_/g, '__$1__')
+  .replace(/\\~\\~([^\n]+?)\\~\\~/g, '~~$1~~')
+  .replace(/\\\*([^\n]+?)\\\*/g, '*$1*')
+  .replace(/\\_([^\n]+?)\\_/g, '_$1_');
 
 const appendRichTextRun = (
   runs: ExcelRichTextRun[],
@@ -186,7 +220,7 @@ const joinRichTextLines = (lines: ExcelRichTextRun[][]) => {
 
 /** Converts common Markdown constructs to readable Excel rich text. */
 export const markdownToExcelRichText = (markdown: string): ExcelRichTextRun[] => {
-  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  const lines = restoreEscapedMarkdownEmphasis(markdown.replace(/\r\n?/g, '\n')).split('\n');
   let inFence = false;
   const output: ExcelRichTextRun[][] = [];
   lines.forEach((sourceLine) => {
@@ -212,18 +246,18 @@ export const markdownToExcelRichText = (markdown: string): ExcelRichTextRun[] =>
       return;
     }
 
-    output.push(parseMarkdownInlineRuns(line
-      .replace(/^\s{0,3}#{1,6}\s+/, '')
+    const heading = line.match(/^\s{0,3}#{1,6}\s+(.*)$/);
+    output.push(parseMarkdownInlineRuns((heading?.[1] ?? line)
       .replace(/^\s*>\s?/, '› ')
       .replace(/^\s*[-+*]\s+\[[ xX]\]\s+/, (marker) => /[xX]/.test(marker) ? '☑ ' : '☐ ')
       .replace(/^\s*[-+*]\s+/, '• ')
       .replace(/^\s*(\d+)[.)]\s+/, '$1. ')
-      .replace(/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/, '────────────────')));
+      .replace(/^\s*(?:-{3,}|_{3,}|\*{3,})\s*$/, '────────────────'), heading ? { bold: true } : {}));
   });
 
-  const compactOutput = output.filter((line, index) =>
-    line.length > 0 || index === 0 || output[index - 1].length > 0
-  );
+  // Excel already renders each newline as a visible line break. Markdown's
+  // blank separator lines would therefore create unwanted empty Excel lines.
+  const compactOutput = output.filter((line) => line.some((run) => run.text.trim().length > 0));
   return joinRichTextLines(compactOutput);
 };
 
@@ -239,6 +273,7 @@ export const buildKpiExcelRows = (
   const userGroupLabelById = new Map(config.enums.userGroup.map((option) => [option.id, option.label]));
   const useCaseLabelById = new Map(config.enums.useCase.map((option) => [option.id, option.label]));
   const performanceAreaById = new Map(config.enums.performanceArea.map((option) => [option.id, option]));
+  const noteLabelById = new Map(config.noteLabels.map((label) => [label.id, label.name]));
   const selectedPerformanceAreaLabels = new Set(
     filters.performanceAreas.map((id) => performanceAreaById.get(id)?.label ?? id)
   );
@@ -292,6 +327,7 @@ export const buildKpiExcelRows = (
       description: kpi.description.overview,
       note: markdownToExcelText(kpi.note),
       noteMarkdown: kpi.note,
+      noteLabels: unique(kpi.noteLabels.map((id) => noteLabelById.get(id) ?? id)).join(', '),
       performanceAreas: unique(
         matchingAssignments.flatMap(({ performanceAreaLabels }) => performanceAreaLabels)
       ).join('; ')
@@ -299,7 +335,11 @@ export const buildKpiExcelRows = (
   });
 };
 
-export async function createKpiExcelWorkbook(title: string, rows: readonly KpiExcelRow[]): Promise<Uint8Array> {
+export async function createKpiExcelWorkbook(
+  title: string,
+  rows: readonly KpiExcelRow[],
+  selectedColumnKeys: readonly KpiExcelColumnKey[] = KPI_EXCEL_COLUMNS.map(({ key }) => key)
+): Promise<Uint8Array> {
   const zip = new JSZip();
   const now = new Date().toISOString();
   const sheetTitle = title.trim() || 'KPI Library';
@@ -311,7 +351,7 @@ export async function createKpiExcelWorkbook(title: string, rows: readonly KpiEx
   zip.folder('xl')?.file('workbook.xml', workbookXml);
   zip.folder('xl')?.folder('_rels')?.file('workbook.xml.rels', workbookRelationshipsXml);
   zip.folder('xl')?.file('styles.xml', stylesXml);
-  zip.folder('xl')?.folder('worksheets')?.file('sheet1.xml', worksheetXml(sheetTitle, rows));
+  zip.folder('xl')?.folder('worksheets')?.file('sheet1.xml', worksheetXml(sheetTitle, rows, selectedColumnKeys));
 
   return zip.generateAsync({
     type: 'uint8array',
@@ -321,8 +361,13 @@ export async function createKpiExcelWorkbook(title: string, rows: readonly KpiEx
   });
 }
 
-export async function downloadKpiExcelWorkbook(fileName: string, title: string, rows: readonly KpiExcelRow[]) {
-  const bytes = await createKpiExcelWorkbook(title, rows);
+export async function downloadKpiExcelWorkbook(
+  fileName: string,
+  title: string,
+  rows: readonly KpiExcelRow[],
+  selectedColumnKeys?: readonly KpiExcelColumnKey[]
+) {
+  const bytes = await createKpiExcelWorkbook(title, rows, selectedColumnKeys);
   const blob = new Blob([Uint8Array.from(bytes).buffer], { type: EXCEL_MIME_TYPE });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -335,37 +380,39 @@ export async function downloadKpiExcelWorkbook(fileName: string, title: string, 
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
+function worksheetXml(
+  title: string,
+  rows: readonly KpiExcelRow[],
+  selectedColumnKeys: readonly KpiExcelColumnKey[]
+) {
+  const selectedColumnKeySet = new Set(selectedColumnKeys);
+  const selectedColumns = KPI_EXCEL_COLUMNS.filter(({ key }) => selectedColumnKeySet.has(key));
+  if (selectedColumns.length === 0) {
+    throw new Error('Select at least one column to export.');
+  }
   const headerRow = 3;
   const firstDataRow = headerRow + 1;
   const lastRow = Math.max(headerRow, headerRow + rows.length);
-  const headers = ['User Group', 'Use Case', 'Name', 'Description', 'Remaining Ambiguities', 'Performance Areas'];
-  const widths = [24, 32, 34, 58, 58, 44];
-  const columns = widths
-    .map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
+  const lastColumnName = columnName(selectedColumns.length);
+  const columns = selectedColumns
+    .map(({ width }, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
     .join('');
-  const headerCells = headers
-    .map((header, index) => stringCell(`${columnName(index + 1)}${headerRow}`, header, 3))
+  const headerCells = selectedColumns
+    .map(({ label }, index) => stringCell(`${columnName(index + 1)}${headerRow}`, label, 3))
     .join('');
   const dataRows = rows.map((row, index) => {
     const rowNumber = firstDataRow + index;
-    return `<row r="${rowNumber}" ht="45" customHeight="1">${[
-      row.userGroup,
-      row.useCase,
-      row.name,
-      row.description,
-      row.note,
-      row.performanceAreas
-    ].map((value, columnIndex) => {
+    return `<row r="${rowNumber}" ht="45" customHeight="1">${selectedColumns.map((column, columnIndex) => {
       const reference = `${columnName(columnIndex + 1)}${rowNumber}`;
-      return columnIndex === 4 && row.noteMarkdown !== undefined
-        ? richMarkdownCell(reference, row.noteMarkdown, 4)
-        : stringCell(reference, value, 4);
+      const richText = 'richTextKey' in column ? row[column.richTextKey] : undefined;
+      return richText !== undefined
+        ? richMarkdownCell(reference, richText, 4)
+        : stringCell(reference, row[column.key] ?? '', 4);
     }).join('')}</row>`;
   }).join('');
 
   return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <dimension ref="A1:F${lastRow}"/>
+  <dimension ref="A1:${lastColumnName}${lastRow}"/>
   <sheetViews><sheetView workbookViewId="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="15"/>
   <cols>${columns}</cols>
@@ -375,8 +422,8 @@ function worksheetXml(title: string, rows: readonly KpiExcelRow[]) {
     <row r="${headerRow}" ht="24" customHeight="1">${headerCells}</row>
     ${dataRows}
   </sheetData>
-  <autoFilter ref="A${headerRow}:F${lastRow}"/>
-  <mergeCells count="2"><mergeCell ref="A1:F1"/><mergeCell ref="A2:F2"/></mergeCells>
+  <autoFilter ref="A${headerRow}:${lastColumnName}${lastRow}"/>
+  <mergeCells count="2"><mergeCell ref="A1:${lastColumnName}1"/><mergeCell ref="A2:${lastColumnName}2"/></mergeCells>
   <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
   <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
 </worksheet>`);

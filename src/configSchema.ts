@@ -23,6 +23,7 @@ import {
   type KpiFormulaGroup,
   type KpiFormulaItem,
   type KpiMetric,
+  type KpiNoteLabel,
   type KpiSourceItem,
   type KpiPoolConfig,
   type KpiDefaultFocus,
@@ -206,6 +207,11 @@ const useCaseNoteSchema = z.object({
   note: z.string()
 });
 
+const noteLabelSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1)
+});
+
 const defaultFocusSchema = z.object({
   userGroup: z.string(),
   useCase: z.string()
@@ -216,6 +222,7 @@ const kpiSchema = z.object({
   lastModified: z.string().datetime(),
   name: z.string(),
   note: z.string(),
+  noteLabels: z.array(z.string()),
   dimensions: z.array(dataSourceFieldDimensionSchema),
   sources: z.array(kpiSourceItemSchema),
   description: z.object({
@@ -250,6 +257,7 @@ export const kpiPoolConfigSchema = z.object({
   title: z.string(),
   updatedAt: z.string().optional(),
   defaultFocus: defaultFocusSchema.optional(),
+  noteLabels: z.array(noteLabelSchema),
   enums: z.object({
     prerequisiteModule: z.array(enumOptionSchema),
     userGroup: z.array(enumOptionSchema),
@@ -327,6 +335,8 @@ const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
   typeof value.lastModified === 'string' &&
   Number.isFinite(Date.parse(value.lastModified)) &&
   typeof value.name === 'string' &&
+  typeof value.note === 'string' &&
+  isStringArray(value.noteLabels) &&
   Array.isArray(value.dimensions) &&
   value.dimensions.every((dimension) =>
     isRecord(dimension) &&
@@ -385,6 +395,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     input.schemaVersion !== CURRENT_SCHEMA_VERSION ||
     typeof input.title !== 'string' ||
     (input.updatedAt !== undefined && typeof input.updatedAt !== 'string') ||
+    !Array.isArray(input.noteLabels) ||
     !isRecord(input.enums) ||
     !Array.isArray(input.valueEnums) ||
     !Array.isArray(input.valueEnumGroups) ||
@@ -398,6 +409,14 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   ) {
     return false;
   }
+
+  const noteLabels = input.noteLabels as unknown[];
+  if (!noteLabels.every((label) => isRecord(label) && typeof label.id === 'string' && typeof label.name === 'string' && label.name.trim().length > 0)) {
+    return false;
+  }
+  const typedNoteLabels = noteLabels as KpiNoteLabel[];
+  if (hasDuplicate(typedNoteLabels.map((label) => label.id))) return false;
+  const validNoteLabelIds = new Set(typedNoteLabels.map((label) => label.id));
 
   const enums = input.enums as Record<string, unknown>;
   if (!enumCategoryKeys.every((category) => Array.isArray(enums[category]) && (enums[category] as unknown[]).every(isCurrentEnumOption))) {
@@ -715,6 +734,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       kpi.previousApplication.every((id) => enumIdSets.previousApplication.has(id)) &&
       kpi.federalRequirement.every((id) => enumIdSets.federalRequirement.has(id)) &&
       kpi.performanceArea.every((id) => validPerformanceAreas.has(id)) &&
+      !hasDuplicate(kpi.noteLabels) &&
+      kpi.noteLabels.every((id) => validNoteLabelIds.has(id)) &&
       kpi.userGroupUseCases.every(
         (entry) =>
           validUserGroups.has(entry.userGroup) &&
@@ -2492,10 +2513,70 @@ const repairKpiDimensions = (rawValue: unknown, valueEnums: ValueEnumDefinition[
   });
 };
 
+const repairNoteLabels = (rawValue: unknown, warnings: string[]): KpiNoteLabel[] => {
+  if (rawValue === undefined) return [];
+  if (!Array.isArray(rawValue)) {
+    warnings.push('The global note-label pool was not a list and was cleared.');
+    return [];
+  }
+
+  const usedIds = new Set<string>();
+  const seenNames = new Set<string>();
+  return rawValue.flatMap((rawLabel, index): KpiNoteLabel[] => {
+    const record = isRecord(rawLabel) ? rawLabel : undefined;
+    const name = stringValue(record?.name ?? record?.label ?? rawLabel).trim();
+    const normalizedName = normalizeKey(name);
+    if (!name) {
+      warnings.push(`Note label ${index + 1} had no name and was removed.`);
+      return [];
+    }
+    if (seenNames.has(normalizedName)) {
+      warnings.push(`Duplicate note label "${name}" was removed.`);
+      return [];
+    }
+    seenNames.add(normalizedName);
+    return [{
+      id: ensureUniqueId(record?.id, 'note-label', usedIds, warnings, `Note label "${name}"`),
+      name
+    }];
+  });
+};
+
+const repairKpiNoteLabels = (
+  rawValue: unknown,
+  noteLabels: KpiNoteLabel[],
+  warnings: string[],
+  kpiName: string
+) => {
+  if (rawValue === undefined) return [];
+  const values = Array.isArray(rawValue) ? rawValue : stringValue(rawValue).split(',');
+  const selected = new Set<string>();
+
+  values.forEach((rawLabel) => {
+    const record = isRecord(rawLabel) ? rawLabel : undefined;
+    const reference = stringValue(record?.id ?? record?.name ?? record?.label ?? rawLabel).trim();
+    if (!reference) return;
+    let label = noteLabels.find((entry) => entry.id === reference || normalizeKey(entry.name) === normalizeKey(reference));
+    if (!label) {
+      const usedIds = new Set(noteLabels.map((entry) => entry.id));
+      label = {
+        id: ensureUniqueId(record?.id, 'note-label', usedIds, warnings, `${kpiName}: note label "${reference}"`),
+        name: stringValue(record?.name ?? record?.label ?? reference).trim() || reference
+      };
+      noteLabels.push(label);
+      warnings.push(`${kpiName}: added missing global note label "${label.name}".`);
+    }
+    selected.add(label.id);
+  });
+
+  return [...selected];
+};
+
 export const createBlankConfig = (): KpiPoolConfig => ({
   schemaVersion: CURRENT_SCHEMA_VERSION,
   title: 'Untitled KPI Library',
   updatedAt: new Date().toISOString(),
+  noteLabels: [],
   enums: {
     prerequisiteModule: [],
     userGroup: [],
@@ -2520,6 +2601,7 @@ export const createBlankKpi = (): KpiMetric => ({
   lastModified: new Date().toISOString(),
   name: 'Untitled KPI',
   note: '',
+  noteLabels: [],
   dimensions: [],
   sources: [],
   description: {
@@ -2603,6 +2685,7 @@ export const repairConfig = (input: unknown): RepairResult => {
   const lookupGroups = repairDataLibraryGroups(rawConfig.lookupGroups, lookups, 'lookup', warnings);
   const variables = repairVariables(rawConfig.variables, warnings);
   const variableGroups = repairDataLibraryGroups(rawConfig.variableGroups, variables, 'variable', warnings);
+  const noteLabels = repairNoteLabels(rawConfig.noteLabels ?? rawConfig.labels, warnings);
   const rawKpis = Array.isArray(rawConfig.kpis) ? rawConfig.kpis : [];
   if (!Array.isArray(rawConfig.kpis)) {
     warnings.push('Missing or invalid kpis list; initialized it as an empty list.');
@@ -2631,6 +2714,7 @@ export const repairConfig = (input: unknown): RepairResult => {
       })(),
       name,
       note: stringValue(record.note ?? record.Note ?? record.ambiguities ?? record.Ambiguities),
+      noteLabels: repairKpiNoteLabels(record.noteLabels ?? record.labels ?? record.Labels, noteLabels, warnings, name),
       dimensions: repairKpiDimensions(record.dimensions, valueEnums, warnings, name),
       sources: repairKpiSources(record.sources ?? record.source ?? record.Source, warnings, name),
       description: {
@@ -2819,6 +2903,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     title: stringValue(rawConfig.title).trim() || 'Untitled KPI Library',
     updatedAt: stringValue(rawConfig.updatedAt) || new Date().toISOString(),
     defaultFocus,
+    noteLabels,
     enums: scopedEnums,
     valueEnums,
     valueEnumGroups,

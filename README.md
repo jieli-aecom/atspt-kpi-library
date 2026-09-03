@@ -110,7 +110,7 @@ All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use 
 
 ## Schema compatibility
 
-`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `36`.
+`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `37`.
 
 The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to domain IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
 
@@ -126,14 +126,15 @@ When introducing a future schema:
 
 ## Config shape
 
-- `schemaVersion`: currently `36`
+- `schemaVersion`: currently `37`
 - `title`: library title
 - `updatedAt`: ISO timestamp written by the server or during HTML export
 - `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned domain definitions
 - `valueEnums` / `valueEnumGroups`: global, grouped domain definitions that can supply names and options to fields, lookup values, and dimensions (the internal property names are retained for backward compatibility)
 - `dataSources`: reusable source-table definitions and fields; domain fields and dimensions can retain inline options or reference a global domain
 - `lookups`: reusable lookup definitions with documented inputs and output; domain inputs and outputs can retain inline options or reference a global domain
-- `kpis`: KPI definitions with stable IDs, `lastModified`, a Markdown remaining-ambiguities note, optional dimensions, sources, formulas, prerequisites, spatial scales, use-case assignments, performance areas, and use-case notes
+- `noteLabels`: the global pool of labels that can be assigned to KPI notes
+- `kpis`: KPI definitions with stable IDs, `lastModified`, notes and note-label references, optional dimensions, sources, formulas, prerequisites, spatial scales, use-case assignments, performance areas, and use-case notes
 
 See [`src/types.ts`](src/types.ts) for the complete current model.
 
@@ -144,6 +145,6 @@ See [`src/types.ts`](src/types.ts) for the complete current model.
 ## Excel export
 
 **Export as Excel** downloads the current filtered KPI view as an `.xlsx` workbook. The worksheet contains one row
-per user-group/use-case assignment with the KPI name, overview description, remaining-ambiguities note, and the
-performance areas scoped to that use case. Common Markdown decorations in the note are converted to readable plain
+per user-group/use-case assignment with the KPI name, overview description, notes, comma-separated note labels, and
+the performance areas scoped to that use case. Common Markdown decorations in a note are converted to readable plain
 text. User-group, use-case, performance-area, and note-presence filters also narrow the exported rows.
