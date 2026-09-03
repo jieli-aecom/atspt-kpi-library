@@ -3657,6 +3657,10 @@ h1 {
   padding: 13px;
 }
 
+.kpi-note-editor-heading {
+  justify-content: flex-end;
+}
+
 .kpi-note-source {
   min-height: min(34vh, 280px);
   max-height: min(48vh, 430px);

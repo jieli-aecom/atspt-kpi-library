@@ -3196,11 +3196,13 @@ const markdownFromEditableDom = (root: HTMLElement) => [...root.childNodes]
 function MarkdownContent({
   value,
   onValueChange,
-  placeholder = 'Click to add details'
+  placeholder = 'Click to add details',
+  pasteTextOnly = false
 }: {
   value: string;
   onValueChange: (value: string) => void;
   placeholder?: string;
+  pasteTextOnly?: boolean;
 }) {
   const editableRef = useRef<HTMLDivElement | null>(null);
   const dirtyRef = useRef(false);
@@ -3230,6 +3232,14 @@ function MarkdownContent({
       onInput={() => {
         dirtyRef.current = true;
       }}
+      onPaste={pasteTextOnly ? (event) => {
+        if (event.defaultPrevented) return;
+        event.preventDefault();
+        const text = event.clipboardData.getData('text/plain');
+        if (!text) return;
+        dirtyRef.current = true;
+        document.execCommand('insertText', false, text);
+      } : undefined}
       onBlur={(event) => {
         if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) commit();
       }}
@@ -8650,6 +8660,7 @@ function KpiNoteDialog({
   onConfigChange: (next: KpiPoolConfig) => void;
   onClose: () => void;
 }) {
+  const [showRawMarkdown, setShowRawMarkdown] = useState(false);
   const [newLabelName, setNewLabelName] = useState('');
   const [manageLabels, setManageLabels] = useState(false);
   const [labelDrafts, setLabelDrafts] = useState<Record<string, string>>({});
@@ -8753,27 +8764,49 @@ function KpiNoteDialog({
           </button>
         </header>
         <div className="kpi-note-dialog-body">
-          <textarea
-            className="markdown-source-textarea kpi-note-source"
-            value={kpi.note}
-            rows={12}
-            aria-label={`Notes for ${kpi.name || 'untitled KPI'}`}
-            placeholder="Add notes..."
-            onChange={(event) => updateNote(event.target.value)}
-            onPaste={(event) => {
-              event.preventDefault();
-              const text = event.clipboardData.getData('text/plain');
-              if (!text) return;
-              const target = event.currentTarget;
-              const selectionStart = target.selectionStart;
-              const selectionEnd = target.selectionEnd;
-              updateNote(`${kpi.note.slice(0, selectionStart)}${text}${kpi.note.slice(selectionEnd)}`);
-              window.requestAnimationFrame(() => {
-                const caret = selectionStart + text.length;
-                target.setSelectionRange(caret, caret);
-              });
-            }}
-          />
+          <div className="lookup-details-heading kpi-note-editor-heading">
+            <label className="lookup-details-mode">
+              <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
+              <input
+                type="checkbox"
+                role="switch"
+                aria-label={`Show raw Markdown for ${kpi.name || 'untitled KPI'} notes`}
+                checked={showRawMarkdown}
+                onChange={(event) => setShowRawMarkdown(event.target.checked)}
+              />
+              <span className={showRawMarkdown ? 'is-active' : ''}>Raw</span>
+            </label>
+          </div>
+          {showRawMarkdown ? (
+            <textarea
+              className="markdown-source-textarea kpi-note-source"
+              value={kpi.note}
+              rows={12}
+              aria-label={`Raw Markdown notes for ${kpi.name || 'untitled KPI'}`}
+              placeholder="Add notes..."
+              onChange={(event) => updateNote(event.target.value)}
+              onPaste={(event) => {
+                event.preventDefault();
+                const text = event.clipboardData.getData('text/plain');
+                if (!text) return;
+                const target = event.currentTarget;
+                const selectionStart = target.selectionStart;
+                const selectionEnd = target.selectionEnd;
+                updateNote(`${kpi.note.slice(0, selectionStart)}${text}${kpi.note.slice(selectionEnd)}`);
+                window.requestAnimationFrame(() => {
+                  const caret = selectionStart + text.length;
+                  target.setSelectionRange(caret, caret);
+                });
+              }}
+            />
+          ) : (
+            <MarkdownContent
+              value={kpi.note}
+              placeholder="Click to add notes"
+              pasteTextOnly
+              onValueChange={updateNote}
+            />
+          )}
           <section className="kpi-note-labels" aria-labelledby={`kpi-note-labels-title-${kpi.id}`}>
             <div className="kpi-note-labels-heading">
               <strong id={`kpi-note-labels-title-${kpi.id}`}>Labels</strong>
