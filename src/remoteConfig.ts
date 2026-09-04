@@ -1,7 +1,8 @@
 import type { KpiPoolConfig } from './types';
 
 export const LIBRARY_SECRET_SESSION_KEY = 'atspt-kpi-library-secret';
-const REQUEST_TIMEOUT_MS = 20_000;
+const READ_REQUEST_TIMEOUT_MS = 20_000;
+const WRITE_REQUEST_TIMEOUT_MS = 90_000;
 
 export type RemoteConfigResult = {
   config: KpiPoolConfig;
@@ -37,7 +38,10 @@ export class RemoteConfigError extends Error {
 
 const request = async (secret: string, init?: RequestInit): Promise<RemoteConfigResult> => {
   const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const requestTimeoutMs = init?.method === 'POST' || init?.method === 'PUT'
+    ? WRITE_REQUEST_TIMEOUT_MS
+    : READ_REQUEST_TIMEOUT_MS;
+  const timeout = window.setTimeout(() => controller.abort(), requestTimeoutMs);
   let response: Response;
   try {
     response = await fetch('/api/config', {
@@ -53,7 +57,7 @@ const request = async (secret: string, init?: RequestInit): Promise<RemoteConfig
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new RemoteConfigError(504, {
-        error: 'The hosted library request timed out. Check that vercel dev is running and try again.'
+        error: 'The hosted library request timed out. Check the Vercel service or local Vercel server and try again.'
       });
     }
     throw new RemoteConfigError(0, {
