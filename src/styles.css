@@ -2707,6 +2707,41 @@ h1 {
   gap: 6px;
 }
 
+.table-diagram-interaction-hint {
+  color: #71838b;
+  font-size: 10px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.table-diagram-selected-relation {
+  display: flex;
+  max-width: 270px;
+  min-height: 28px;
+  align-items: center;
+  gap: 5px;
+  overflow: hidden;
+  border: 1px solid #df8c6f;
+  border-radius: 999px;
+  background: #fff0e9;
+  color: #923d24;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 750;
+  cursor: pointer;
+}
+
+.table-diagram-selected-relation > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-diagram-selected-relation > svg {
+  flex: 0 0 auto;
+}
+
 .table-diagram-zoom {
   margin-right: 4px;
   padding: 2px;
@@ -2753,6 +2788,38 @@ h1 {
   font-family: Inter, "Segoe UI", Arial, sans-serif;
 }
 
+.table-diagram-relation {
+  cursor: pointer;
+  opacity: 1;
+  outline: none;
+  transition: opacity 120ms ease;
+}
+
+.table-diagram-relation.is-muted {
+  opacity: 0.14;
+}
+
+.table-diagram-relation:focus-visible .table-diagram-relation-hit {
+  stroke: rgba(215, 90, 50, 0.2);
+}
+
+.table-diagram-table {
+  cursor: grab;
+  opacity: 1;
+  outline: none;
+  touch-action: none;
+  user-select: none;
+  transition: opacity 120ms ease;
+}
+
+.table-diagram-table.is-dragging {
+  cursor: grabbing;
+}
+
+.table-diagram-table.is-muted {
+  opacity: 0.58;
+}
+
 @media (max-width: 760px) {
   .table-diagram-backdrop {
     padding: 8px;
@@ -2769,7 +2836,9 @@ h1 {
   }
 
   .table-diagram-toolbar > div:first-child > span,
-  .table-diagram-actions .secondary-action {
+  .table-diagram-actions .secondary-action,
+  .table-diagram-interaction-hint,
+  .table-diagram-selected-relation {
     display: none;
   }
 }

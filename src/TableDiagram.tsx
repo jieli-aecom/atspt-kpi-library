@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Download, Minus, Plus, X } from 'lucide-react';
+import { Download, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type {
   DataSource,
   DataSourceField,
@@ -207,11 +207,38 @@ const serializedSvg = (svg: SVGSVGElement) => {
   return new XMLSerializer().serializeToString(clone);
 };
 
+const positionsFromDiagram = (diagram: ReturnType<typeof buildDiagram>) => Object.fromEntries(
+  diagram.tables.map((table) => [table.source.id, { x: table.x, y: table.y }])
+);
+
 export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClose: () => void }) {
   const diagram = useMemo(() => buildDiagram(config), [config.dataSources, config.tableRelations]);
   const [zoom, setZoom] = useState(1);
+  const [tablePositions, setTablePositions] = useState<Record<string, { x: number; y: number }>>(() => positionsFromDiagram(diagram));
+  const [dragging, setDragging] = useState<{ tableId: string; pointerId: number; offsetX: number; offsetY: number }>();
+  const [frontTableId, setFrontTableId] = useState<string>();
+  const [hoveredRelationId, setHoveredRelationId] = useState<string>();
+  const [selectedRelationId, setSelectedRelationId] = useState<string>();
   const svgId = 'current-source-table-diagram';
   const safeName = shortened(config.title || 'KPI source tables', 64).replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'source-tables';
+  const activeRelationId = hoveredRelationId ?? selectedRelationId;
+  const activeRelation = config.tableRelations.find((relation) => relation.id === activeRelationId);
+  const selectedRelation = config.tableRelations.find((relation) => relation.id === selectedRelationId);
+  const activeTableIds = new Set(activeRelation ? [activeRelation.sourceDataSourceId, activeRelation.targetDataSourceId] : []);
+  const orderedTables = frontTableId
+    ? [...diagram.tables].sort((left, right) => Number(left.source.id === frontTableId) - Number(right.source.id === frontTableId))
+    : diagram.tables;
+  useEffect(() => {
+    setTablePositions((current) => Object.fromEntries(diagram.tables.map((table) => [
+      table.source.id,
+      current[table.source.id] ?? { x: table.x, y: table.y }
+    ])));
+  }, [diagram]);
+  useEffect(() => {
+    if (selectedRelationId && !config.tableRelations.some((relation) => relation.id === selectedRelationId)) {
+      setSelectedRelationId(undefined);
+    }
+  }, [config.tableRelations, selectedRelationId]);
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -224,6 +251,20 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [onClose]);
+  const pointerPosition = (clientX: number, clientY: number) => {
+    const svg = document.getElementById(svgId) as SVGSVGElement | null;
+    const bounds = svg?.getBoundingClientRect();
+    if (!bounds?.width || !bounds.height) return undefined;
+    return {
+      x: (clientX - bounds.left) * diagram.width / bounds.width,
+      y: (clientY - bounds.top) * diagram.height / bounds.height
+    };
+  };
+  const relationDescription = (relation: TableRelation) => {
+    const sourceName = config.dataSources.find((source) => source.id === relation.sourceDataSourceId)?.name || 'Missing table';
+    const targetName = config.dataSources.find((source) => source.id === relation.targetDataSourceId)?.name || 'Missing table';
+    return `${sourceName} ${relationLabel(relation)} ${targetName}`;
+  };
   const exportSvg = () => {
     const svg = document.getElementById(svgId) as SVGSVGElement | null;
     if (!svg) return;
@@ -262,6 +303,16 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
           <span>{config.dataSources.length} {config.dataSources.length === 1 ? 'table' : 'tables'} · {config.tableRelations.length} {config.tableRelations.length === 1 ? 'join' : 'joins'}</span>
         </div>
         <div className="table-diagram-actions">
+          {selectedRelation ? <button className="table-diagram-selected-relation" type="button" title="Clear highlighted join" onClick={() => setSelectedRelationId(undefined)}>
+            <Link2 size={12} />
+            <span>{relationDescription(selectedRelation)}</span>
+            <X size={11} />
+          </button> : <span className="table-diagram-interaction-hint">Drag tables · click joins</span>}
+          <button className="secondary-action small table-diagram-reset" type="button" disabled={!config.dataSources.length} onClick={() => {
+            setTablePositions(positionsFromDiagram(diagram));
+            setSelectedRelationId(undefined);
+            setFrontTableId(undefined);
+          }}><RotateCcw size={13} /> Reset layout</button>
           <div className="table-diagram-zoom" aria-label="Diagram zoom controls">
             <button className="mini-icon-button" type="button" title="Zoom out" aria-label="Zoom out" disabled={zoom <= 0.5} onClick={() => setZoom((current) => Math.max(0.5, current - 0.1))}><Minus size={13} /></button>
             <button type="button" title="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
@@ -284,9 +335,9 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
             role="img"
             aria-label="Entity relationship diagram of the current source tables"
           >
-            <rect width={diagram.width} height={diagram.height} fill="#f5f8f9" />
+            <rect width={diagram.width} height={diagram.height} fill="#f5f8f9" onClick={() => setSelectedRelationId(undefined)} />
             <text x={CANVAS_PADDING} y="46" fill="#183642" fontSize="24" fontWeight="800">Source table diagram</text>
-            <text x={CANVAS_PADDING} y="70" fill="#60727a" fontSize="12">Current structure · generated from the live source table configuration</text>
+            <text x={CANVAS_PADDING} y="70" fill="#60727a" fontSize="12">Drag a table to untangle joins · hover or click a join to highlight it</text>
             <g transform={`translate(${CANVAS_PADDING}, 88)`} fontFamily="Inter, Segoe UI, Arial, sans-serif" fontSize="10" fill="#435861">
               <g><rect width="31" height="18" rx="4" fill="#f5e9bd" stroke="#b88b13" /><text x="7" y="13" fontWeight="800">PK</text></g>
               <g transform="translate(47,0)"><rect width="66" height="18" rx="4" fill="#e3f2ee" stroke="#3d7e6c" strokeDasharray="4 2" /><text x="8" y="13" fontWeight="700">VIRTUAL</text></g>
@@ -300,6 +351,10 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
               <marker id="relation-one-end" markerWidth="13" markerHeight="13" refX="11" refY="6.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M7 1V12M11 1V12" stroke="#456c7b" strokeWidth="1.5" fill="none" /></marker>
               <marker id="relation-many-start" markerWidth="15" markerHeight="15" refX="1" refY="7.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 7.5L12 1M1 7.5H12M1 7.5L12 14" stroke="#456c7b" strokeWidth="1.5" fill="none" /></marker>
               <marker id="relation-many-end" markerWidth="15" markerHeight="15" refX="14" refY="7.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M14 7.5L3 1M14 7.5H3M14 7.5L3 14" stroke="#456c7b" strokeWidth="1.5" fill="none" /></marker>
+              <marker id="relation-one-start-highlight" markerWidth="13" markerHeight="13" refX="2" refY="6.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M2 1V12M6 1V12" stroke="#d75a32" strokeWidth="2.4" fill="none" /></marker>
+              <marker id="relation-one-end-highlight" markerWidth="13" markerHeight="13" refX="11" refY="6.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M7 1V12M11 1V12" stroke="#d75a32" strokeWidth="2.4" fill="none" /></marker>
+              <marker id="relation-many-start-highlight" markerWidth="15" markerHeight="15" refX="1" refY="7.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse"><path d="M1 7.5L12 1M1 7.5H12M1 7.5L12 14" stroke="#d75a32" strokeWidth="2.4" fill="none" /></marker>
+              <marker id="relation-many-end-highlight" markerWidth="15" markerHeight="15" refX="14" refY="7.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M14 7.5L3 1M14 7.5H3M14 7.5L3 14" stroke="#d75a32" strokeWidth="2.4" fill="none" /></marker>
             </defs>
             {!diagram.tables.length ? <g transform="translate(380,224)" textAnchor="middle"><text fill="#4f6670" fontSize="17" fontWeight="700">No source tables to diagram</text><text y="27" fill="#788990" fontSize="12">Add a source table, then reopen this view.</text></g> : null}
             <g className="table-diagram-relations">
@@ -307,30 +362,34 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                 const source = diagram.tables.find((table) => table.source.id === relation.sourceDataSourceId);
                 const target = diagram.tables.find((table) => table.source.id === relation.targetDataSourceId);
                 if (!source || !target) return null;
+                const sourcePosition = tablePositions[source.source.id] ?? { x: source.x, y: source.y };
+                const targetPosition = tablePositions[target.source.id] ?? { x: target.x, y: target.y };
+                const sourceDeltaY = sourcePosition.y - source.y;
+                const targetDeltaY = targetPosition.y - target.y;
                 const sourceField = relationField(source, relation, true);
                 const targetField = relationField(target, relation, false);
-                const sourceY = sourceField ? source.fieldY.get(sourceField.id) ?? source.y + CARD_HEADER_HEIGHT : source.y + CARD_HEADER_HEIGHT;
-                const targetY = targetField ? target.fieldY.get(targetField.id) ?? target.y + CARD_HEADER_HEIGHT : target.y + CARD_HEADER_HEIGHT;
-                const targetToRight = target.x >= source.x + source.width / 2;
-                const horizontallySeparated = Math.abs((source.x + source.width / 2) - (target.x + target.width / 2)) > Math.min(source.width, target.width) * 0.6;
+                const sourceY = (sourceField ? source.fieldY.get(sourceField.id) ?? source.y + CARD_HEADER_HEIGHT : source.y + CARD_HEADER_HEIGHT) + sourceDeltaY;
+                const targetY = (targetField ? target.fieldY.get(targetField.id) ?? target.y + CARD_HEADER_HEIGHT : target.y + CARD_HEADER_HEIGHT) + targetDeltaY;
+                const targetToRight = targetPosition.x >= sourcePosition.x + source.width / 2;
+                const horizontallySeparated = Math.abs((sourcePosition.x + source.width / 2) - (targetPosition.x + target.width / 2)) > Math.min(source.width, target.width) * 0.6;
                 let startX: number;
                 let startY: number;
                 let endX: number;
                 let endY: number;
                 let path: string;
                 if (horizontallySeparated) {
-                  startX = targetToRight ? source.x + source.width + 8 : source.x - 8;
-                  endX = targetToRight ? target.x - 8 : target.x + target.width + 8;
+                  startX = targetToRight ? sourcePosition.x + source.width + 8 : sourcePosition.x - 8;
+                  endX = targetToRight ? targetPosition.x - 8 : targetPosition.x + target.width + 8;
                   startY = sourceY;
                   endY = targetY;
                   const bend = Math.max(46, Math.abs(endX - startX) * 0.42);
                   path = `M${startX} ${startY} C${startX + (targetToRight ? bend : -bend)} ${startY},${endX + (targetToRight ? -bend : bend)} ${endY},${endX} ${endY}`;
                 } else {
-                  const targetBelow = target.y > source.y;
-                  startX = source.x + source.width / 2 + ((relationIndex % 3) - 1) * 18;
-                  endX = target.x + target.width / 2 + ((relationIndex % 3) - 1) * 18;
-                  startY = targetBelow ? source.y + source.height + 8 : source.y - 8;
-                  endY = targetBelow ? target.y - 8 : target.y + target.height + 8;
+                  const targetBelow = targetPosition.y > sourcePosition.y;
+                  startX = sourcePosition.x + source.width / 2 + ((relationIndex % 3) - 1) * 18;
+                  endX = targetPosition.x + target.width / 2 + ((relationIndex % 3) - 1) * 18;
+                  startY = targetBelow ? sourcePosition.y + source.height + 8 : sourcePosition.y - 8;
+                  endY = targetBelow ? targetPosition.y - 8 : targetPosition.y + target.height + 8;
                   const bend = Math.max(40, Math.abs(endY - startY) * 0.42);
                   path = `M${startX} ${startY} C${startX} ${startY + (targetBelow ? bend : -bend)},${endX} ${endY + (targetBelow ? -bend : bend)},${endX} ${endY}`;
                 }
@@ -338,22 +397,84 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                 const manyAtEnd = relation.cardinality !== 'oneToOne';
                 const midX = (startX + endX) / 2;
                 const midY = (startY + endY) / 2;
-                return <g key={relation.id}>
-                  <path d={path} fill="none" stroke="#f5f8f9" strokeWidth="7" />
-                  <path d={path} fill="none" stroke="#456c7b" strokeWidth="1.7" markerStart={`url(#relation-${manyAtStart ? 'many' : 'one'}-start)`} markerEnd={`url(#relation-${manyAtEnd ? 'many' : 'one'}-end)`} />
-                  <rect x={midX - 20} y={midY - 10} width="40" height="20" rx="10" fill="#ffffff" stroke="#9aabb2" />
-                  <text x={midX} y={midY + 3.5} textAnchor="middle" fill="#344f5a" fontSize="10" fontWeight="800">{relationLabel(relation)}</text>
+                const highlighted = activeRelationId === relation.id;
+                const muted = Boolean(activeRelationId && !highlighted);
+                const markerVariant = highlighted ? '-highlight' : '';
+                return <g
+                  key={relation.id}
+                  className={`table-diagram-relation ${highlighted ? 'is-highlighted' : ''} ${muted ? 'is-muted' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${relationDescription(relation)} join`}
+                  aria-pressed={selectedRelationId === relation.id}
+                  onPointerEnter={() => setHoveredRelationId(relation.id)}
+                  onPointerLeave={() => setHoveredRelationId((current) => current === relation.id ? undefined : current)}
+                  onFocus={() => setHoveredRelationId(relation.id)}
+                  onBlur={() => setHoveredRelationId((current) => current === relation.id ? undefined : current)}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedRelationId((current) => current === relation.id ? undefined : relation.id);
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return;
+                    event.preventDefault();
+                    setSelectedRelationId((current) => current === relation.id ? undefined : relation.id);
+                  }}
+                >
+                  <title>{relationDescription(relation)}</title>
+                  <path className="table-diagram-relation-hit" d={path} fill="none" stroke="transparent" strokeWidth="18" />
+                  <path d={path} fill="none" stroke="#f5f8f9" strokeWidth={highlighted ? 9 : 7} />
+                  <path d={path} fill="none" stroke={highlighted ? '#d75a32' : '#456c7b'} strokeWidth={highlighted ? 3.1 : 1.7} markerStart={`url(#relation-${manyAtStart ? 'many' : 'one'}-start${markerVariant})`} markerEnd={`url(#relation-${manyAtEnd ? 'many' : 'one'}-end${markerVariant})`} />
+                  <rect x={midX - 22} y={midY - 11} width="44" height="22" rx="11" fill={highlighted ? '#fff0e9' : '#ffffff'} stroke={highlighted ? '#d75a32' : '#9aabb2'} strokeWidth={highlighted ? 2 : 1} />
+                  <text x={midX} y={midY + 3.5} textAnchor="middle" fill={highlighted ? '#a83f20' : '#344f5a'} fontSize="10" fontWeight="800">{relationLabel(relation)}</text>
                 </g>;
               })}
             </g>
             <g className="table-diagram-tables">
-              {diagram.tables.map((table) => {
+              {orderedTables.map((table) => {
+                const position = tablePositions[table.source.id] ?? { x: table.x, y: table.y };
+                const deltaX = position.x - table.x;
+                const deltaY = position.y - table.y;
+                const relatedToActive = activeTableIds.has(table.source.id);
+                const muted = Boolean(activeRelationId && !relatedToActive);
                 let rowTop = table.y + CARD_HEADER_HEIGHT + CARD_META_HEIGHT;
-                return <g key={table.source.id} fontFamily="Inter, Segoe UI, Arial, sans-serif">
-                  <rect x={table.x} y={table.y} width={table.width} height={table.height} rx="10" fill="#ffffff" stroke="#b8c8cf" filter="url(#table-shadow)" />
+                return <g
+                  key={table.source.id}
+                  data-table-id={table.source.id}
+                  className={`table-diagram-table ${dragging?.tableId === table.source.id ? 'is-dragging' : ''} ${relatedToActive ? 'is-related' : ''} ${muted ? 'is-muted' : ''}`}
+                  fontFamily="Inter, Segoe UI, Arial, sans-serif"
+                  transform={`translate(${deltaX} ${deltaY})`}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    const pointer = pointerPosition(event.clientX, event.clientY);
+                    if (!pointer) return;
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    setFrontTableId(table.source.id);
+                    setDragging({ tableId: table.source.id, pointerId: event.pointerId, offsetX: pointer.x - position.x, offsetY: pointer.y - position.y });
+                  }}
+                  onPointerMove={(event) => {
+                    if (!dragging || dragging.tableId !== table.source.id || dragging.pointerId !== event.pointerId) return;
+                    const pointer = pointerPosition(event.clientX, event.clientY);
+                    if (!pointer) return;
+                    const nextX = Math.max(20, Math.min(diagram.width - table.width - 20, pointer.x - dragging.offsetX));
+                    const nextY = Math.max(DIAGRAM_TOP, Math.min(diagram.height - table.height - 20, pointer.y - dragging.offsetY));
+                    setTablePositions((current) => ({ ...current, [table.source.id]: { x: nextX, y: nextY } }));
+                  }}
+                  onPointerUp={(event) => {
+                    if (dragging?.pointerId !== event.pointerId) return;
+                    event.currentTarget.releasePointerCapture(event.pointerId);
+                    setDragging(undefined);
+                  }}
+                  onPointerCancel={() => setDragging(undefined)}
+                >
+                  <rect x={table.x} y={table.y} width={table.width} height={table.height} rx="10" fill="#ffffff" stroke={relatedToActive ? '#d75a32' : '#b8c8cf'} strokeWidth={relatedToActive ? 2.5 : 1} filter="url(#table-shadow)" />
                   <path d={`M${table.x + 10} ${table.y}H${table.x + table.width - 10}Q${table.x + table.width} ${table.y} ${table.x + table.width} ${table.y + 10}V${table.y + CARD_HEADER_HEIGHT}H${table.x}V${table.y + 10}Q${table.x} ${table.y} ${table.x + 10} ${table.y}`} fill="#315f70" />
                   <text x={table.x + 15} y={table.y + 23} fill="#ffffff" fontSize="15" fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 30) / 8))}</text>
                   <text x={table.x + 15} y={table.y + 40} fill="#d8e8ee" fontSize="10.5">{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
+                  <g className="table-diagram-drag-handle" aria-hidden="true">
+                    {[0, 1, 2].flatMap((row) => [0, 1].map((column) => <circle key={`${row}:${column}`} cx={table.x + table.width - 17 + column * 5} cy={table.y + 16 + row * 5} r="1.25" fill="#d8e8ee" />))}
+                  </g>
                   <rect x={table.x} y={table.y + CARD_HEADER_HEIGHT} width={table.width} height={CARD_META_HEIGHT} fill="#edf3f5" />
                   <text x={table.x + 14} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">KEY</text>
                   <text x={table.x + 54} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">FIELD</text>
