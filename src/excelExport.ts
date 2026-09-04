@@ -556,6 +556,8 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
   const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`, ...(joinRow ? [`A${joinRow}:${lastColumnName}${joinRow}`] : [])];
   const spatialUnit = source.spatialUnit || 'Not specified';
   const fieldCount = `${source.fields.length} field${source.fields.length === 1 ? '' : 's'}`;
+  const sourceGroupName = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.name.trim();
+  const sourceGroupText = sourceGroupName ? `Group: ${sourceGroupName}. ` : '';
 
   return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="A1:${lastColumnName}${Math.max(headerRow, lastRow)}"/>
@@ -564,7 +566,7 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
   <cols>${columns}</cols>
   <sheetData>
     <row r="1" ht="26" customHeight="1">${stringCell('A1', source.name.trim() || 'Untitled table', 1)}</row>
-    <row r="2" ht="20" customHeight="1">${stringCell('A2', `Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
+    <row r="2" ht="20" customHeight="1">${stringCell('A2', `${sourceGroupText}Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
     <row r="${headerRow}" ht="26" customHeight="1">${headerCells}</row>
     ${ordinaryRows}
     ${joinsSection}

@@ -31,6 +31,7 @@ type DiagramRow =
 
 type DiagramTable = {
   source: DataSource;
+  groupName: string;
   rows: DiagramRow[];
   width: number;
   height: number;
@@ -88,11 +89,11 @@ const buildRows = (source: DataSource): DiagramRow[] => {
   return rows.length ? rows : [{ kind: 'empty', height: EMPTY_ROW_HEIGHT }];
 };
 
-const tableWidth = (source: DataSource) => {
+const tableWidth = (source: DataSource, groupName: string) => {
   const longestField = source.fields.reduce((length, field) => Math.max(length, field.name.trim().length), 0);
   const longestDimension = source.fieldGroups.flatMap((group) => group.dimensions)
     .reduce((length, dimension) => Math.max(length, dimension.name.trim().length + dimension.options.join(' · ').length), 0);
-  const richness = Math.max(source.name.trim().length + 8, longestField + 18, Math.min(longestDimension, 54));
+  const richness = Math.max(source.name.trim().length + 8, groupName.length + 8, longestField + 18, Math.min(longestDimension, 54));
   return Math.max(286, Math.min(374, 216 + richness * 2.35));
 };
 
@@ -137,10 +138,12 @@ const buildDiagram = (config: KpiPoolConfig) => {
   const orderedSources = connectedOrder(config.dataSources, config.tableRelations);
   const tableDrafts = orderedSources.map((source) => {
     const rows = buildRows(source);
+    const groupName = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.name.trim() || '';
     return {
       source,
+      groupName,
       rows,
-      width: tableWidth(source),
+      width: tableWidth(source, groupName),
       height: CARD_HEADER_HEIGHT + CARD_META_HEIGHT + rows.reduce((total, row) => total + row.height, 0),
       x: 0,
       y: 0,
@@ -221,7 +224,7 @@ const positionsFromDiagram = (diagram: ReturnType<typeof buildDiagram>) => Objec
 );
 
 export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClose: () => void }) {
-  const diagram = useMemo(() => buildDiagram(config), [config.dataSources, config.tableRelations]);
+  const diagram = useMemo(() => buildDiagram(config), [config.dataSourceGroups, config.dataSources, config.tableRelations]);
   const [zoom, setZoom] = useState(1);
   const [tablePositions, setTablePositions] = useState<Record<string, { x: number; y: number }>>(() => positionsFromDiagram(diagram));
   const [dragging, setDragging] = useState<{ tableId: string; pointerId: number; offsetX: number; offsetY: number }>();
@@ -342,8 +345,14 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
     });
   };
   const relationDescription = (relation: TableRelation) => {
-    const sourceName = config.dataSources.find((source) => source.id === relation.sourceDataSourceId)?.name || 'Missing table';
-    const targetName = config.dataSources.find((source) => source.id === relation.targetDataSourceId)?.name || 'Missing table';
+    const tableName = (sourceId: string) => {
+      const source = config.dataSources.find((entry) => entry.id === sourceId);
+      if (!source) return 'Missing table';
+      const groupName = config.dataSourceGroups.find((group) => group.itemIds.includes(sourceId))?.name.trim();
+      return groupName ? `${groupName} / ${source.name || 'Untitled table'}` : source.name || 'Untitled table';
+    };
+    const sourceName = tableName(relation.sourceDataSourceId);
+    const targetName = tableName(relation.targetDataSourceId);
     return `${sourceName} ${relationLabel(relation)} ${targetName}`;
   };
   const exportSvg = () => {
@@ -567,8 +576,9 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                 >
                   <rect x={table.x} y={table.y} width={table.width} height={table.height} rx="10" fill="#ffffff" stroke={relatedToActive ? '#d75a32' : '#b8c8cf'} strokeWidth={relatedToActive ? 2.5 : 1} filter="url(#table-shadow)" />
                   <path d={`M${table.x + 10} ${table.y}H${table.x + table.width - 10}Q${table.x + table.width} ${table.y} ${table.x + table.width} ${table.y + 10}V${table.y + CARD_HEADER_HEIGHT}H${table.x}V${table.y + 10}Q${table.x} ${table.y} ${table.x + 10} ${table.y}`} fill="#315f70" />
-                  <text x={table.x + 15} y={table.y + 23} fill="#ffffff" fontSize="15" fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 30) / 8))}</text>
-                  <text x={table.x + 15} y={table.y + 40} fill="#d8e8ee" fontSize="10.5">{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
+                  {table.groupName ? <text x={table.x + 15} y={table.y + 13} fill="#bcd5de" fontSize="9" fontWeight="800" letterSpacing="0.5"><title>{table.groupName}</title>{shortened(table.groupName.toLocaleUpperCase(), Math.floor((table.width - 48) / 6))}</text> : null}
+                  <text x={table.x + 15} y={table.y + (table.groupName ? 29 : 23)} fill="#ffffff" fontSize={table.groupName ? 14 : 15} fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 30) / 8))}</text>
+                  <text x={table.x + 15} y={table.y + (table.groupName ? 43 : 40)} fill="#d8e8ee" fontSize={table.groupName ? 9.5 : 10.5}>{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
                   <g className="table-diagram-drag-handle" aria-hidden="true">
                     {[0, 1, 2].flatMap((row) => [0, 1].map((column) => <circle key={`${row}:${column}`} cx={table.x + table.width - 17 + column * 5} cy={table.y + 16 + row * 5} r="1.25" fill="#d8e8ee" />))}
                   </g>

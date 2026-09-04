@@ -3,6 +3,7 @@ import test from 'node:test';
 import JSZip from 'jszip';
 import {
   createKpiExcelWorkbook,
+  createTableSchemaExcelWorkbook,
   KPI_EXCEL_COLUMNS,
   markdownToExcelRichText,
   markdownToExcelText
@@ -89,4 +90,17 @@ test('keeps every export option in the workbook when no column selection is supp
   assert.ok(worksheet);
   assert.match(worksheet, new RegExp(`<dimension ref="A1:${String.fromCharCode(64 + KPI_EXCEL_COLUMNS.length)}3"\\/>`));
   KPI_EXCEL_COLUMNS.forEach(({ label }) => assert.match(worksheet, new RegExp(`>${label}<`)));
+});
+
+test('includes the source-table group in schema workbook metadata', async () => {
+  const bytes = await createTableSchemaExcelWorkbook({
+    title: 'Test',
+    dataSources: [{ id: 'table-1', name: 'Signal Events', spatialUnit: '', fields: [], fieldGroups: [] }],
+    dataSourceGroups: [{ id: 'group-1', name: 'Operations', itemIds: ['table-1'], position: 0 }]
+  } as never);
+  const zip = await JSZip.loadAsync(bytes);
+  const worksheet = await zip.file('xl/worksheets/sheet1.xml')?.async('string');
+
+  assert.ok(worksheet);
+  assert.match(worksheet, />Group: Operations\. Spatial unit: Not specified\. 0 fields\.</);
 });

@@ -3429,6 +3429,15 @@ const dimensionedSourceLabel = (name: string, dimensionLabel: string) =>
 const spatiallyScaledTableLabel = (name: string, spatialUnit: string) =>
   `${name}${spatialUnit.trim() ? ` [by ${spatialUnit.trim()}]` : ''}`;
 
+const dataSourceGroupName = (config: KpiPoolConfig, dataSourceId: string) =>
+  config.dataSourceGroups.find((group) => group.itemIds.includes(dataSourceId))?.name.trim() || '';
+
+const groupedDataSourceLabel = (config: KpiPoolConfig, source: DataSource) => {
+  const tableLabel = spatiallyScaledTableLabel(source.name, source.spatialUnit);
+  const groupName = dataSourceGroupName(config, source.id);
+  return groupName ? `${groupName} / ${tableLabel}` : tableLabel;
+};
+
 const sourceItemDimensions = (config: KpiPoolConfig, item: KpiSourceItem): DataSourceFieldDimension[] => {
   if (item.type === 'kpi') {
     return config.kpis.find((kpi) => kpi.id === item.kpiId)?.dimensions ?? [];
@@ -3499,7 +3508,8 @@ const sourceItemLabel = (config: KpiPoolConfig, item: KpiSourceItem) => {
   const field = source?.fields.find((entry) => entry.id === item.fieldId);
   const group = source?.fieldGroups.find((entry) => entry.fieldIds.includes(item.fieldId));
   const dimensionNames = group?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean) ?? [];
-  return `${source?.name ?? 'Missing source'} / ${dimensionedSourceLabel(field?.name ?? 'Missing field', dimensionNames.join(', '))}`;
+  const sourceName = source ? groupedDataSourceLabel(config, source) : 'Missing source';
+  return `${sourceName} / ${dimensionedSourceLabel(field?.name ?? 'Missing field', dimensionNames.join(', '))}`;
 };
 
 const sourceItemTooltip = (config: KpiPoolConfig, item: KpiSourceItem) => {
@@ -5189,6 +5199,13 @@ function DataSourceHeader({
   ) => (
     <div className="library-group-heading">
       <button
+        className="library-group-toggle"
+        type="button"
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} ${group.name.trim() || `untitled ${itemLabel} group`}`}
+        aria-expanded={expanded}
+        onClick={onToggle}
+      />
+      <button
         className="mini-icon-button drag-handle library-group-drag"
         type="button"
         draggable
@@ -5202,11 +5219,17 @@ function DataSourceHeader({
         }}
         onDragEnd={clearLibraryDrag}
       ><GripVertical size={13} aria-hidden="true" /></button>
-      <button className="library-group-toggle" type="button" aria-expanded={expanded} onClick={onToggle}>
-        <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
-        <strong>{group.name.trim() || 'Untitled group'}</strong>
-        <small>{group.itemIds.length} {group.itemIds.length === 1 ? itemLabel : `${itemLabel}s`}</small>
-      </button>
+      <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
+      <input
+        className="library-group-name-input"
+        value={group.name}
+        size={Math.min(28, Math.max(10, group.name.length || 'Untitled group'.length))}
+        aria-label={`${itemLabel} group name`}
+        placeholder="Untitled group"
+        onChange={(event) => updateLibraryGroup(kind, group.id, { name: event.target.value })}
+      />
+      <small>{group.itemIds.length} {group.itemIds.length === 1 ? itemLabel : `${itemLabel}s`}</small>
+      <button className="mini-icon-button danger library-group-delete" type="button" title={`Delete ${itemLabel} group`} aria-label={`Delete ${group.name.trim() || `untitled ${itemLabel}`} group`} onClick={() => deleteLibraryGroup(kind, group.id)}><Trash2 size={12} /></button>
     </div>
   );
   const renderLookupGroup = (group: DataLibraryGroup) => {
@@ -5266,10 +5289,6 @@ function DataSourceHeader({
       >
         {renderLibraryGroupHeading('lookup', group, expanded, 'lookup', () => setExpandedLookupGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
         {expanded ? <div className="library-group-body">
-          <div className="library-group-settings">
-            <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('lookup', group.id, { name: event.target.value })} /></label>
-            <button className="mini-icon-button danger" type="button" title="Delete lookup group" onClick={() => deleteLibraryGroup('lookup', group.id)}><Trash2 size={12} /></button>
-          </div>
           {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag lookups here</span> : null}
           {groupItems.flatMap(({ lookup, lookupIndex }) => [
             renderLibraryInsertActions('lookup', lookupIndex, `insert-group-lookup-${lookup.id}`, group.id),
@@ -5340,10 +5359,6 @@ function DataSourceHeader({
       >
         {renderLibraryGroupHeading('variable', group, expanded, 'constant', () => setExpandedVariableGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
         {expanded ? <div className="library-group-body">
-          <div className="library-group-settings">
-            <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('variable', group.id, { name: event.target.value })} /></label>
-            <button className="mini-icon-button danger" type="button" title="Delete constant group" onClick={() => deleteLibraryGroup('variable', group.id)}><Trash2 size={12} /></button>
-          </div>
           {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag constants here</span> : null}
           {groupItems.flatMap(({ variable, variableIndex }) => [
             renderLibraryInsertActions('variable', variableIndex, `insert-group-variable-${variable.id}`, group.id),
@@ -5452,10 +5467,6 @@ function DataSourceHeader({
     >
       {renderLibraryGroupHeading('enum', group, expanded, 'domain', () => setExpandedValueEnumGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
       {expanded ? <div className="library-group-body">
-        <div className="library-group-settings">
-          <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('enum', group.id, { name: event.target.value })} /></label>
-          <button className="mini-icon-button danger" type="button" title="Delete domain group" onClick={() => deleteLibraryGroup('enum', group.id)}><Trash2 size={12} /></button>
-        </div>
         {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag domains here</span> : null}
         {groupItems.flatMap(({ definition, enumIndex }) => [
           renderLibraryInsertActions('enum', enumIndex, `insert-group-enum-${definition.id}`, group.id),
@@ -6054,30 +6065,44 @@ function DataSourceHeader({
                     <button
                       className="data-source-expander-toggle"
                       type="button"
+                      aria-label={`${expanded ? 'Collapse' : 'Expand'} ${source.name.trim() || 'untitled data source'}`}
                       aria-expanded={expanded}
                       aria-controls={`data-source-body-${source.id}`}
                       onClick={() => toggleDataSource(source.id)}
+                    />
+                    <ChevronDown className={`data-source-chevron ${expanded ? 'is-expanded' : ''}`} size={15} aria-hidden="true" />
+                    <Table2 className="data-source-header-icon" size={15} aria-hidden="true" />
+                    <input
+                      className="data-source-header-name"
+                      value={source.name}
+                      size={Math.min(30, Math.max(10, source.name.length || 'Untitled table'.length))}
+                      aria-label="Table name"
+                      placeholder="Untitled table"
+                      onChange={(event) => updateDataSource(sourceIndex, { name: event.target.value })}
+                    />
+                    <select
+                      className="data-source-header-spatial-unit"
+                      value={source.spatialUnit}
+                      aria-label="Spatial unit"
+                      onChange={(event) => updateDataSource(sourceIndex, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}
                     >
-                      <ChevronDown className={`data-source-chevron ${expanded ? 'is-expanded' : ''}`} size={15} aria-hidden="true" />
-                      <Table2 size={15} aria-hidden="true" />
-                      <span className="data-source-expander-summary">
-                        <strong>{source.name.trim() || 'Untitled data source'}</strong>
-                        <span className="data-source-header-details">
-                          <small>{source.spatialUnit.trim() || 'No spatial unit'} · {source.fields.length} {source.fields.length === 1 ? 'field' : 'fields'}</small>
-                          {primaryKeyField ? <span className="data-source-primary-key-summary" title={`Primary key: ${primaryKeyField.name || 'Unnamed field'}`}><KeyRound size={9} aria-hidden="true" /><b>PK</b><span>{primaryKeyField.name || 'Unnamed field'}</span></span> : null}
-                          {sourceRelations.length ? <span className="data-source-relation-summary">
-                            {sourceRelations.map((relation) => {
-                              const isSource = relation.sourceDataSourceId === source.id;
-                              const otherId = isSource ? relation.targetDataSourceId : relation.sourceDataSourceId;
-                              const other = config.dataSources.find((entry) => entry.id === otherId);
-                              const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : isSource ? '1:N' : 'N:1';
-                              const otherName = other?.name ?? 'Missing table';
-                              return <span key={relation.id} title={`${cardinality} relationship with ${otherName}`}><Link2 size={9} aria-hidden="true" /><b>{cardinality}</b><span>{otherName}</span></span>;
-                            })}
-                          </span> : null}
-                        </span>
-                      </span>
-                    </button>
+                      <option value="">No spatial unit</option>
+                      {spatialUnitOptions.map((unit) => <option value={unit} key={unit}>{unit}</option>)}
+                    </select>
+                    <span className="data-source-header-details">
+                      <small>{source.fields.length} {source.fields.length === 1 ? 'field' : 'fields'}</small>
+                      {primaryKeyField ? <span className="data-source-primary-key-summary" title={`Primary key: ${primaryKeyField.name || 'Unnamed field'}`}><KeyRound size={9} aria-hidden="true" /><b>PK</b><span>{primaryKeyField.name || 'Unnamed field'}</span></span> : null}
+                      {sourceRelations.length ? <span className="data-source-relation-summary">
+                        {sourceRelations.map((relation) => {
+                          const isSource = relation.sourceDataSourceId === source.id;
+                          const otherId = isSource ? relation.targetDataSourceId : relation.sourceDataSourceId;
+                          const other = config.dataSources.find((entry) => entry.id === otherId);
+                          const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : isSource ? '1:N' : 'N:1';
+                          const otherName = other?.name ?? 'Missing table';
+                          return <span key={relation.id} title={`${cardinality} relationship with ${otherName}`}><Link2 size={9} aria-hidden="true" /><b>{cardinality}</b><span>{otherName}</span></span>;
+                        })}
+                      </span> : null}
+                    </span>
                     <div className="data-source-expander-actions">
                       <button
                         className="mini-icon-button drag-handle data-source-drag"
@@ -6103,13 +6128,6 @@ function DataSourceHeader({
                   </div>
                   {expanded ? (
                     <div className="data-source-expander-body" id={`data-source-body-${source.id}`}>
-                      <div className="data-source-main-fields">
-                        <label className="field"><span>Name</span><input value={source.name} onChange={(event) => updateDataSource(sourceIndex, { name: event.target.value })} /></label>
-                        <label className="field"><span>Spatial unit</span><select value={source.spatialUnit} onChange={(event) => updateDataSource(sourceIndex, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}>
-                          <option value="">None</option>
-                          {spatialUnitOptions.map((unit) => <option value={unit} key={unit}>{unit}</option>)}
-                        </select></label>
-                      </div>
                       <div
                         className={`data-source-ungrouped-fields ${fieldGroupDragOver?.sourceIndex === sourceIndex && fieldGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
                         onDragOver={(event) => {
@@ -6262,10 +6280,6 @@ function DataSourceHeader({
                 >
                   {renderLibraryGroupHeading('source', group, expanded, 'table', () => setExpandedSourceGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
                   {expanded ? <div className="library-group-body">
-                    <div className="library-group-settings">
-                      <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('source', group.id, { name: event.target.value })} /></label>
-                      <button className="mini-icon-button danger" type="button" title="Delete source table group" onClick={() => deleteLibraryGroup('source', group.id)}><Trash2 size={12} /></button>
-                    </div>
                     {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag source tables here</span> : null}
                     {groupItems.flatMap(({ source, sourceIndex }) => [
                       renderLibraryInsertActions('source', sourceIndex, `insert-group-source-${source.id}`, group.id),
@@ -6356,7 +6370,7 @@ function KpiSourceGroupedSummary({
     <span className="kpi-source-summary">
       {dataGroups.map(({ dataSource, items }) => (
         <span className="source-summary-group" key={dataSource.id}>
-          <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(dataSource.name, dataSource.spatialUnit)}</span></span>
+          <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{groupedDataSourceLabel(config, dataSource)}</span></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
             const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
             return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
@@ -6898,7 +6912,7 @@ function KpiSourceEditor({
               <div className="selected-source-list">
                 {selectedDataGroups.map(({ dataSource, items }) => (
                   <section className="selected-source-group" key={dataSource.id}>
-                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{spatiallyScaledTableLabel(dataSource.name, dataSource.spatialUnit)}</span></div>
+                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{groupedDataSourceLabel(config, dataSource)}</span></div>
                     {items.map(({ source, field }) => {
                       const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
                       return renderSelectedSourceRow(source, dimensionedSourceLabel(field.name, dimensionLabel));
@@ -6939,7 +6953,7 @@ function KpiSourceEditor({
               <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
               <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Constants<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
               {config.dataSources.map((source) => (
-                <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{source.name}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+                <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{groupedDataSourceLabel(config, source)}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
               ))}
               <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
             </div>
