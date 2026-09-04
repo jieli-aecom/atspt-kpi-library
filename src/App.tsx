@@ -17,6 +17,7 @@ import {
   Ellipsis,
   Eye,
   FileJson,
+  GitBranch,
   GitFork,
   GripVertical,
   Gauge,
@@ -48,6 +49,7 @@ import {
 } from './configSchema';
 import { mergeImportedConfig } from './configMerge';
 import { buildSystematicJsonExport } from './systematicJsonExport';
+import { TableDiagram } from './TableDiagram';
 import {
   buildKpiExcelRows,
   downloadKpiExcelWorkbook,
@@ -3698,6 +3700,7 @@ function DataSourceHeader({
   } | null>(null);
   const [fieldGroupDomainPickerId, setFieldGroupDomainPickerId] = useState<string>();
   const [fieldDetailsEditor, setFieldDetailsEditor] = useState<{ dataSourceId: string; fieldId: string }>();
+  const [diagramOpen, setDiagramOpen] = useState(false);
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const navigatedEditRequestIdRef = useRef<number>();
@@ -3808,6 +3811,7 @@ function DataSourceHeader({
       const target = event.target;
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
       if (fieldDetailsEditor && target instanceof Element && target.closest('.kpi-note-dialog-backdrop')) return;
+      if (diagramOpen && target instanceof Element && target.closest('.table-diagram-backdrop')) return;
       if (target instanceof Element && target.closest('[data-preserve-source-library-state]')) return;
       consumeOutsidePopupPointerDown(event);
       const activeElement = document.activeElement;
@@ -3818,6 +3822,10 @@ function DataSourceHeader({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (fieldDetailsEditor) return;
+        if (diagramOpen) {
+          setDiagramOpen(false);
+          return;
+        }
         if (relationEditor) {
           setRelationEditor(null);
         } else {
@@ -3833,7 +3841,7 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [fieldDetailsEditor, open, relationEditor]);
+  }, [diagramOpen, fieldDetailsEditor, open, relationEditor]);
   const patchDataSources = (dataSources: DataSource[]) => {
     onConfigChange({ ...config, dataSources });
   };
@@ -4406,6 +4414,8 @@ function DataSourceHeader({
         name: uniqueFieldName(current, fallbackPrimaryKeyName(current)),
         meaning: `Primary key for ${current.name || 'this table'}`,
         details: '',
+        preprocessingNeeded: false,
+        preferredLatex: '',
         dataType: 'id',
         valueUnit: '',
         options: []
@@ -4435,6 +4445,8 @@ function DataSourceHeader({
         name: collectionFieldName,
         meaning: `Related ${target.name || 'table'} keys`,
         details: '',
+        preprocessingNeeded: false,
+        preferredLatex: '',
         dataType: 'collection',
         collectionItemType: 'id',
         valueUnit: '',
@@ -4447,6 +4459,8 @@ function DataSourceHeader({
         name: foreignKeyFieldName,
         meaning: `ID of the related ${source.name || 'table'} record`,
         details: '',
+        preprocessingNeeded: false,
+        preferredLatex: '',
         dataType: 'id',
         valueUnit: '',
         options: [],
@@ -4461,6 +4475,8 @@ function DataSourceHeader({
         name: collectionFieldName,
         meaning: `Related ${target.name || 'table'} keys`,
         details: '',
+        preprocessingNeeded: false,
+        preferredLatex: '',
         dataType: 'collection',
         collectionItemType: 'id',
         valueUnit: '',
@@ -4473,6 +4489,8 @@ function DataSourceHeader({
         name: targetCollectionFieldName,
         meaning: `Related ${source.name || 'table'} keys`,
         details: '',
+        preprocessingNeeded: false,
+        preferredLatex: '',
         dataType: 'collection',
         collectionItemType: 'id',
         valueUnit: '',
@@ -4553,7 +4571,9 @@ function DataSourceHeader({
       ? {
           ...(partial.name !== undefined ? { name: partial.name } : {}),
           ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}),
-          ...(partial.details !== undefined ? { details: partial.details } : {})
+          ...(partial.details !== undefined ? { details: partial.details } : {}),
+          ...(partial.preprocessingNeeded !== undefined ? { preprocessingNeeded: partial.preprocessingNeeded } : {}),
+          ...(partial.preferredLatex !== undefined ? { preferredLatex: partial.preferredLatex } : {})
         }
       : partial;
     const next = { ...current, ...editablePartial };
@@ -4581,6 +4601,52 @@ function DataSourceHeader({
       fields: source.fields.map((field, index) => index === fieldIndex ? next : field)
     });
   };
+  const changeFieldLatexGlobally = async (
+    sourceIndex: number,
+    fieldIndex: number,
+    nextLatex: string,
+    reportProgress: (completed: number, total: number) => void
+  ) => {
+    const source = config.dataSources[sourceIndex];
+    const field = source?.fields[fieldIndex];
+    if (!source || !field || !nextLatex.trim()) return 0;
+    const total = config.kpis.length;
+    let changedInstances = 0;
+    const kpis: KpiMetric[] = [];
+    reportProgress(0, total);
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    for (let index = 0; index < total; index += 1) {
+      const kpi = config.kpis[index];
+      const matchingSources = kpi.sources.filter((item) => item.type === 'dataField' && item.dataSourceId === source.id && item.fieldId === field.id);
+      let updatedKpi = kpi;
+      matchingSources.forEach((item) => {
+        const formulaUpdates = replaceKpiSourceLatex(updatedKpi, item, item.latex, nextLatex);
+        updatedKpi = { ...updatedKpi, ...formulaUpdates };
+      });
+      if (matchingSources.length) {
+        const matchingIds = new Set(matchingSources.map((item) => item.id));
+        updatedKpi = {
+          ...updatedKpi,
+          sources: updatedKpi.sources.map((item) => matchingIds.has(item.id) ? { ...item, latex: nextLatex } : item)
+        };
+        changedInstances += matchingSources.length;
+      }
+      kpis.push(updatedKpi);
+      const completed = index + 1;
+      if (completed === total || completed % 20 === 0) {
+        reportProgress(completed, total);
+        await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+      }
+    }
+    const dataSources = config.dataSources.map((entry, entryIndex) => entryIndex === sourceIndex ? {
+      ...entry,
+      fields: entry.fields.map((entryField, entryFieldIndex) => entryFieldIndex === fieldIndex
+        ? { ...entryField, preferredLatex: nextLatex }
+        : entryField)
+    } : entry);
+    onConfigChange({ ...config, dataSources, kpis });
+    return changedInstances;
+  };
   const setPrimaryKey = (sourceIndex: number, fieldIndex: number) => {
     const source = config.dataSources[sourceIndex];
     const field = source.fields[fieldIndex];
@@ -4597,7 +4663,17 @@ function DataSourceHeader({
   const addField = (sourceIndex: number, insertionIndex?: number, groupId?: string, shiftGroupsAtPosition = false) => {
     const source = config.dataSources[sourceIndex];
     const index = Math.max(0, Math.min(insertionIndex ?? source.fields.length, source.fields.length));
-    const field: DataSourceField = { id: createLocalId('field'), name: 'New field', meaning: '', details: '', dataType: 'number', valueUnit: '', options: [] };
+    const field: DataSourceField = {
+      id: createLocalId('field'),
+      name: 'New field',
+      meaning: '',
+      details: '',
+      preprocessingNeeded: false,
+      preferredLatex: '',
+      dataType: 'number',
+      valueUnit: '',
+      options: []
+    };
     updateDataSource(sourceIndex, {
       fields: [...source.fields.slice(0, index), field, ...source.fields.slice(index)],
       fieldGroups: source.fieldGroups.map((group) => ({
@@ -4607,25 +4683,6 @@ function DataSourceHeader({
           : group.position,
         fieldIds: group.id === groupId ? [...group.fieldIds, field.id] : group.fieldIds
       }))
-    });
-  };
-  const copyField = (sourceIndex: number, fieldIndex: number) => {
-    const source = config.dataSources[sourceIndex];
-    const field = source?.fields[fieldIndex];
-    if (!source || !field) return;
-    const duplicate = { ...field, id: createLocalId('field'), name: `${field.name || 'Untitled field'} copy`, options: [...field.options] };
-    updateDataSource(sourceIndex, {
-      fields: [...source.fields.slice(0, fieldIndex + 1), duplicate, ...source.fields.slice(fieldIndex + 1)],
-      fieldGroups: source.fieldGroups.map((group) => {
-        const memberIndex = group.fieldIds.indexOf(field.id);
-        return {
-          ...group,
-          position: group.position > fieldIndex ? group.position + 1 : group.position,
-          fieldIds: memberIndex < 0
-            ? group.fieldIds
-            : [...group.fieldIds.slice(0, memberIndex + 1), duplicate.id, ...group.fieldIds.slice(memberIndex + 1)]
-        };
-      })
     });
   };
   const addFieldGroup = (sourceIndex: number, position: number) => {
@@ -5356,6 +5413,10 @@ function DataSourceHeader({
   const fieldDetailsField = fieldDetailsSourceIndex >= 0 && fieldDetailsFieldIndex >= 0
     ? config.dataSources[fieldDetailsSourceIndex].fields[fieldDetailsFieldIndex]
     : undefined;
+  const fieldDetailsSource = fieldDetailsSourceIndex >= 0 ? config.dataSources[fieldDetailsSourceIndex] : undefined;
+  const fieldDetailsGroup = fieldDetailsSource && fieldDetailsField
+    ? fieldDetailsSource.fieldGroups.find((group) => group.fieldIds.includes(fieldDetailsField.id))
+    : undefined;
   return (
     <div className="library-manager-control" ref={controlRef}>
       <div className="library-manager-tray" aria-label="Shared definition libraries">
@@ -5398,7 +5459,10 @@ function DataSourceHeader({
               {activeLibrarySection === 'variables' ? <button className="primary-action tiny" type="button" onClick={() => addVariable()}><Plus size={12} /> Add constant</button> : null}
               {activeLibrarySection === 'enums' ? <button className="primary-action tiny" type="button" onClick={() => addValueEnum()}><Plus size={12} /> Add domain</button> : null}
               {activeLibrarySection === 'lookups' ? <button className="primary-action tiny" type="button" onClick={() => addLookup()}><Plus size={12} /> Add lookup</button> : null}
-              {activeLibrarySection === 'tables' ? <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add source table</button> : null}
+              {activeLibrarySection === 'tables' ? <>
+                <button className="secondary-action tiny" type="button" onClick={() => { setOpen(false); setDiagramOpen(true); }}><GitBranch size={12} /> View diagram</button>
+                <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add source table</button>
+              </> : null}
             </div>
           </div>
           <div className="data-source-list">
@@ -5616,12 +5680,13 @@ function DataSourceHeader({
               );
               const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => {
                 const isPrimaryKey = source.primaryKeyFieldId === field.id;
+                const preprocessingNeeded = field.preprocessingNeeded || Boolean(field.details.trim());
                 const primaryKeyRelations = isPrimaryKey ? sourceRelations : [];
                 const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
                 const relationIsDuplicate = relationDraftIsDuplicate;
                 return (
                 <div
-                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
+                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${preprocessingNeeded ? 'needs-preprocessing' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
                   data-library-target={`field:${field.id}`}
                   key={field.id}
                   onDragOver={(event) => {
@@ -5724,28 +5789,20 @@ function DataSourceHeader({
                     : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
                     <button
-                      className={`mini-icon-button field-details-button ${field.details.trim() ? 'has-details' : ''}`}
+                      className={`mini-icon-button field-details-button ${preprocessingNeeded ? 'needs-preprocessing' : ''}`}
                       type="button"
-                      title={field.details.trim() ? 'Edit field details' : 'Add field details'}
-                      aria-label={`${field.details.trim() ? 'Edit' : 'Add'} details for ${field.name || 'field'}`}
+                      title={preprocessingNeeded ? 'Preprocessing required — edit settings' : 'Configure field preprocessing and preferred formula'}
+                      aria-label={`Configure preprocessing and preferred formula for ${field.name || 'field'}`}
                       aria-haspopup="dialog"
                       onClick={() => setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id })}
-                    ><Info size={12} aria-hidden="true" /></button>
-                    {field.generatedRelationId ? <><span className="relation-field-badge">Linked</span><button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <><button
-                      className="mini-icon-button"
-                      type="button"
-                      title="Copy field"
-                      aria-label={`Copy ${field.name || 'field'}`}
-                      onClick={() => copyField(sourceIndex, fieldIndex)}
-                    ><Copy size={12} /></button>
-                    <button
+                    ><AlertTriangle size={12} aria-hidden="true" /></button>
+                    {field.generatedRelationId ? <><span className="relation-field-badge">Linked</span><button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <button
                       className="mini-icon-button danger"
                       type="button"
                       disabled={isPrimaryKey && primaryKeyRelations.length > 0}
                       title={isPrimaryKey && primaryKeyRelations.length ? 'Delete this key’s relations before deleting its primary key' : 'Delete field'}
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
-                    ><Trash2 size={12} /></button>
-                    </>}
+                    ><Trash2 size={12} /></button>}
                   </div>
                   {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="data-source-field-enum-options">
                     {renderLookupEnumOptions(
@@ -6053,9 +6110,12 @@ function DataSourceHeader({
       ) : null}
       {fieldDetailsField ? <FieldDetailsDialog
         field={fieldDetailsField}
-        onChange={(details) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { details })}
+        defaultLatex={fieldDetailsField.preferredLatex || sourceFieldDefaultLatex(fieldDetailsField, fieldDetailsSource?.spatialUnit ?? '', fieldDetailsGroup?.dimensions)}
+        onChange={(partial) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, partial)}
+        onChangeGlobally={(latex, reportProgress) => changeFieldLatexGlobally(fieldDetailsSourceIndex, fieldDetailsFieldIndex, latex, reportProgress)}
         onClose={() => setFieldDetailsEditor(undefined)}
       /> : null}
+      {diagramOpen ? createPortal(<TableDiagram config={config} onClose={() => setDiagramOpen(false)} />, document.body) : null}
     </div>
   );
 }
@@ -6374,7 +6434,7 @@ function KpiSourceEditor({
           type: 'dataField',
           dataSourceId,
           fieldId,
-          latex: sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, dataSource?.spatialUnit ?? '', group?.dimensions)
+          latex: field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, dataSource?.spatialUnit ?? '', group?.dimensions)
         }]);
   };
   const toggleKpi = (kpiId: string) => {
@@ -6761,22 +6821,36 @@ function KpiSourceEditor({
 
 function FieldDetailsDialog({
   field,
+  defaultLatex,
   onChange,
+  onChangeGlobally,
   onClose
 }: {
   field: DataSourceField;
-  onChange: (details: string) => void;
+  defaultLatex: string;
+  onChange: (partial: Partial<DataSourceField>) => void;
+  onChangeGlobally: (latex: string, reportProgress: (completed: number, total: number) => void) => Promise<number>;
   onClose: () => void;
 }) {
   const [showRawMarkdown, setShowRawMarkdown] = useState(false);
+  const [preferredLatex, setPreferredLatex] = useState(defaultLatex);
+  const [isApplyingGlobally, setIsApplyingGlobally] = useState(false);
+  const [globalProgress, setGlobalProgress] = useState<{ completed: number; total: number }>();
+  const [globalResult, setGlobalResult] = useState('');
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   const titleId = `field-details-dialog-title-${field.id}`;
+  const preprocessingNeeded = field.preprocessingNeeded || Boolean(field.details.trim());
   const closeDialog = useCallback(() => {
+    if (isApplyingGlobally) return;
     const activeElement = document.activeElement;
     if (activeElement instanceof HTMLElement && dialogRef.current?.contains(activeElement)) activeElement.blur();
     onClose();
-  }, [onClose]);
+  }, [isApplyingGlobally, onClose]);
+
+  useEffect(() => {
+    setPreferredLatex(defaultLatex);
+  }, [field.id]);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -6794,52 +6868,98 @@ function FieldDetailsDialog({
     };
   }, [closeDialog]);
 
+  const changeDetails = (details: string) => onChange({
+    details,
+    preprocessingNeeded: field.preprocessingNeeded || Boolean(details.trim())
+  });
+  const changePreferredLatex = (latex: string) => {
+    setPreferredLatex(latex);
+    setGlobalResult('');
+    onChange({ preferredLatex: latex });
+  };
+  const applyLatexGlobally = async () => {
+    if (!preferredLatex.trim() || isApplyingGlobally) return;
+    setIsApplyingGlobally(true);
+    setGlobalResult('');
+    setGlobalProgress({ completed: 0, total: 0 });
+    try {
+      const changedInstances = await onChangeGlobally(preferredLatex, (completed, total) => setGlobalProgress({ completed, total }));
+      setGlobalResult(`Updated ${changedInstances} ${changedInstances === 1 ? 'source instance' : 'source instances'}.`);
+    } finally {
+      setIsApplyingGlobally(false);
+    }
+  };
+
   return createPortal(
     <div className="kpi-note-dialog-backdrop" onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeDialog();
     }}>
-      <section ref={dialogRef} className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <section ref={dialogRef} className="kpi-note-dialog field-preprocessing-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={isApplyingGlobally}>
         <header className="kpi-note-dialog-header">
           <div>
-            <span>Field details</span>
+            <span>Field preprocessing</span>
             <strong id={titleId}>{field.name || 'Untitled field'}</strong>
           </div>
-          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close field details" onClick={closeDialog}>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" disabled={isApplyingGlobally} title={isApplyingGlobally ? 'Wait for the global update to finish' : 'Close'} aria-label="Close field preprocessing" onClick={closeDialog}>
             <X size={16} aria-hidden="true" />
           </button>
         </header>
         <div className="kpi-note-dialog-body">
-          <div className="lookup-details-heading">
-            <span>Details</span>
-            <label className="lookup-details-mode">
-              <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label={`Show raw Markdown for ${field.name || 'untitled field'} details`}
-                checked={showRawMarkdown}
-                onChange={(event) => setShowRawMarkdown(event.target.checked)}
-              />
-              <span className={showRawMarkdown ? 'is-active' : ''}>Raw</span>
+          <section className={`field-preprocessing-setting ${preprocessingNeeded ? 'is-needed' : ''}`}>
+            <div>
+              <strong>Preprocessing needed</strong>
+              <small>Mark this field when it must be cleaned, transformed, joined, or otherwise prepared before use.</small>
+            </div>
+            <label className="lookup-details-mode preprocessing-toggle">
+              <span className={!preprocessingNeeded ? 'is-active' : ''}>No</span>
+              <input type="checkbox" role="switch" aria-label={`Preprocessing needed for ${field.name || 'untitled field'}`} checked={preprocessingNeeded} onChange={(event) => onChange({ preprocessingNeeded: event.target.checked || Boolean(field.details.trim()) })} />
+              <span className={preprocessingNeeded ? 'is-active' : ''}>Yes</span>
             </label>
-          </div>
-          {showRawMarkdown ? (
-            <textarea
-              className="markdown-source-textarea kpi-note-source"
-              value={field.details}
-              rows={14}
-              aria-label={`Raw Markdown details for ${field.name || 'untitled field'}`}
-              placeholder="# Field details\n\nDocument definitions, assumptions, sources, caveats, and examples."
-              onChange={(event) => onChange(event.target.value)}
-            />
-          ) : (
-            <MarkdownContent
-              value={field.details}
-              placeholder="Click to add field details"
-              onValueChange={onChange}
-            />
-          )}
-          <small className="kpi-note-dialog-hint">Markdown is preserved with the source-table definition.</small>
+          </section>
+          <section className="field-preprocessing-notes">
+            <div className="lookup-details-heading">
+              <span>Preprocessing notes</span>
+              <label className="lookup-details-mode">
+                <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
+                <input type="checkbox" role="switch" aria-label={`Show raw Markdown for ${field.name || 'untitled field'} preprocessing notes`} checked={showRawMarkdown} onChange={(event) => setShowRawMarkdown(event.target.checked)} />
+                <span className={showRawMarkdown ? 'is-active' : ''}>Raw</span>
+              </label>
+            </div>
+            {showRawMarkdown ? (
+              <textarea
+                className="markdown-source-textarea kpi-note-source field-preprocessing-note"
+                value={field.details}
+                rows={9}
+                aria-label={`Raw Markdown preprocessing notes for ${field.name || 'untitled field'}`}
+                placeholder="Describe cleaning, transformation, joining, assumptions, or other preparation."
+                onChange={(event) => changeDetails(event.target.value)}
+              />
+            ) : (
+              <MarkdownContent value={field.details} placeholder="Click to add preprocessing notes" onValueChange={changeDetails} />
+            )}
+          </section>
+          <section className="field-preferred-latex">
+            <div>
+              <strong>Preferred LaTeX expression</strong>
+              <small>New KPI sources for this field will use this expression by default.</small>
+            </div>
+            <div className="field-preferred-latex-editor">
+              <input className="latex-code-editor" value={preferredLatex} placeholder="x_{unit,dimension}" aria-label={`Preferred LaTeX expression for ${field.name || 'untitled field'}`} onChange={(event) => changePreferredLatex(event.target.value)} />
+              <span className="source-latex-preview">{preferredLatex.trim() ? <InlineMath math={preferredLatex} errorColor="#b42318" /> : 'Preview'}</span>
+            </div>
+            <div className="field-global-latex-action">
+              <button className="secondary-action small" type="button" disabled={isApplyingGlobally || !preferredLatex.trim()} onClick={applyLatexGlobally}>
+                {isApplyingGlobally ? <RefreshCw className="field-progress-spin" size={13} aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
+                {isApplyingGlobally ? 'Changing formula expressions…' : 'Change formula expression globally'}
+              </button>
+              <small>This updates every matching KPI source and its formula references in responsive batches.</small>
+              <span className="field-global-latex-status" role="status" aria-live="polite">
+                {isApplyingGlobally && globalProgress
+                  ? `Processed ${globalProgress.completed} of ${globalProgress.total} KPIs…`
+                  : globalResult}
+              </span>
+            </div>
+          </section>
         </div>
       </section>
     </div>,
