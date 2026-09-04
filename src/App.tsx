@@ -125,6 +125,7 @@ type ColumnFilters = {
 };
 
 type DropPosition = 'before' | 'after';
+type LibraryKind = 'lookup' | 'variable' | 'enum' | 'source';
 type PerformanceAreaSortOrder = 'asc' | 'desc' | undefined;
 
 type SourceLibraryEditTarget =
@@ -3684,6 +3685,7 @@ function DataSourceHeader({
 }) {
   const [open, setOpen] = useState(false);
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
+  const [expandedSourceGroupIds, setExpandedSourceGroupIds] = useState<string[]>([]);
   const [collapsedFieldGroupIds, setCollapsedFieldGroupIds] = useState<string[]>([]);
   const [expandedLookupIds, setExpandedLookupIds] = useState<string[]>([]);
   const [expandedLookupGroupIds, setExpandedLookupGroupIds] = useState<string[]>([]);
@@ -3710,11 +3712,11 @@ function DataSourceHeader({
   const [fieldDragOver, setFieldDragOver] = useState<{ sourceIndex: number; fieldIndex: number; position: DropPosition } | null>(null);
   const [fieldInsertDragOver, setFieldInsertDragOver] = useState<{ sourceIndex: number; targetKey: string } | null>(null);
   const [fieldGroupDragOver, setFieldGroupDragOver] = useState<{ sourceIndex: number; groupId?: string } | null>(null);
-  const [libraryItemDrag, setLibraryItemDrag] = useState<{ kind: 'lookup' | 'variable' | 'enum'; itemIndex: number } | null>(null);
-  const [libraryGroupDrag, setLibraryGroupDrag] = useState<{ kind: 'lookup' | 'variable' | 'enum'; groupId: string } | null>(null);
-  const [libraryItemDragOver, setLibraryItemDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; itemIndex: number; position: DropPosition } | null>(null);
-  const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; groupId?: string; position?: DropPosition } | null>(null);
-  const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: 'lookup' | 'variable' | 'enum'; key: string } | null>(null);
+  const [libraryItemDrag, setLibraryItemDrag] = useState<{ kind: LibraryKind; itemIndex: number } | null>(null);
+  const [libraryGroupDrag, setLibraryGroupDrag] = useState<{ kind: LibraryKind; groupId: string } | null>(null);
+  const [libraryItemDragOver, setLibraryItemDragOver] = useState<{ kind: LibraryKind; itemIndex: number; position: DropPosition } | null>(null);
+  const [libraryGroupDragOver, setLibraryGroupDragOver] = useState<{ kind: LibraryKind; groupId?: string; position?: DropPosition } | null>(null);
+  const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: LibraryKind; key: string } | null>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const [focusedEditRequest, setFocusedEditRequest] = useState<SourceLibraryEditRequest>();
   useEffect(() => {
@@ -3725,6 +3727,10 @@ function DataSourceHeader({
       setActiveLibrarySection('tables');
       setExpandedSourceIds((current) => [...new Set([...current, editRequest.dataSourceId])]);
       const source = config.dataSources.find((entry) => entry.id === editRequest.dataSourceId);
+      const sourceGroup = config.dataSourceGroups.find((entry) => entry.itemIds.includes(editRequest.dataSourceId));
+      if (sourceGroup) {
+        setExpandedSourceGroupIds((current) => [...new Set([...current, sourceGroup.id])]);
+      }
       const group = source?.fieldGroups.find((entry) => entry.fieldIds.includes(editRequest.fieldId));
       if (group) {
         setCollapsedFieldGroupIds((current) => current.filter((id) => id !== group.id));
@@ -3842,8 +3848,8 @@ function DataSourceHeader({
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [diagramOpen, fieldDetailsEditor, open, relationEditor]);
-  const patchDataSources = (dataSources: DataSource[]) => {
-    onConfigChange({ ...config, dataSources });
+  const patchDataSources = (dataSources: DataSource[], dataSourceGroups = config.dataSourceGroups) => {
+    onConfigChange({ ...config, dataSources, dataSourceGroups });
   };
   const patchLookups = (lookups: LookupDefinition[], lookupGroups = config.lookupGroups) =>
     onConfigChange({ ...config, lookups, lookupGroups });
@@ -4086,7 +4092,7 @@ function DataSourceHeader({
       }))
     });
   };
-  const addLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', position: number, beforeGroupId?: string) => {
+  const addLibraryGroup = (kind: LibraryKind, position: number, beforeGroupId?: string) => {
     const group: DataLibraryGroup = {
       id: createLocalId(`${kind}-group`),
       name: 'New group',
@@ -4099,7 +4105,10 @@ function DataSourceHeader({
         ? [...groups, group]
         : [...groups.slice(0, insertionIndex), group, ...groups.slice(insertionIndex)];
     };
-    if (kind === 'lookup') {
+    if (kind === 'source') {
+      onConfigChange({ ...config, dataSourceGroups: insertGroup(config.dataSourceGroups) });
+      setExpandedSourceGroupIds((current) => [...current, group.id]);
+    } else if (kind === 'lookup') {
       onConfigChange({ ...config, lookupGroups: insertGroup(config.lookupGroups) });
     } else if (kind === 'variable') {
       onConfigChange({ ...config, variableGroups: insertGroup(config.variableGroups) });
@@ -4108,8 +4117,13 @@ function DataSourceHeader({
       setExpandedValueEnumGroupIds((current) => [...current, group.id]);
     }
   };
-  const updateLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', groupId: string, partial: Partial<DataLibraryGroup>) => {
-    if (kind === 'lookup') {
+  const updateLibraryGroup = (kind: LibraryKind, groupId: string, partial: Partial<DataLibraryGroup>) => {
+    if (kind === 'source') {
+      onConfigChange({
+        ...config,
+        dataSourceGroups: config.dataSourceGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
+      });
+    } else if (kind === 'lookup') {
       onConfigChange({
         ...config,
         lookupGroups: config.lookupGroups.map((group) => group.id === groupId ? { ...group, ...partial } : group)
@@ -4126,8 +4140,11 @@ function DataSourceHeader({
       });
     }
   };
-  const deleteLibraryGroup = (kind: 'lookup' | 'variable' | 'enum', groupId: string) => {
-    if (kind === 'lookup') {
+  const deleteLibraryGroup = (kind: LibraryKind, groupId: string) => {
+    if (kind === 'source') {
+      setExpandedSourceGroupIds((current) => current.filter((id) => id !== groupId));
+      onConfigChange({ ...config, dataSourceGroups: config.dataSourceGroups.filter((group) => group.id !== groupId) });
+    } else if (kind === 'lookup') {
       setExpandedLookupGroupIds((current) => current.filter((id) => id !== groupId));
       onConfigChange({ ...config, lookupGroups: config.lookupGroups.filter((group) => group.id !== groupId) });
     } else if (kind === 'variable') {
@@ -4138,15 +4155,16 @@ function DataSourceHeader({
       onConfigChange({ ...config, valueEnumGroups: config.valueEnumGroups.filter((group) => group.id !== groupId) });
     }
   };
-  const assignLibraryItemToGroup = (kind: 'lookup' | 'variable' | 'enum', itemId: string, groupId?: string) => {
-    const groups = kind === 'lookup' ? config.lookupGroups : kind === 'variable' ? config.variableGroups : config.valueEnumGroups;
+  const assignLibraryItemToGroup = (kind: LibraryKind, itemId: string, groupId?: string) => {
+    const groups = kind === 'source' ? config.dataSourceGroups : kind === 'lookup' ? config.lookupGroups : kind === 'variable' ? config.variableGroups : config.valueEnumGroups;
     const nextGroups = groups.map((group) => ({
       ...group,
       itemIds: group.id === groupId
         ? group.itemIds.includes(itemId) ? group.itemIds : [...group.itemIds, itemId]
         : group.itemIds.filter((id) => id !== itemId)
     }));
-    if (kind === 'lookup') onConfigChange({ ...config, lookupGroups: nextGroups });
+    if (kind === 'source') onConfigChange({ ...config, dataSourceGroups: nextGroups });
+    else if (kind === 'lookup') onConfigChange({ ...config, lookupGroups: nextGroups });
     else if (kind === 'variable') onConfigChange({ ...config, variableGroups: nextGroups });
     else onConfigChange({ ...config, valueEnumGroups: nextGroups });
   };
@@ -4185,14 +4203,25 @@ function DataSourceHeader({
     };
   };
   const moveLibraryItem = (
-    kind: 'lookup' | 'variable' | 'enum',
+    kind: LibraryKind,
     targetIndex: number,
     position: DropPosition,
     groupId?: string,
     shiftGroupsAtTarget = true
   ) => {
     if (!libraryItemDrag || libraryItemDrag.kind !== kind) return;
-    if (kind === 'lookup') {
+    if (kind === 'source') {
+      const result = moveLibraryCollection(
+        config.dataSources,
+        config.dataSourceGroups,
+        libraryItemDrag.itemIndex,
+        targetIndex,
+        position,
+        groupId,
+        shiftGroupsAtTarget
+      );
+      onConfigChange({ ...config, dataSources: result.items, dataSourceGroups: result.groups });
+    } else if (kind === 'lookup') {
       const result = moveLibraryCollection(
         config.lookups,
         config.lookupGroups,
@@ -4278,12 +4307,15 @@ function DataSourceHeader({
     return { items: nextItems, groups: nextGroups };
   };
   const moveLibraryGroup = (
-    kind: 'lookup' | 'variable' | 'enum',
+    kind: LibraryKind,
     target: { type: 'group'; groupId: string; position: DropPosition } | { type: 'item'; itemId: string; position: DropPosition } | { type: 'end' }
   ) => {
     if (!libraryGroupDrag || libraryGroupDrag.kind !== kind) return;
     if (target.type === 'group' && target.groupId === libraryGroupDrag.groupId) return;
-    if (kind === 'lookup') {
+    if (kind === 'source') {
+      const result = moveLibraryGroupCollection(config.dataSources, config.dataSourceGroups, libraryGroupDrag.groupId, target);
+      onConfigChange({ ...config, dataSources: result.items, dataSourceGroups: result.groups });
+    } else if (kind === 'lookup') {
       const result = moveLibraryGroupCollection(config.lookups, config.lookupGroups, libraryGroupDrag.groupId, target);
       onConfigChange({ ...config, lookups: result.items, lookupGroups: result.groups });
     } else if (kind === 'variable') {
@@ -4374,6 +4406,13 @@ function DataSourceHeader({
             fieldGroups: source.fieldGroups.map((group) => ({ ...group, fieldIds: group.fieldIds.filter((id) => fieldIds.has(id)) }))
           };
         }),
+      dataSourceGroups: config.dataSourceGroups.map((group) => ({
+        ...group,
+        position: group.position - config.dataSources
+          .slice(0, group.position)
+          .filter((source) => removedDataSourceIds.has(source.id)).length,
+        itemIds: group.itemIds.filter((id) => !removedDataSourceIds.has(id))
+      })),
       kpis: config.kpis.map((kpi) => ({
         ...kpi,
         sources: kpi.sources.filter((source) => source.type !== 'dataField' || (
@@ -4503,10 +4542,17 @@ function DataSourceHeader({
     onConfigChange({ ...config, dataSources, tableRelations: [...config.tableRelations, relation] });
     setRelationEditor(null);
   };
-  const addDataSource = (insertionIndex = config.dataSources.length) => {
+  const addDataSource = (insertionIndex = config.dataSources.length, groupId?: string, shiftGroupsAtInsertion = true) => {
     const source: DataSource = { id: createLocalId('source'), name: 'New data source', spatialUnit: '', fields: [], fieldGroups: [] };
     const index = Math.max(0, Math.min(insertionIndex, config.dataSources.length));
-    patchDataSources([...config.dataSources.slice(0, index), source, ...config.dataSources.slice(index)]);
+    patchDataSources(
+      [...config.dataSources.slice(0, index), source, ...config.dataSources.slice(index)],
+      config.dataSourceGroups.map((group) => ({
+        ...group,
+        position: shiftGroupsAtInsertion && group.position >= index && group.id !== groupId ? group.position + 1 : group.position,
+        itemIds: group.id === groupId ? [...group.itemIds, source.id] : group.itemIds
+      }))
+    );
     setExpandedSourceIds((current) => [...new Set([...current, source.id])]);
   };
   const toggleDataSource = (sourceId: string) => {
@@ -4535,24 +4581,41 @@ function DataSourceHeader({
         fieldIds: group.fieldIds.flatMap((fieldId) => fieldIdMap.get(fieldId) ?? [])
       }))
     };
-    patchDataSources([
-      ...config.dataSources.slice(0, sourceIndex + 1),
-      duplicate,
-      ...config.dataSources.slice(sourceIndex + 1)
-    ]);
+    const containingGroup = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id));
+    patchDataSources(
+      [
+        ...config.dataSources.slice(0, sourceIndex + 1),
+        duplicate,
+        ...config.dataSources.slice(sourceIndex + 1)
+      ],
+      config.dataSourceGroups.map((group) => {
+        const memberIndex = group.itemIds.indexOf(source.id);
+        return {
+          ...group,
+          position: group.position > sourceIndex ? group.position + 1 : group.position,
+          itemIds: memberIndex < 0
+            ? group.itemIds
+            : [...group.itemIds.slice(0, memberIndex + 1), duplicate.id, ...group.itemIds.slice(memberIndex + 1)]
+        };
+      })
+    );
+    if (containingGroup) setExpandedSourceGroupIds((current) => [...new Set([...current, containingGroup.id])]);
     setExpandedSourceIds((current) => [...new Set([...current, duplicate.id])]);
   };
   const updateDataSource = (sourceIndex: number, partial: Partial<DataSource>) =>
     patchDataSources(config.dataSources.map((source, index) => index === sourceIndex ? { ...source, ...partial } : source));
-  const moveDataSource = (targetIndex: number, position: DropPosition) => {
+  const moveDataSource = (targetIndex: number, position: DropPosition, groupId?: string, shiftGroupsAtTarget = true) => {
     if (sourceDragIndex === null) return;
-    const dataSources = [...config.dataSources];
-    const [moved] = dataSources.splice(sourceDragIndex, 1);
-    if (!moved) return;
-    let insertionIndex = targetIndex + (position === 'after' ? 1 : 0);
-    if (sourceDragIndex < insertionIndex) insertionIndex -= 1;
-    dataSources.splice(Math.max(0, Math.min(insertionIndex, dataSources.length)), 0, moved);
-    patchDataSources(dataSources);
+    const result = moveLibraryCollection(
+      config.dataSources,
+      config.dataSourceGroups,
+      sourceDragIndex,
+      targetIndex,
+      position,
+      groupId,
+      shiftGroupsAtTarget
+    );
+    patchDataSources(result.items, result.groups);
   };
   const deleteDataSource = (sourceIndex: number) => {
     const sourceId = config.dataSources[sourceIndex]?.id;
@@ -4833,7 +4896,7 @@ function DataSourceHeader({
     setLibraryInsertDragOver(null);
   };
   const renderLibraryInsertActions = (
-    kind: 'lookup' | 'variable' | 'enum',
+    kind: LibraryKind,
     position: number,
     key: string,
     groupId?: string,
@@ -4860,8 +4923,10 @@ function DataSourceHeader({
           if (beforeGroupId) {
             moveLibraryGroup(kind, { type: 'group', groupId: beforeGroupId, position: 'before' });
           } else {
-            const targetItem = kind === 'lookup'
-              ? config.lookups[position]
+            const targetItem = kind === 'source'
+              ? config.dataSources[position]
+              : kind === 'lookup'
+                ? config.lookups[position]
               : kind === 'variable'
                 ? config.variables[position]
                 : config.valueEnums[position];
@@ -4878,12 +4943,14 @@ function DataSourceHeader({
       <button
         className="list-insert-divider"
         type="button"
-        onClick={() => kind === 'lookup'
-          ? addLookup(position, groupId, shiftGroupsAtPosition)
+        onClick={() => kind === 'source'
+          ? addDataSource(position, groupId, shiftGroupsAtPosition)
+          : kind === 'lookup'
+            ? addLookup(position, groupId, shiftGroupsAtPosition)
           : kind === 'variable'
             ? addVariable(position, groupId, shiftGroupsAtPosition)
             : addValueEnum(position, groupId, shiftGroupsAtPosition)}
-      ><Plus size={11} aria-hidden="true" />Add {kind === 'variable' ? 'constant' : kind} here</button>
+      ><Plus size={11} aria-hidden="true" />Add {kind === 'source' ? 'source' : kind === 'variable' ? 'constant' : kind} here</button>
       <button
         className="list-insert-divider field-group-insert-divider"
         type="button"
@@ -5114,7 +5181,7 @@ function DataSourceHeader({
     </div>
   );
   const renderLibraryGroupHeading = (
-    kind: 'lookup' | 'variable' | 'enum',
+    kind: LibraryKind,
     group: DataLibraryGroup,
     expanded: boolean,
     itemLabel: string,
@@ -5618,9 +5685,34 @@ function DataSourceHeader({
                 <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('enum', config.valueEnums.length)}><Plus size={11} /> Add group</button>
               </div>
             </section> : null}
-            {activeLibrarySection === 'tables' ? <div className="source-table-library">
-            {config.dataSources.length === 0 ? <span className="empty-option">No source tables defined.</span> : null}
-            {config.dataSources.map((source, sourceIndex) => {
+            {activeLibrarySection === 'tables' ? <div
+              className={`source-table-library library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'source' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
+              onDragOver={(event) => {
+                if (sourceDragIndex === null && libraryGroupDrag?.kind !== 'source') return;
+                event.preventDefault();
+                event.dataTransfer.dropEffect = 'move';
+                setSourceDragOver(null);
+                setLibraryItemDragOver(null);
+                setLibraryInsertDragOver(null);
+                setLibraryGroupDragOver({ kind: 'source' });
+              }}
+              onDrop={(event) => {
+                if (sourceDragIndex === null && libraryGroupDrag?.kind !== 'source') return;
+                event.preventDefault();
+                if (libraryGroupDrag?.kind === 'source') moveLibraryGroup('source', { type: 'end' });
+                else {
+                  const dragged = config.dataSources[sourceDragIndex!];
+                  if (dragged) assignLibraryItemToGroup('source', dragged.id);
+                }
+                setSourceDragIndex(null);
+                setSourceDragOver(null);
+                clearLibraryDrag();
+              }}
+            >
+            {config.dataSources.length === 0 && config.dataSourceGroups.length === 0 ? <span className="empty-option">No source tables defined.</span> : null}
+            {(() => {
+              const groupedDataSourceIds = new Set(config.dataSourceGroups.flatMap((group) => group.itemIds));
+              const renderDataSourceItem = (source: DataSource, sourceIndex: number, groupId?: string) => {
               const expanded = expandedSourceIds.includes(source.id);
               const sourceRelations = config.tableRelations.filter((relation) => relation.sourceDataSourceId === source.id || relation.targetDataSourceId === source.id);
               const primaryKeyField = source.fields.find((field) => field.id === source.primaryKeyFieldId);
@@ -5931,24 +6023,31 @@ function DataSourceHeader({
                   </details>
                 );
               };
-              return [
-                <button className="list-insert-divider" type="button" key={`insert-source-${source.id}`} onClick={() => addDataSource(sourceIndex)}><Plus size={11} aria-hidden="true" />Add source here</button>,
-                <section
+              return <section
                   className={`data-source-card ${expanded ? 'is-expanded' : ''} ${sourceDragOver?.sourceIndex === sourceIndex ? `is-drag-over-${sourceDragOver.position}` : ''}`}
                   key={source.id}
                   onDragOver={(event) => {
-                    if (sourceDragIndex === null) return;
+                    if (sourceDragIndex === null && libraryGroupDrag?.kind !== 'source') return;
+                    if (libraryGroupDrag?.kind === 'source' && groupId) return;
                     event.preventDefault();
+                    event.stopPropagation();
                     const rect = event.currentTarget.getBoundingClientRect();
-                    setSourceDragOver({ sourceIndex, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
+                    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                    setSourceDragOver({ sourceIndex, position });
+                    setLibraryGroupDragOver({ kind: 'source', groupId });
                   }}
                   onDrop={(event) => {
-                    if (sourceDragIndex === null) return;
+                    if (sourceDragIndex === null && libraryGroupDrag?.kind !== 'source') return;
+                    if (libraryGroupDrag?.kind === 'source' && groupId) return;
                     event.preventDefault();
+                    event.stopPropagation();
                     const rect = event.currentTarget.getBoundingClientRect();
-                    moveDataSource(sourceIndex, event.clientY < rect.top + rect.height / 2 ? 'before' : 'after');
+                    const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                    if (libraryGroupDrag?.kind === 'source') moveLibraryGroup('source', { type: 'item', itemId: source.id, position });
+                    else moveDataSource(sourceIndex, position, groupId);
                     setSourceDragIndex(null);
                     setSourceDragOver(null);
+                    clearLibraryDrag();
                   }}
                 >
                   <div className="data-source-expander-heading">
@@ -5988,12 +6087,14 @@ function DataSourceHeader({
                         aria-label={`Drag ${source.name || 'table'} to reorder tables`}
                         onDragStart={(event) => {
                           setSourceDragIndex(sourceIndex);
+                          setLibraryItemDrag({ kind: 'source', itemIndex: sourceIndex });
                           event.dataTransfer.effectAllowed = 'move';
                           event.dataTransfer.setData('text/plain', source.id);
                         }}
                         onDragEnd={() => {
                           setSourceDragIndex(null);
                           setSourceDragOver(null);
+                          clearLibraryDrag();
                         }}
                       ><GripVertical size={13} aria-hidden="true" /></button>
                       <button className="mini-icon-button" type="button" title="Copy data source" aria-label={`Copy ${source.name || 'data source'}`} onClick={() => duplicateDataSource(sourceIndex)}><Copy size={12} /></button>
@@ -6100,9 +6201,113 @@ function DataSourceHeader({
                       </div>
                     </div>
                   ) : null}
-                </section>
-              ];
-            })}
+                </section>;
+              };
+              const renderDataSourceGroup = (group: DataLibraryGroup) => {
+                const groupItems = config.dataSources
+                  .map((source, sourceIndex) => ({ source, sourceIndex }))
+                  .filter(({ source }) => group.itemIds.includes(source.id));
+                const expanded = expandedSourceGroupIds.includes(group.id);
+                const groupDragPosition = libraryGroupDragOver?.kind === 'source' && libraryGroupDragOver.groupId === group.id
+                  ? libraryGroupDragOver.position
+                  : undefined;
+                const groupIsDragTarget = libraryGroupDragOver?.kind === 'source' && libraryGroupDragOver.groupId === group.id;
+                const sourceGroupDropPosition = (element: HTMLDivElement, clientY: number): DropPosition | undefined => {
+                  const rect = element.getBoundingClientRect();
+                  const edgeSize = Math.min(28, Math.max(10, rect.height * 0.2));
+                  if (clientY < rect.top + edgeSize) return 'before';
+                  if (clientY > rect.bottom - edgeSize) return 'after';
+                  return undefined;
+                };
+                return <div
+                  className={`library-group is-source ${groupIsDragTarget ? groupDragPosition ? `is-drag-over-${groupDragPosition}` : 'is-drag-over' : ''}`}
+                  key={group.id}
+                  onDragOver={(event) => {
+                    if (sourceDragIndex === null && libraryGroupDrag?.kind !== 'source') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    event.dataTransfer.dropEffect = 'move';
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const position = libraryGroupDrag?.kind === 'source'
+                      ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                      : sourceGroupDropPosition(event.currentTarget, event.clientY);
+                    setSourceDragOver(null);
+                    setLibraryItemDragOver(null);
+                    setLibraryInsertDragOver(null);
+                    setLibraryGroupDragOver({ kind: 'source', groupId: group.id, position });
+                    if (sourceDragIndex !== null && !position) setExpandedSourceGroupIds((current) => [...new Set([...current, group.id])]);
+                  }}
+                  onDrop={(event) => {
+                    if (sourceDragIndex === null && libraryGroupDrag?.kind !== 'source') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const position = libraryGroupDrag?.kind === 'source'
+                      ? event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+                      : sourceGroupDropPosition(event.currentTarget, event.clientY);
+                    if (libraryGroupDrag?.kind === 'source') {
+                      moveLibraryGroup('source', { type: 'group', groupId: group.id, position: position ?? 'before' });
+                    } else if (position === 'before') {
+                      moveDataSource(group.position, 'before', undefined, true);
+                    } else if (position === 'after') {
+                      moveDataSource(group.position, 'before', undefined, false);
+                    } else {
+                      const dragged = config.dataSources[sourceDragIndex!];
+                      if (dragged) assignLibraryItemToGroup('source', dragged.id, group.id);
+                    }
+                    setSourceDragIndex(null);
+                    setSourceDragOver(null);
+                    clearLibraryDrag();
+                  }}
+                >
+                  {renderLibraryGroupHeading('source', group, expanded, 'table', () => setExpandedSourceGroupIds((current) => expanded ? current.filter((id) => id !== group.id) : [...current, group.id]))}
+                  {expanded ? <div className="library-group-body">
+                    <div className="library-group-settings">
+                      <label className="field"><span>Group name</span><input value={group.name} placeholder="Group name" onChange={(event) => updateLibraryGroup('source', group.id, { name: event.target.value })} /></label>
+                      <button className="mini-icon-button danger" type="button" title="Delete source table group" onClick={() => deleteLibraryGroup('source', group.id)}><Trash2 size={12} /></button>
+                    </div>
+                    {groupItems.length === 0 ? <span className="library-group-drop-hint"><GripVertical size={12} aria-hidden="true" /> Drag source tables here</span> : null}
+                    {groupItems.flatMap(({ source, sourceIndex }) => [
+                      renderLibraryInsertActions('source', sourceIndex, `insert-group-source-${source.id}`, group.id),
+                      renderDataSourceItem(source, sourceIndex, group.id)
+                    ])}
+                    <div className="library-final-actions">
+                      <button className="secondary-action tiny library-group-add-item" type="button" onClick={() => addDataSource(config.dataSources.length, group.id)}><Plus size={11} /> Add source table</button>
+                      <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('source', group.position)}><Plus size={11} /> Add group</button>
+                    </div>
+                  </div> : null}
+                </div>;
+              };
+              return <>
+                {config.dataSources.flatMap((source, sourceIndex) => {
+                  const groupsAtPosition = config.dataSourceGroups.filter((group) => group.position === sourceIndex);
+                  const isUngrouped = !groupedDataSourceIds.has(source.id);
+                  return [
+                    ...groupsAtPosition.flatMap((group) => [
+                      renderLibraryInsertActions('source', sourceIndex, `before-source-group-${group.id}`, undefined, true, group.id),
+                      renderDataSourceGroup(group)
+                    ]),
+                    ...(isUngrouped ? [
+                      ...(groupsAtPosition.length > 0
+                        ? [renderLibraryInsertActions('source', sourceIndex, `after-source-groups-${source.id}`, undefined, false)]
+                        : [renderLibraryInsertActions('source', sourceIndex, `insert-source-${source.id}`)]),
+                      renderDataSourceItem(source, sourceIndex)
+                    ] : [])
+                  ];
+                })}
+                {config.dataSourceGroups.filter((group) => group.position === config.dataSources.length).flatMap((group) => [
+                  renderLibraryInsertActions('source', config.dataSources.length, `before-final-source-group-${group.id}`, undefined, true, group.id),
+                  renderDataSourceGroup(group)
+                ])}
+                {config.dataSources.length > 0 || config.dataSourceGroups.length > 0
+                  ? renderLibraryInsertActions('source', config.dataSources.length, 'after-final-source-groups', undefined, false)
+                  : null}
+                <div className="library-final-actions">
+                  <button className="secondary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={11} /> Add source table</button>
+                  <button className="secondary-action tiny" type="button" onClick={() => addLibraryGroup('source', config.dataSources.length)}><Plus size={11} /> Add group</button>
+                </div>
+              </>;
+            })()}
             </div> : null}
           </div>
         </div>,
@@ -10479,6 +10684,7 @@ function EditorApp({
         valueEnums: preserveUnchangedEntries(current.valueEnums, candidateConfig.valueEnums),
         valueEnumGroups: preserveUnchangedEntries(current.valueEnumGroups, candidateConfig.valueEnumGroups),
         dataSources: preserveUnchangedEntries(current.dataSources, candidateConfig.dataSources),
+        dataSourceGroups: preserveUnchangedEntries(current.dataSourceGroups, candidateConfig.dataSourceGroups),
         tableRelations: preserveUnchangedEntries(current.tableRelations, candidateConfig.tableRelations),
         lookups: preserveUnchangedEntries(current.lookups, candidateConfig.lookups),
         lookupGroups: preserveUnchangedEntries(current.lookupGroups, candidateConfig.lookupGroups),

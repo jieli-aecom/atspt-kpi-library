@@ -1568,6 +1568,11 @@ h1 {
   background: #faf4fb;
 }
 
+.library-group.is-source {
+  border-color: #c9d8de;
+  background: #f2f7f8;
+}
+
 .library-group.is-drag-over {
   border-color: #656aa0;
   box-shadow: inset 0 0 0 1px #656aa0;
@@ -1588,6 +1593,12 @@ h1 {
   background: #f7edf9;
 }
 
+.library-group.is-source.is-drag-over {
+  border-color: #4d8193;
+  box-shadow: inset 0 0 0 1px #4d8193;
+  background: #eaf3f6;
+}
+
 .library-group-heading {
   display: grid;
   grid-template-columns: 26px minmax(0, 1fr);
@@ -1603,6 +1614,10 @@ h1 {
 
 .library-group.is-variable .library-group-heading {
   color: #71447f;
+}
+
+.library-group.is-source .library-group-heading {
+  color: #315a6c;
 }
 
 .library-group-toggle {
@@ -1644,6 +1659,10 @@ h1 {
 
 .library-group.is-variable .library-group-body {
   border-top-color: #e1d7e6;
+}
+
+.library-group.is-source .library-group-body {
+  border-top-color: #c9d8de;
 }
 
 .library-group-settings {

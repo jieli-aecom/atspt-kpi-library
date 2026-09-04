@@ -271,6 +271,7 @@ export const kpiPoolConfigSchema = z.object({
   valueEnums: z.array(valueEnumSchema),
   valueEnumGroups: z.array(dataLibraryGroupSchema),
   dataSources: z.array(dataSourceSchema),
+  dataSourceGroups: z.array(dataLibraryGroupSchema),
   tableRelations: z.array(tableRelationSchema),
   lookups: z.array(lookupSchema),
   lookupGroups: z.array(dataLibraryGroupSchema),
@@ -402,6 +403,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     !Array.isArray(input.valueEnums) ||
     !Array.isArray(input.valueEnumGroups) ||
     !Array.isArray(input.dataSources) ||
+    !Array.isArray(input.dataSourceGroups) ||
     !Array.isArray(input.tableRelations) ||
     !Array.isArray(input.lookups) ||
     !Array.isArray(input.lookupGroups) ||
@@ -615,6 +617,17 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     return false;
   }
   const currentDataSources = input.dataSources as DataSource[];
+  const currentDataSourceGroups = input.dataSourceGroups as DataLibraryGroup[];
+  const groupedDataSourceIds = currentDataSourceGroups.flatMap((group) => group.itemIds);
+  const validDataSourceIds = new Set(currentDataSources.map((source) => source.id));
+  if (
+    !currentDataSourceGroups.every((group) => isCurrentDataLibraryGroup(group, currentDataSources.length)) ||
+    hasDuplicate(currentDataSourceGroups.map((group) => group.id)) ||
+    hasDuplicate(groupedDataSourceIds) ||
+    currentDataSourceGroups.some((group) => !group.itemIds.every((id) => validDataSourceIds.has(id)))
+  ) {
+    return false;
+  }
   const dataSourceById = new Map(currentDataSources.map((source) => [source.id, source]));
   if (
     currentDataSources.some((source) => {
@@ -2389,12 +2402,13 @@ const repairValueEnums = (rawValue: unknown, warnings: string[]): ValueEnumDefin
 const repairDataLibraryGroups = (
   rawValue: unknown,
   items: readonly { id: string }[],
-  collectionName: 'lookup' | 'variable' | 'enum',
+  collectionName: 'lookup' | 'variable' | 'enum' | 'dataSource',
   warnings: string[]
 ): DataLibraryGroup[] => {
   if (rawValue == null) return [];
   if (!Array.isArray(rawValue)) {
-    warnings.push(`${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Constant' : 'Domain'} groups were not a list and were initialized empty.`);
+    const label = collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Constant' : collectionName === 'enum' ? 'Domain' : 'Source table';
+    warnings.push(`${label} groups were not a list and were initialized empty.`);
     return [];
   }
   const usedGroupIds = new Set<string>();
@@ -2403,7 +2417,13 @@ const repairDataLibraryGroups = (
   return rawValue.flatMap((rawGroup, groupIndex): DataLibraryGroup[] => {
     if (!isRecord(rawGroup)) return [];
     const rawItemIds = rawGroup.itemIds ??
-      (collectionName === 'lookup' ? rawGroup.lookupIds : collectionName === 'variable' ? rawGroup.variableIds : rawGroup.enumIds);
+      (collectionName === 'lookup'
+        ? rawGroup.lookupIds
+        : collectionName === 'variable'
+          ? rawGroup.variableIds
+          : collectionName === 'enum'
+            ? rawGroup.enumIds
+            : rawGroup.dataSourceIds ?? rawGroup.sourceIds);
     const itemIds = (Array.isArray(rawItemIds) ? rawItemIds : [])
       .map((id) => stringValue(id).trim())
       .filter((id) => {
@@ -2418,7 +2438,7 @@ const repairDataLibraryGroups = (
         `${collectionName}-group`,
         usedGroupIds,
         warnings,
-        `${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Constant' : 'Domain'} group ${groupIndex + 1}`
+        `${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Constant' : collectionName === 'enum' ? 'Domain' : 'Source table'} group ${groupIndex + 1}`
       ),
       name: stringValue(rawGroup.name ?? rawGroup.label).trim() || `Group ${groupIndex + 1}`,
       itemIds,
@@ -2600,6 +2620,7 @@ export const createBlankConfig = (): KpiPoolConfig => ({
   valueEnums: [],
   valueEnumGroups: [],
   dataSources: [],
+  dataSourceGroups: [],
   tableRelations: [],
   lookups: [],
   lookupGroups: [],
@@ -2693,6 +2714,7 @@ export const repairConfig = (input: unknown): RepairResult => {
   const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, valueEnums, warnings);
   const tableRelations = repairTableRelations(rawConfig.tableRelations ?? rawConfig.relations, repairedDataSources, warnings);
   const dataSources = reconcileRelationFields(repairedDataSources, tableRelations);
+  const dataSourceGroups = repairDataLibraryGroups(rawConfig.dataSourceGroups ?? rawConfig.sourceGroups, dataSources, 'dataSource', warnings);
   const lookups = repairLookups(rawConfig.lookups, valueEnums, warnings);
   const lookupGroups = repairDataLibraryGroups(rawConfig.lookupGroups, lookups, 'lookup', warnings);
   const variables = repairVariables(rawConfig.variables, warnings);
@@ -2920,6 +2942,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     valueEnums,
     valueEnumGroups,
     dataSources,
+    dataSourceGroups,
     tableRelations,
     lookups,
     lookupGroups,

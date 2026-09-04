@@ -91,6 +91,7 @@ export const mergeConcurrentConfig = (
   valueEnums: mergeConcurrentCollection(current.valueEnums, base.valueEnums, incoming.valueEnums),
   valueEnumGroups: mergeConcurrentCollection(current.valueEnumGroups, base.valueEnumGroups, incoming.valueEnumGroups),
   dataSources: mergeConcurrentCollection(current.dataSources, base.dataSources, incoming.dataSources),
+  dataSourceGroups: mergeConcurrentCollection(current.dataSourceGroups, base.dataSourceGroups, incoming.dataSourceGroups),
   tableRelations: mergeConcurrentCollection(current.tableRelations, base.tableRelations, incoming.tableRelations),
   lookups: mergeConcurrentCollection(current.lookups, base.lookups, incoming.lookups),
   lookupGroups: mergeConcurrentCollection(current.lookupGroups, base.lookupGroups, incoming.lookupGroups),
@@ -226,6 +227,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
   const currentIsEmpty =
     current.kpis.length === 0 &&
     current.dataSources.length === 0 &&
+    current.dataSourceGroups.length === 0 &&
     current.tableRelations.length === 0 &&
     current.lookups.length === 0 &&
     current.lookupGroups.length === 0 &&
@@ -253,6 +255,13 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
         addedValueEnums
       ),
       dataSources: [...current.dataSources, ...addedDataSources],
+      dataSourceGroups: mergeImportedLibraryGroups(
+        current.dataSourceGroups,
+        incoming.dataSourceGroups,
+        current.dataSources,
+        incoming.dataSources,
+        addedDataSources
+      ),
       tableRelations: [...current.tableRelations, ...addedTableRelations],
       lookups: [...current.lookups, ...addedLookups],
       lookupGroups: mergeImportedLibraryGroups(
@@ -336,6 +345,13 @@ export const applyConfigDeletions = (config: KpiPoolConfig, deletions: ConfigDel
           ...group,
           fieldIds: group.fieldIds.filter((fieldId) => !removedGeneratedFieldKeys.has(`${source.id}\u0000${fieldId}`))
         }))
+    })),
+    dataSourceGroups: config.dataSourceGroups.map((group) => ({
+      ...group,
+      position: group.position - config.dataSources
+        .slice(0, group.position)
+        .filter((source) => deletedDataSourceIds.has(source.id)).length,
+      itemIds: group.itemIds.filter((id) => !deletedDataSourceIds.has(id))
     })),
     tableRelations: config.tableRelations.filter((relation) => !deletedRelationIds.has(relation.id)),
     lookups: config.lookups.filter((lookup) => !deletedLookupIds.has(lookup.id)),

@@ -110,7 +110,7 @@ All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use 
 
 ## Schema compatibility
 
-`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `37`.
+`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `39`.
 
 The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to domain IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
 
