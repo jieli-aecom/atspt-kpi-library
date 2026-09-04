@@ -344,16 +344,29 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
       if (scrollVelocityX || scrollVelocityY) queueDragFrame();
     });
   };
+  const relationTableDetails = (sourceId: string) => {
+    const source = config.dataSources.find((entry) => entry.id === sourceId);
+    if (!source) return { name: 'Missing table', groupName: '' };
+    return {
+      name: source.name || 'Untitled table',
+      groupName: config.dataSourceGroups.find((group) => group.itemIds.includes(sourceId))?.name.trim() || ''
+    };
+  };
   const relationDescription = (relation: TableRelation) => {
     const tableName = (sourceId: string) => {
-      const source = config.dataSources.find((entry) => entry.id === sourceId);
-      if (!source) return 'Missing table';
-      const groupName = config.dataSourceGroups.find((group) => group.itemIds.includes(sourceId))?.name.trim();
-      return groupName ? `${groupName} / ${source.name || 'Untitled table'}` : source.name || 'Untitled table';
+      const details = relationTableDetails(sourceId);
+      return details.groupName ? `${details.groupName} ${details.name}` : details.name;
     };
     const sourceName = tableName(relation.sourceDataSourceId);
     const targetName = tableName(relation.targetDataSourceId);
     return `${sourceName} ${relationLabel(relation)} ${targetName}`;
+  };
+  const renderRelationTableLabel = (sourceId: string) => {
+    const details = relationTableDetails(sourceId);
+    return <span className="table-diagram-relation-table">
+      {details.groupName ? <small>{details.groupName}</small> : null}
+      <span>{details.name}</span>
+    </span>;
   };
   const exportSvg = () => {
     const svg = document.getElementById(svgId) as SVGSVGElement | null;
@@ -396,7 +409,7 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
         <div className="table-diagram-actions">
           {selectedRelation ? <button className="table-diagram-selected-relation" type="button" title="Clear highlighted join" onClick={() => setSelectedRelationId(undefined)}>
             <Link2 size={12} />
-            <span>{relationDescription(selectedRelation)}</span>
+            <span className="table-diagram-relation-description">{renderRelationTableLabel(selectedRelation.sourceDataSourceId)}<b>{relationLabel(selectedRelation)}</b>{renderRelationTableLabel(selectedRelation.targetDataSourceId)}</span>
             <X size={11} />
           </button> : <span className="table-diagram-interaction-hint">Drag tables · click joins</span>}
           <button className="secondary-action small table-diagram-reset" type="button" disabled={!config.dataSources.length} onClick={() => {
@@ -529,6 +542,12 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                 const deltaY = position.y - table.y;
                 const relatedToActive = activeTableIds.has(table.source.id);
                 const muted = Boolean(activeRelationId && !relatedToActive);
+                const groupBadgeLabel = table.groupName
+                  ? shortened(table.groupName, Math.floor((table.width - 58) / 5.2))
+                  : '';
+                const groupBadgeWidth = groupBadgeLabel
+                  ? Math.min(table.width - 48, Math.max(34, groupBadgeLabel.length * 5.2 + 14))
+                  : 0;
                 let rowTop = table.y + CARD_HEADER_HEIGHT + CARD_META_HEIGHT;
                 return <g
                   key={table.source.id}
@@ -576,7 +595,7 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                 >
                   <rect x={table.x} y={table.y} width={table.width} height={table.height} rx="10" fill="#ffffff" stroke={relatedToActive ? '#d75a32' : '#b8c8cf'} strokeWidth={relatedToActive ? 2.5 : 1} filter="url(#table-shadow)" />
                   <path d={`M${table.x + 10} ${table.y}H${table.x + table.width - 10}Q${table.x + table.width} ${table.y} ${table.x + table.width} ${table.y + 10}V${table.y + CARD_HEADER_HEIGHT}H${table.x}V${table.y + 10}Q${table.x} ${table.y} ${table.x + 10} ${table.y}`} fill="#315f70" />
-                  {table.groupName ? <text x={table.x + 15} y={table.y + 13} fill="#bcd5de" fontSize="9" fontWeight="800" letterSpacing="0.5"><title>{table.groupName}</title>{shortened(table.groupName.toLocaleUpperCase(), Math.floor((table.width - 48) / 6))}</text> : null}
+                  {table.groupName ? <g><title>{table.groupName}</title><rect x={table.x + 14} y={table.y + 4} width={groupBadgeWidth} height="13" rx="6.5" fill="#d9e9ee" /><text x={table.x + 21} y={table.y + 13.5} fill="#315f70" fontSize="8" fontWeight="800">{groupBadgeLabel}</text></g> : null}
                   <text x={table.x + 15} y={table.y + (table.groupName ? 29 : 23)} fill="#ffffff" fontSize={table.groupName ? 14 : 15} fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 30) / 8))}</text>
                   <text x={table.x + 15} y={table.y + (table.groupName ? 43 : 40)} fill="#d8e8ee" fontSize={table.groupName ? 9.5 : 10.5}>{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
                   <g className="table-diagram-drag-handle" aria-hidden="true">

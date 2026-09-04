@@ -3435,7 +3435,15 @@ const dataSourceGroupName = (config: KpiPoolConfig, dataSourceId: string) =>
 const groupedDataSourceLabel = (config: KpiPoolConfig, source: DataSource) => {
   const tableLabel = spatiallyScaledTableLabel(source.name, source.spatialUnit);
   const groupName = dataSourceGroupName(config, source.id);
-  return groupName ? `${groupName} / ${tableLabel}` : tableLabel;
+  return groupName ? `${groupName} ${tableLabel}` : tableLabel;
+};
+
+const GroupedDataSourceDisplay = ({ config, source }: { config: KpiPoolConfig; source: DataSource }) => {
+  const groupName = dataSourceGroupName(config, source.id);
+  return <span className="grouped-data-source-label">
+    {groupName ? <span className="data-source-group-badge">{groupName}</span> : null}
+    <span className="data-source-table-label">{spatiallyScaledTableLabel(source.name, source.spatialUnit)}</span>
+  </span>;
 };
 
 const sourceItemDimensions = (config: KpiPoolConfig, item: KpiSourceItem): DataSourceFieldDimension[] => {
@@ -6370,7 +6378,7 @@ function KpiSourceGroupedSummary({
     <span className="kpi-source-summary">
       {dataGroups.map(({ dataSource, items }) => (
         <span className="source-summary-group" key={dataSource.id}>
-          <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{groupedDataSourceLabel(config, dataSource)}</span></span>
+          <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><GroupedDataSourceDisplay config={config} source={dataSource} /></span>
           <span className="source-summary-items">{items.map(({ source, field }) => {
             const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
             return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
@@ -6937,7 +6945,7 @@ function KpiSourceEditor({
               <div className="selected-source-list">
                 {selectedDataGroups.map(({ dataSource, items }) => (
                   <section className="selected-source-group" key={dataSource.id}>
-                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><span>{groupedDataSourceLabel(config, dataSource)}</span></div>
+                    <div className="selected-source-group-heading"><Table2 size={13} aria-hidden="true" /><GroupedDataSourceDisplay config={config} source={dataSource} /></div>
                     {items.map(({ source, field }) => {
                       const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
                       return renderSelectedSourceRow(source, dimensionedSourceLabel(field.name, dimensionLabel));

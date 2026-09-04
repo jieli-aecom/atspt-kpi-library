@@ -2826,7 +2826,7 @@ h1 {
 
 .table-diagram-selected-relation {
   display: flex;
-  max-width: 270px;
+  max-width: 380px;
   min-height: 28px;
   align-items: center;
   gap: 5px;
@@ -2846,6 +2846,47 @@ h1 {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.table-diagram-relation-description {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.table-diagram-relation-description > b {
+  flex: 0 0 auto;
+  color: #9b472c;
+  font-size: 9px;
+}
+
+.table-diagram-relation-table {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 3px;
+}
+
+.table-diagram-relation-table > small {
+  flex: 0 1 auto;
+  max-width: 100px;
+  overflow: hidden;
+  border: 1px solid #b8cdd5;
+  border-radius: 999px;
+  background: #e4eff2;
+  color: #315a66;
+  padding: 1px 4px;
+  font-size: 7.5px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.table-diagram-relation-table > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table-diagram-selected-relation > svg {
@@ -4885,6 +4926,34 @@ h1 {
   overflow-wrap: anywhere;
   text-overflow: clip;
   white-space: normal;
+}
+
+.grouped-data-source-label {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.data-source-group-badge {
+  flex: 0 1 auto;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #b8cdd5;
+  border-radius: 999px;
+  background: #e4eff2;
+  color: #315a66;
+  padding: 1px 5px;
+  font-size: 8px;
+  font-weight: 800;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-source-table-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .source-summary-items {
