@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import type { KpiMetric, KpiPoolConfig } from './types';
+import type { DataSource, DataSourceField, KpiMetric, KpiPoolConfig } from './types';
 
 const EXCEL_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
@@ -380,6 +380,47 @@ export async function downloadKpiExcelWorkbook(
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
+export async function createTableSchemaExcelWorkbook(config: KpiPoolConfig): Promise<Uint8Array> {
+  if (config.dataSources.length === 0) throw new Error('Add at least one source table before exporting.');
+  const zip = new JSZip();
+  const now = new Date().toISOString();
+  const workbookTitle = `${config.title.trim() || 'KPI Library'} table schema`;
+  const sheetNames = worksheetNames(config.dataSources);
+
+  zip.file('[Content_Types].xml', tableSchemaContentTypesXml(sheetNames.length));
+  zip.folder('_rels')?.file('.rels', rootRelationshipsXml);
+  zip.folder('docProps')?.file('app.xml', tableSchemaAppPropertiesXml(sheetNames));
+  zip.folder('docProps')?.file('core.xml', corePropertiesXml(workbookTitle, now));
+  zip.folder('xl')?.file('workbook.xml', tableSchemaWorkbookXml(sheetNames));
+  zip.folder('xl')?.folder('_rels')?.file('workbook.xml.rels', tableSchemaWorkbookRelationshipsXml(sheetNames.length));
+  zip.folder('xl')?.file('styles.xml', tableSchemaStylesXml);
+  const worksheets = zip.folder('xl')?.folder('worksheets');
+  config.dataSources.forEach((source, index) => {
+    worksheets?.file(`sheet${index + 1}.xml`, tableSchemaWorksheetXml(config, source));
+  });
+
+  return zip.generateAsync({
+    type: 'uint8array',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 6 },
+    mimeType: EXCEL_MIME_TYPE
+  });
+}
+
+export async function downloadTableSchemaExcelWorkbook(fileName: string, config: KpiPoolConfig) {
+  const bytes = await createTableSchemaExcelWorkbook(config);
+  const blob = new Blob([Uint8Array.from(bytes).buffer], { type: EXCEL_MIME_TYPE });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName.toLowerCase().endsWith('.xlsx') ? fileName : `${fileName}.xlsx`;
+  anchor.style.display = 'none';
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function worksheetXml(
   title: string,
   rows: readonly KpiExcelRow[],
@@ -449,6 +490,116 @@ function richMarkdownCell(reference: string, markdown: string, style: number) {
     : stringCell(reference, '', style);
 }
 
+const tableSchemaColumns = [
+  { label: 'Key', width: 10 },
+  { label: 'Field name', width: 32 },
+  { label: 'Type', width: 20 },
+  { label: 'Unit', width: 18 },
+  { label: 'By', width: 48 },
+  { label: 'Preprocessing needed', width: 22 },
+  { label: 'Preprocessing note', width: 58 }
+] as const;
+
+const tableSchemaFieldType = (field: DataSourceField) => {
+  const labels = { id: 'ID', number: 'Number', boolean: 'Boolean', text: 'Text', enum: 'Domain', collection: 'Collection' } as const;
+  if (field.dataType !== 'collection') return labels[field.dataType];
+  const itemLabels = { id: 'IDs', number: 'Numbers', boolean: 'Booleans', text: 'Text values', enum: 'Domains' } as const;
+  return `${labels.collection} (${field.collectionItemType ? itemLabels[field.collectionItemType] : 'Values'})`;
+};
+
+const tableSchemaFieldDimensions = (config: KpiPoolConfig, source: DataSource, fieldId: string) => source.fieldGroups
+  .filter((group) => group.fieldIds.includes(fieldId))
+  .flatMap((group) => group.dimensions)
+  .map((dimension) => {
+    const name = dimension.name.trim() || 'Category';
+    const globalOptions = dimension.enumId
+      ? config.valueEnums.find((definition) => definition.id === dimension.enumId)?.options
+      : undefined;
+    const options = globalOptions ?? dimension.options;
+    return options.length ? `${name}: ${options.join(', ')}` : name;
+  })
+  .join('; ');
+
+function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
+  const ordinaryFields = source.fields.filter((field) => !field.generatedRelationId);
+  const virtualFields = source.fields.filter((field) => field.generatedRelationId);
+  const headerRow = 3;
+  const firstDataRow = headerRow + 1;
+  const joinRow = virtualFields.length ? firstDataRow + ordinaryFields.length : undefined;
+  const lastRow = headerRow + source.fields.length + (joinRow ? 1 : 0);
+  const lastColumnName = columnName(tableSchemaColumns.length);
+  const columns = tableSchemaColumns
+    .map(({ width }, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
+    .join('');
+  const headerCells = tableSchemaColumns
+    .map(({ label }, index) => stringCell(`${columnName(index + 1)}${headerRow}`, label, 3))
+    .join('');
+  const fieldRow = (field: DataSourceField, rowNumber: number, virtual: boolean) => {
+    const style = virtual ? 6 : 4;
+    const needsPreprocessing = field.preprocessingNeeded || Boolean(field.details.trim());
+    const values = [
+      field.id === source.primaryKeyFieldId ? 'PK' : '',
+      field.name,
+      tableSchemaFieldType(field),
+      field.valueUnit.trim(),
+      tableSchemaFieldDimensions(config, source, field.id),
+      needsPreprocessing ? 'Yes' : 'No',
+      markdownToExcelText(field.details)
+    ];
+    return `<row r="${rowNumber}" ht="32" customHeight="1">${values.map((value, index) => stringCell(`${columnName(index + 1)}${rowNumber}`, value, style)).join('')}</row>`;
+  };
+  const ordinaryRows = ordinaryFields.map((field, index) => fieldRow(field, firstDataRow + index, false)).join('');
+  const joinsSection = joinRow
+    ? `<row r="${joinRow}" ht="24" customHeight="1">${stringCell(`A${joinRow}`, 'Joins', 5)}</row>`
+    : '';
+  const virtualRows = virtualFields.map((field, index) => fieldRow(field, (joinRow ?? firstDataRow) + 1 + index, true)).join('');
+  const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`, ...(joinRow ? [`A${joinRow}:${lastColumnName}${joinRow}`] : [])];
+  const spatialUnit = source.spatialUnit || 'Not specified';
+  const fieldCount = `${source.fields.length} field${source.fields.length === 1 ? '' : 's'}`;
+
+  return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <dimension ref="A1:${lastColumnName}${Math.max(headerRow, lastRow)}"/>
+  <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
+  <sheetFormatPr defaultRowHeight="18"/>
+  <cols>${columns}</cols>
+  <sheetData>
+    <row r="1" ht="26" customHeight="1">${stringCell('A1', source.name.trim() || 'Untitled table', 1)}</row>
+    <row r="2" ht="20" customHeight="1">${stringCell('A2', `Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
+    <row r="${headerRow}" ht="26" customHeight="1">${headerCells}</row>
+    ${ordinaryRows}
+    ${joinsSection}
+    ${virtualRows}
+  </sheetData>
+  <mergeCells count="${mergeRanges.length}">${mergeRanges.map((range) => `<mergeCell ref="${range}"/>`).join('')}</mergeCells>
+  <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
+  <pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/>
+</worksheet>`);
+}
+
+function worksheetNames(sources: readonly DataSource[]) {
+  const used = new Set<string>();
+  return sources.map((source, index) => {
+    const cleaned = source.name.trim().replace(/[\\/\[\]:*?]/g, ' ').replace(/\s+/g, ' ').replace(/^'+|'+$/g, '') || `Table ${index + 1}`;
+    let suffix = 1;
+    let name = cleaned.slice(0, 31).trim();
+    while (used.has(name.toLocaleLowerCase())) {
+      suffix += 1;
+      const ending = ` (${suffix})`;
+      name = `${cleaned.slice(0, 31 - ending.length).trim()}${ending}`;
+    }
+    used.add(name.toLocaleLowerCase());
+    return name;
+  });
+}
+
+const tableSchemaContentTypesXml = (sheetCount: number) => xmlDocument(`<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>${Array.from({ length: sheetCount }, (_, index) => `<Override PartName="/xl/worksheets/sheet${index + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/><Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>`);
+
+const tableSchemaWorkbookXml = (sheetNames: readonly string[]) => xmlDocument(`<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView xWindow="0" yWindow="0" windowWidth="24000" windowHeight="14000"/></bookViews><sheets>${sheetNames.map((name, index) => `<sheet name="${escapeXml(name)}" sheetId="${index + 1}" r:id="rId${index + 1}"/>`).join('')}</sheets></workbook>`);
+
+const tableSchemaWorkbookRelationshipsXml = (sheetCount: number) => xmlDocument(`<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${Array.from({ length: sheetCount }, (_, index) => `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${index + 1}.xml"/>`).join('')}<Relationship Id="rId${sheetCount + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`);
+
+const tableSchemaAppPropertiesXml = (sheetNames: readonly string[]) => xmlDocument(`<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes"><Application>KPI Library Manager</Application><DocSecurity>0</DocSecurity><ScaleCrop>false</ScaleCrop><HeadingPairs><vt:vector size="2" baseType="variant"><vt:variant><vt:lpstr>Worksheets</vt:lpstr></vt:variant><vt:variant><vt:i4>${sheetNames.length}</vt:i4></vt:variant></vt:vector></HeadingPairs><TitlesOfParts><vt:vector size="${sheetNames.length}" baseType="lpstr">${sheetNames.map((name) => `<vt:lpstr>${escapeXml(name)}</vt:lpstr>`).join('')}</vt:vector></TitlesOfParts><Company></Company><LinksUpToDate>false</LinksUpToDate><SharedDoc>false</SharedDoc><HyperlinksChanged>false</HyperlinksChanged><AppVersion>16.0300</AppVersion></Properties>`);
+
 function columnName(index: number) {
   let value = index;
   let result = '';
@@ -494,5 +645,35 @@ const stylesXml = xmlDocument(`<styleSheet xmlns="http://schemas.openxmlformats.
   <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD7DEE3"/></left><right style="thin"><color rgb="FFD7DEE3"/></right><top style="thin"><color rgb="FFD7DEE3"/></top><bottom style="thin"><color rgb="FFD7DEE3"/></bottom><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
   <cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf></cellXfs>
+  <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
+</styleSheet>`);
+
+const tableSchemaStylesXml = xmlDocument(`<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="6">
+    <font><sz val="11"/><name val="Aptos"/><family val="2"/><scheme val="minor"/></font>
+    <font><b/><sz val="16"/><color rgb="FF0F172A"/><name val="Aptos Display"/><family val="2"/></font>
+    <font><i/><sz val="10"/><color rgb="FF64748B"/><name val="Aptos"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos"/><family val="2"/></font>
+    <font><sz val="11"/><color rgb="FF6B7280"/><name val="Aptos"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color rgb="FF4B5563"/><name val="Aptos"/><family val="2"/></font>
+  </fonts>
+  <fills count="5">
+    <fill><patternFill patternType="none"/></fill>
+    <fill><patternFill patternType="gray125"/></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FF174A5B"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFD1D5DB"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill>
+  </fills>
+  <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD7DEE3"/></left><right style="thin"><color rgb="FFD7DEE3"/></right><top style="thin"><color rgb="FFD7DEE3"/></top><bottom style="thin"><color rgb="FFD7DEE3"/></bottom><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="7">
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="5" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+  </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
 </styleSheet>`);
