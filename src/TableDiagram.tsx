@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Download, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type {
   DataSource,
@@ -18,6 +18,9 @@ const DIMENSION_ROW_HEIGHT = 23;
 const EMPTY_ROW_HEIGHT = 34;
 const CANVAS_PADDING = 48;
 const DIAGRAM_TOP = 126;
+const OUTER_CANVAS_MARGIN = 140;
+const DRAG_AUTOSCROLL_EDGE = 42;
+const DRAG_AUTOSCROLL_MAX_STEP = 18;
 
 type DiagramRow =
   | { kind: 'field'; field: DataSourceField; grouped: boolean; height: number }
@@ -47,17 +50,22 @@ const fieldTypeLabel = (field: DataSourceField) => {
   return field.valueUnit.trim() ? `${type} · ${field.valueUnit.trim()}` : type;
 };
 
+const groupedByLabel = (dimensions: DataSourceFieldDimension[]) => {
+  const names = dimensions.map((dimension) => dimension.name.trim()).filter(Boolean);
+  return `BY ${names.length ? names.join(' · ').toLocaleUpperCase() : 'CATEGORY'}`;
+};
+
 const buildRows = (source: DataSource): DiagramRow[] => {
   const groupedFieldIds = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
   const rows: DiagramRow[] = [];
   for (let position = 0; position <= source.fields.length; position += 1) {
     source.fieldGroups
       .filter((group) => group.position === position)
-      .forEach((group, groupIndex) => {
+      .forEach((group) => {
         rows.push({
           kind: 'group',
           id: group.id,
-          label: source.fieldGroups.length === 1 ? 'DIMENSIONED FIELD SET' : `DIMENSIONED FIELD SET ${groupIndex + 1}`,
+          label: groupedByLabel(group.dimensions),
           height: GROUP_ROW_HEIGHT
         });
         group.dimensions.forEach((dimension) => rows.push({
@@ -219,6 +227,11 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
   const [frontTableId, setFrontTableId] = useState<string>();
   const [hoveredRelationId, setHoveredRelationId] = useState<string>();
   const [selectedRelationId, setSelectedRelationId] = useState<string>();
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const draggingRef = useRef<typeof dragging>();
+  const dragPointerRef = useRef<{ clientX: number; clientY: number; dirty: boolean }>();
+  const dragFrameRef = useRef<number>();
+  const previousCanvasOriginRef = useRef({ x: 0, y: 0 });
   const svgId = 'current-source-table-diagram';
   const safeName = shortened(config.title || 'KPI source tables', 64).replace(/[^a-z0-9_-]+/gi, '-').replace(/^-|-$/g, '') || 'source-tables';
   const activeRelationId = hoveredRelationId ?? selectedRelationId;
@@ -228,6 +241,29 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
   const orderedTables = frontTableId
     ? [...diagram.tables].sort((left, right) => Number(left.source.id === frontTableId) - Number(right.source.id === frontTableId))
     : diagram.tables;
+  const canvasBounds = useMemo(() => {
+    let minX = 0;
+    let minY = 0;
+    let maxX = diagram.width;
+    let maxY = diagram.height;
+    diagram.tables.forEach((table) => {
+      const position = tablePositions[table.source.id] ?? { x: table.x, y: table.y };
+      if (position.x < 20) minX = Math.min(minX, position.x - OUTER_CANVAS_MARGIN);
+      if (position.y < DIAGRAM_TOP) minY = Math.min(minY, position.y - OUTER_CANVAS_MARGIN);
+      if (position.x + table.width > diagram.width - 20) maxX = Math.max(maxX, position.x + table.width + OUTER_CANVAS_MARGIN);
+      if (position.y + table.height > diagram.height - 20) maxY = Math.max(maxY, position.y + table.height + OUTER_CANVAS_MARGIN);
+    });
+    return { minX, minY, width: maxX - minX, height: maxY - minY };
+  }, [diagram, tablePositions]);
+  useLayoutEffect(() => {
+    const viewport = viewportRef.current;
+    const previous = previousCanvasOriginRef.current;
+    if (viewport) {
+      viewport.scrollLeft += (previous.x - canvasBounds.minX) * zoom;
+      viewport.scrollTop += (previous.y - canvasBounds.minY) * zoom;
+    }
+    previousCanvasOriginRef.current = { x: canvasBounds.minX, y: canvasBounds.minY };
+  }, [canvasBounds.minX, canvasBounds.minY, zoom]);
   useEffect(() => {
     setTablePositions((current) => Object.fromEntries(diagram.tables.map((table) => [
       table.source.id,
@@ -251,14 +287,58 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, [onClose]);
+  useEffect(() => () => {
+    if (dragFrameRef.current !== undefined) window.cancelAnimationFrame(dragFrameRef.current);
+  }, []);
   const pointerPosition = (clientX: number, clientY: number) => {
     const svg = document.getElementById(svgId) as SVGSVGElement | null;
     const bounds = svg?.getBoundingClientRect();
     if (!bounds?.width || !bounds.height) return undefined;
+    const viewBox = svg!.viewBox.baseVal;
     return {
-      x: (clientX - bounds.left) * diagram.width / bounds.width,
-      y: (clientY - bounds.top) * diagram.height / bounds.height
+      x: viewBox.x + (clientX - bounds.left) * viewBox.width / bounds.width,
+      y: viewBox.y + (clientY - bounds.top) * viewBox.height / bounds.height
     };
+  };
+  const queueDragFrame = () => {
+    if (dragFrameRef.current !== undefined) return;
+    dragFrameRef.current = window.requestAnimationFrame(() => {
+      dragFrameRef.current = undefined;
+      const currentDragging = draggingRef.current;
+      const currentPointer = dragPointerRef.current;
+      if (!currentDragging || !currentPointer) return;
+      const viewport = viewportRef.current;
+      let scrollVelocityX = 0;
+      let scrollVelocityY = 0;
+      let scrolled = false;
+      if (viewport) {
+        const bounds = viewport.getBoundingClientRect();
+        const edgeVelocity = (distance: number) => Math.min(DRAG_AUTOSCROLL_MAX_STEP, Math.max(0, distance / DRAG_AUTOSCROLL_EDGE * DRAG_AUTOSCROLL_MAX_STEP));
+        if (currentPointer.clientX > bounds.right - DRAG_AUTOSCROLL_EDGE) scrollVelocityX = edgeVelocity(currentPointer.clientX - (bounds.right - DRAG_AUTOSCROLL_EDGE));
+        else if (currentPointer.clientX < bounds.left + DRAG_AUTOSCROLL_EDGE) scrollVelocityX = -edgeVelocity(bounds.left + DRAG_AUTOSCROLL_EDGE - currentPointer.clientX);
+        if (currentPointer.clientY > bounds.bottom - DRAG_AUTOSCROLL_EDGE) scrollVelocityY = edgeVelocity(currentPointer.clientY - (bounds.bottom - DRAG_AUTOSCROLL_EDGE));
+        else if (currentPointer.clientY < bounds.top + DRAG_AUTOSCROLL_EDGE) scrollVelocityY = -edgeVelocity(bounds.top + DRAG_AUTOSCROLL_EDGE - currentPointer.clientY);
+        const previousScrollLeft = viewport.scrollLeft;
+        const previousScrollTop = viewport.scrollTop;
+        viewport.scrollLeft += scrollVelocityX;
+        viewport.scrollTop += scrollVelocityY;
+        scrolled = viewport.scrollLeft !== previousScrollLeft || viewport.scrollTop !== previousScrollTop;
+      }
+      if (currentPointer.dirty || scrolled) {
+        const pointer = pointerPosition(currentPointer.clientX, currentPointer.clientY);
+        if (pointer) {
+          setTablePositions((current) => ({
+            ...current,
+            [currentDragging.tableId]: {
+              x: pointer.x - currentDragging.offsetX,
+              y: pointer.y - currentDragging.offsetY
+            }
+          }));
+        }
+        currentPointer.dirty = false;
+      }
+      if (scrollVelocityX || scrollVelocityY) queueDragFrame();
+    });
   };
   const relationDescription = (relation: TableRelation) => {
     const sourceName = config.dataSources.find((source) => source.id === relation.sourceDataSourceId)?.name || 'Missing table';
@@ -276,14 +356,14 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
     const image = new Image();
     const url = URL.createObjectURL(new Blob([serializedSvg(svg)], { type: 'image/svg+xml;charset=utf-8' }));
     image.onload = () => {
-      const exportScale = Math.min(2, 12000 / Math.max(diagram.width, diagram.height));
+      const exportScale = Math.min(2, 12000 / Math.max(canvasBounds.width, canvasBounds.height));
       const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(diagram.width * exportScale));
-      canvas.height = Math.max(1, Math.round(diagram.height * exportScale));
+      canvas.width = Math.max(1, Math.round(canvasBounds.width * exportScale));
+      canvas.height = Math.max(1, Math.round(canvasBounds.height * exportScale));
       const context = canvas.getContext('2d');
       if (!context) return;
       context.scale(exportScale, exportScale);
-      context.drawImage(image, 0, 0, diagram.width, diagram.height);
+      context.drawImage(image, 0, 0, canvasBounds.width, canvasBounds.height);
       canvas.toBlob((blob) => {
         if (blob) downloadBlob(blob, `${safeName}-diagram.png`);
         URL.revokeObjectURL(url);
@@ -323,26 +403,26 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
           <button className="mini-icon-button table-diagram-close" type="button" aria-label="Close source table diagram" title="Close" onClick={onClose}><X size={16} /></button>
         </div>
       </header>
-      <div className="table-diagram-viewport">
-        <div className="table-diagram-stage" style={{ width: diagram.width * zoom, height: diagram.height * zoom }}>
+      <div className="table-diagram-viewport" ref={viewportRef}>
+        <div className="table-diagram-stage" style={{ width: canvasBounds.width * zoom, height: canvasBounds.height * zoom }}>
           <svg
             id={svgId}
             className="table-diagram-svg"
-            viewBox={`0 0 ${diagram.width} ${diagram.height}`}
-            width={diagram.width}
-            height={diagram.height}
+            viewBox={`${canvasBounds.minX} ${canvasBounds.minY} ${canvasBounds.width} ${canvasBounds.height}`}
+            width={canvasBounds.width}
+            height={canvasBounds.height}
             style={{ transform: `scale(${zoom})` }}
             role="img"
             aria-label="Entity relationship diagram of the current source tables"
           >
-            <rect width={diagram.width} height={diagram.height} fill="#f5f8f9" onClick={() => setSelectedRelationId(undefined)} />
+            <rect x={canvasBounds.minX} y={canvasBounds.minY} width={canvasBounds.width} height={canvasBounds.height} fill="#f5f8f9" onClick={() => setSelectedRelationId(undefined)} />
             <text x={CANVAS_PADDING} y="46" fill="#183642" fontSize="24" fontWeight="800">Source table diagram</text>
             <text x={CANVAS_PADDING} y="70" fill="#60727a" fontSize="12">Drag a table to untangle joins · hover or click a join to highlight it</text>
             <g transform={`translate(${CANVAS_PADDING}, 88)`} fontFamily="Inter, Segoe UI, Arial, sans-serif" fontSize="10" fill="#435861">
               <g><rect width="31" height="18" rx="4" fill="#f5e9bd" stroke="#b88b13" /><text x="7" y="13" fontWeight="800">PK</text></g>
               <g transform="translate(47,0)"><rect width="66" height="18" rx="4" fill="#e3f2ee" stroke="#3d7e6c" strokeDasharray="4 2" /><text x="8" y="13" fontWeight="700">VIRTUAL</text></g>
               <g transform="translate(129,0)"><rect width="91" height="18" rx="4" fill="#fff0ed" stroke="#c85a50" /><circle cx="10" cy="9" r="3" fill="#c85a50" /><text x="18" y="13">Preprocess</text></g>
-              <g transform="translate(236,0)"><rect width="101" height="18" rx="4" fill="#f0eafa" stroke="#8062a8" /><text x="8" y="13">Dimensioned set</text></g>
+              <g transform="translate(236,0)"><rect width="101" height="18" rx="4" fill="#f0eafa" stroke="#8062a8" /><text x="8" y="13">Grouped fields</text></g>
               <g transform="translate(354,0)"><path d="M0 9H31" stroke="#456c7b" strokeWidth="1.5" /><path d="M1 4V14M5 4V14M30 9L21 4M30 9L21 9M30 9L21 14" stroke="#456c7b" strokeWidth="1.5" fill="none" /><text x="39" y="13">1:N join</text></g>
             </g>
             <defs>
@@ -451,22 +531,36 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                     event.stopPropagation();
                     event.currentTarget.setPointerCapture(event.pointerId);
                     setFrontTableId(table.source.id);
-                    setDragging({ tableId: table.source.id, pointerId: event.pointerId, offsetX: pointer.x - position.x, offsetY: pointer.y - position.y });
+                    const nextDragging = { tableId: table.source.id, pointerId: event.pointerId, offsetX: pointer.x - position.x, offsetY: pointer.y - position.y };
+                    draggingRef.current = nextDragging;
+                    dragPointerRef.current = { clientX: event.clientX, clientY: event.clientY, dirty: false };
+                    setDragging(nextDragging);
                   }}
                   onPointerMove={(event) => {
-                    if (!dragging || dragging.tableId !== table.source.id || dragging.pointerId !== event.pointerId) return;
-                    const pointer = pointerPosition(event.clientX, event.clientY);
-                    if (!pointer) return;
-                    const nextX = Math.max(20, Math.min(diagram.width - table.width - 20, pointer.x - dragging.offsetX));
-                    const nextY = Math.max(DIAGRAM_TOP, Math.min(diagram.height - table.height - 20, pointer.y - dragging.offsetY));
-                    setTablePositions((current) => ({ ...current, [table.source.id]: { x: nextX, y: nextY } }));
+                    const currentDragging = draggingRef.current;
+                    if (!currentDragging || currentDragging.tableId !== table.source.id || currentDragging.pointerId !== event.pointerId) return;
+                    dragPointerRef.current = { clientX: event.clientX, clientY: event.clientY, dirty: true };
+                    queueDragFrame();
                   }}
                   onPointerUp={(event) => {
-                    if (dragging?.pointerId !== event.pointerId) return;
-                    event.currentTarget.releasePointerCapture(event.pointerId);
+                    const currentDragging = draggingRef.current;
+                    if (currentDragging?.pointerId !== event.pointerId) return;
+                    const pointer = pointerPosition(event.clientX, event.clientY);
+                    if (pointer) setTablePositions((current) => ({ ...current, [currentDragging.tableId]: { x: pointer.x - currentDragging.offsetX, y: pointer.y - currentDragging.offsetY } }));
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+                    if (dragFrameRef.current !== undefined) window.cancelAnimationFrame(dragFrameRef.current);
+                    dragFrameRef.current = undefined;
+                    draggingRef.current = undefined;
+                    dragPointerRef.current = undefined;
                     setDragging(undefined);
                   }}
-                  onPointerCancel={() => setDragging(undefined)}
+                  onPointerCancel={() => {
+                    if (dragFrameRef.current !== undefined) window.cancelAnimationFrame(dragFrameRef.current);
+                    dragFrameRef.current = undefined;
+                    draggingRef.current = undefined;
+                    dragPointerRef.current = undefined;
+                    setDragging(undefined);
+                  }}
                 >
                   <rect x={table.x} y={table.y} width={table.width} height={table.height} rx="10" fill="#ffffff" stroke={relatedToActive ? '#d75a32' : '#b8c8cf'} strokeWidth={relatedToActive ? 2.5 : 1} filter="url(#table-shadow)" />
                   <path d={`M${table.x + 10} ${table.y}H${table.x + table.width - 10}Q${table.x + table.width} ${table.y} ${table.x + table.width} ${table.y + 10}V${table.y + CARD_HEADER_HEIGHT}H${table.x}V${table.y + 10}Q${table.x} ${table.y} ${table.x + 10} ${table.y}`} fill="#315f70" />
@@ -489,13 +583,13 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                     if (row.kind === 'group') return <g key={`group:${row.id}`}>
                       <rect x={table.x + 1} y={y} width={table.width - 2} height={row.height} fill="#f0eafa" />
                       <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#8062a8" />
-                      <text x={table.x + 13} y={y + 18} fill="#684b91" fontSize="9.5" fontWeight="800" letterSpacing="0.6">{row.label}</text>
+                      <text x={table.x + 13} y={y + 18} fill="#684b91" fontSize="9.5" fontWeight="800" letterSpacing="0.6"><title>{row.label}</title>{shortened(row.label, Math.floor((table.width - 26) / 6))}</text>
                     </g>;
                     if (row.kind === 'dimension') {
                       const optionText = row.dimension.options.length
                         ? `${row.dimension.options.slice(0, 3).join(' · ')}${row.dimension.options.length > 3 ? ` · +${row.dimension.options.length - 3}` : ''}`
                         : 'no values defined';
-                      const label = `${row.dimension.name || 'Untitled dimension'} = ${optionText}`;
+                      const label = `${row.dimension.name.trim() || 'Category'} = ${optionText}`;
                       return <g key={`dimension:${row.id}`}>
                         <rect x={table.x + 1} y={y} width={table.width - 2} height={row.height} fill="#f8f4fd" />
                         <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#8062a8" />
