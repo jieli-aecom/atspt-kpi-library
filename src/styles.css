@@ -5134,22 +5134,22 @@ h1 {
 
 .source-table-group-buttons {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 5px;
+  grid-template-columns: repeat(auto-fit, minmax(125px, 1fr));
+  gap: 4px;
 }
 
 .source-table-group-buttons button {
   display: grid;
-  grid-template-columns: 16px minmax(0, 1fr) 12px;
+  grid-template-columns: 14px minmax(0, 1fr) 11px;
   align-items: center;
-  gap: 6px;
-  min-height: 38px;
-  border: 1px solid #b8cbd2;
-  border-left: 4px solid #527b8b;
-  border-radius: 7px;
+  gap: 4px;
+  min-height: 34px;
+  border: 1px solid #c5d1d6;
+  border-left: 3px solid #527b8b;
+  border-radius: 6px;
   background: #f1f6f7;
   color: #315a66;
-  padding: 5px 8px;
+  padding: 4px 6px;
   text-align: left;
 }
 
@@ -5158,11 +5158,9 @@ h1 {
 }
 
 .source-table-group-buttons button.is-active {
-  border-color: #527b8b;
   border-left-color: #315a66;
   background: #d9e9ec;
   color: #1f4b59;
-  box-shadow: inset 0 -2px 0 #648b99;
 }
 
 .source-table-group-buttons button > span {
@@ -5179,7 +5177,7 @@ h1 {
 }
 
 .source-table-group-buttons strong {
-  font-size: 11px;
+  font-size: 10.5px;
 }
 
 .source-table-group-buttons small {
@@ -5209,7 +5207,7 @@ h1 {
   gap: 5px;
   min-height: 29px;
   max-width: 210px;
-  border-color: #a9c1ca;
+  border-color: #c1cdd2;
   border-left: 3px solid #527b8b;
   border-radius: 6px;
   background: #eef5f6;
@@ -5236,7 +5234,6 @@ h1 {
 }
 
 .source-table-buttons button.source-table-button.is-active {
-  border-color: #527b8b;
   border-left-color: #315a66;
   background: #d6e8eb;
   color: #1f4b59;
