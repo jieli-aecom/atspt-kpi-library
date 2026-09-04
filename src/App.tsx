@@ -10534,14 +10534,16 @@ function EditorApp({
   const filterMatchCacheRef = useRef<{
     filters: ColumnFilters;
     focusedAssignment?: UseCaseAssignment;
-    kpis: KpiMetric[];
     ids: Set<string>;
   }>();
   const activeDeferredFilterCount = activeFilterCount(deferredFilters);
   let filterMatchIds: Set<string> | undefined;
   if (activeDeferredFilterCount > 0) {
     const cached = filterMatchCacheRef.current;
-    if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment && cached.kpis === config.kpis) {
+    // Keep the result set stable while KPI values are being edited. Recompute it
+    // only when the user changes the filters or their focus; otherwise a field
+    // can stop matching its own filter and make its row disappear mid-edit.
+    if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment) {
       filterMatchIds = cached.ids;
     } else {
       const compiledFilters = compileFilters(deferredFilters, indexes);
@@ -10550,7 +10552,7 @@ function EditorApp({
           .filter((kpi) => matchesFilters(indexes, kpi, compiledFilters, pinnedFilterIdSet, focusedAssignment))
           .map((kpi) => kpi.id)
       );
-      filterMatchCacheRef.current = { filters: deferredFilters, focusedAssignment, kpis: config.kpis, ids: filterMatchIds };
+      filterMatchCacheRef.current = { filters: deferredFilters, focusedAssignment, ids: filterMatchIds };
     }
   }
   const filteredKpis = useMemo(
