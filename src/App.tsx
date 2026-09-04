@@ -6692,6 +6692,31 @@ function KpiSourceEditor({
   const selectedDataSource = pickerScope.startsWith('data:')
     ? config.dataSources.find((source) => source.id === pickerScope.slice(5))
     : undefined;
+  const groupedPickerDataSourceIds = new Set(config.dataSourceGroups.flatMap((group) => group.itemIds));
+  const ungroupedPickerDataSources = config.dataSources.filter((source) => !groupedPickerDataSourceIds.has(source.id));
+  const pickerDataSourceGroups = [
+    ...config.dataSourceGroups
+      .slice()
+      .sort((left, right) => left.position - right.position)
+      .map((group) => ({
+        id: group.id,
+        name: group.name.trim() || 'Untitled group',
+        dataSources: config.dataSources.filter((source) => group.itemIds.includes(source.id))
+      })),
+    ...(ungroupedPickerDataSources.length ? [{
+      id: '__ungrouped__',
+      name: 'Ungrouped tables',
+      dataSources: ungroupedPickerDataSources
+    }] : [])
+  ];
+  const explicitPickerDataSourceGroupId = pickerScope.startsWith('data-group:')
+    ? pickerScope.slice('data-group:'.length)
+    : undefined;
+  const selectedPickerDataSourceGroup = explicitPickerDataSourceGroupId
+    ? pickerDataSourceGroups.find((group) => group.id === explicitPickerDataSourceGroupId)
+    : selectedDataSource
+      ? pickerDataSourceGroups.find((group) => group.dataSources.some((source) => source.id === selectedDataSource.id))
+      : undefined;
   const visibleFields = selectedDataSource?.fields.filter((field) => {
     const dimensions = selectedDataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id))?.dimensions ?? [];
     const sourceItem = kpi.sources.find((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)
@@ -6952,11 +6977,32 @@ function KpiSourceEditor({
               <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={pickerScope === 'kpis' ? 'rotate' : ''} /></button>
               <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
               <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Constants<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
-              {config.dataSources.map((source) => (
-                <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{groupedDataSourceLabel(config, source)}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
-              ))}
               <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
             </div>
+            {pickerDataSourceGroups.length ? <div className="source-table-group-picker">
+              <div className="source-table-group-picker-title">Source table groups <small>Select a group, then a table</small></div>
+              <div className="source-table-group-buttons" aria-label="Source table groups">
+                {pickerDataSourceGroups.map((group) => {
+                  const isActive = selectedPickerDataSourceGroup?.id === group.id;
+                  return <button
+                    className={isActive ? 'is-active' : ''}
+                    type="button"
+                    aria-expanded={isActive}
+                    key={group.id}
+                    onClick={() => { setPickerScope(isActive ? '' : `data-group:${group.id}`); setQuery(''); }}
+                  ><Database size={13} aria-hidden="true" /><span><strong>{group.name}</strong><small>{group.dataSources.length} {group.dataSources.length === 1 ? 'table' : 'tables'}</small></span><ChevronDown size={11} className={isActive ? 'rotate' : ''} /></button>;
+                })}
+              </div>
+            </div> : null}
+            {selectedPickerDataSourceGroup ? <fieldset className="source-scope-panel source-table-picker-panel">
+              <legend>Tables in {selectedPickerDataSourceGroup.name}</legend>
+              {selectedPickerDataSourceGroup.dataSources.length === 0 ? <span className="empty-option">No tables in this group.</span> : null}
+              <div className="source-table-buttons" aria-label={`Tables in ${selectedPickerDataSourceGroup.name}`}>
+                {selectedPickerDataSourceGroup.dataSources.map((source) => (
+                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? `data-group:${selectedPickerDataSourceGroup.id}` : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(source.name, source.spatialUnit)}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+                ))}
+              </div>
+            </fieldset> : null}
             {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
               <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search constants…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
             ) : null}
@@ -7005,7 +7051,7 @@ function KpiSourceEditor({
             ) : null}
             {selectedDataSource ? (
             <fieldset className="source-scope-panel">
-              <legend>{selectedDataSource.name}{selectedDataSource.spatialUnit ? ` · ${selectedDataSource.spatialUnit}` : ''}</legend>
+              <legend>Fields in {selectedDataSource.name}{selectedDataSource.spatialUnit ? ` · ${selectedDataSource.spatialUnit}` : ''}</legend>
               {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
               {visibleFields.map((field) => {
                 const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));
