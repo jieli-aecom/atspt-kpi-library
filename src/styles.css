@@ -3214,6 +3214,92 @@ h1 {
   min-height: 29px;
 }
 
+.data-source-field-move-menu {
+  position: fixed;
+  z-index: 10020;
+  display: grid;
+  width: min(268px, calc(100vw - 24px));
+  max-height: min(360px, calc(100vh - 24px));
+  overflow: auto;
+  border: 1px solid #b8c8cf;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 32px rgba(18, 30, 42, 0.24);
+  padding: 7px;
+  color: #233d47;
+  transform: translateY(4px);
+}
+
+.data-source-field-move-heading {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid #e0e7ea;
+  padding: 3px 5px 7px;
+}
+
+.data-source-field-move-heading strong {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.data-source-field-move-heading span,
+.data-source-field-move-note,
+.data-source-field-move-empty {
+  color: #687a82;
+  font-size: 9px;
+  line-height: 1.35;
+}
+
+.data-source-field-move-targets {
+  display: grid;
+  gap: 2px;
+  padding: 5px 0;
+}
+
+.data-source-field-move-targets button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  min-height: 28px;
+  padding: 5px 6px;
+  color: #294854;
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.data-source-field-move-targets button > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-source-field-move-targets button:hover,
+.data-source-field-move-targets button:focus-visible {
+  background: #e8f1f4;
+  outline: none;
+}
+
+.data-source-field-move-targets button small {
+  color: #788990;
+  font-size: 8px;
+  white-space: nowrap;
+}
+
+.data-source-field-move-empty,
+.data-source-field-move-note {
+  display: block;
+  padding: 8px 5px;
+}
+
+.data-source-field-move-note {
+  border-top: 1px solid #e0e7ea;
+}
+
 .data-source-field-actions {
   position: relative;
   flex-wrap: nowrap;

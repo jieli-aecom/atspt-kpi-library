@@ -50,6 +50,7 @@ import {
 import { mergeImportedConfig } from './configMerge';
 import { buildSystematicJsonExport } from './systematicJsonExport';
 import { TableDiagram } from './TableDiagram';
+import { moveTableField } from './tableFieldMove';
 import {
   buildKpiExcelRows,
   downloadKpiExcelWorkbook,
@@ -3727,6 +3728,12 @@ function DataSourceHeader({
   const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
   const [sourceDragOver, setSourceDragOver] = useState<{ sourceIndex: number; position: DropPosition } | null>(null);
   const [fieldDrag, setFieldDrag] = useState<{ sourceIndex: number; fieldIndex: number } | null>(null);
+  const [fieldMoveMenu, setFieldMoveMenu] = useState<{
+    sourceDataSourceId: string;
+    fieldId: string;
+    top: number;
+    left: number;
+  }>();
   const [fieldDragOver, setFieldDragOver] = useState<{ sourceIndex: number; fieldIndex: number; position: DropPosition } | null>(null);
   const [fieldInsertDragOver, setFieldInsertDragOver] = useState<{ sourceIndex: number; targetKey: string } | null>(null);
   const [fieldGroupDragOver, setFieldGroupDragOver] = useState<{ sourceIndex: number; groupId?: string } | null>(null);
@@ -3833,6 +3840,8 @@ function DataSourceHeader({
     if (!open) return undefined;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
+      if (target instanceof Element && target.closest('.data-source-field-move-menu')) return;
+      setFieldMoveMenu(undefined);
       if (target instanceof Node && (controlRef.current?.contains(target) || popoverRef.current?.contains(target))) return;
       if (fieldDetailsEditor && target instanceof Element && target.closest('.kpi-note-dialog-backdrop')) return;
       if (diagramOpen && target instanceof Element && target.closest('.table-diagram-backdrop')) return;
@@ -3845,6 +3854,10 @@ function DataSourceHeader({
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        if (fieldMoveMenu) {
+          setFieldMoveMenu(undefined);
+          return;
+        }
         if (fieldDetailsEditor) return;
         if (diagramOpen) {
           setDiagramOpen(false);
@@ -3865,7 +3878,7 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [diagramOpen, fieldDetailsEditor, open, relationEditor]);
+  }, [diagramOpen, fieldDetailsEditor, fieldMoveMenu, open, relationEditor]);
   const patchDataSources = (dataSources: DataSource[], dataSourceGroups = config.dataSourceGroups) => {
     onConfigChange({ ...config, dataSources, dataSourceGroups });
   };
@@ -4876,6 +4889,12 @@ function DataSourceHeader({
       })
     });
   };
+  const moveFieldToTable = (sourceDataSourceId: string, fieldId: string, targetDataSourceId: string) => {
+    const result = moveTableField(config, sourceDataSourceId, fieldId, targetDataSourceId);
+    if (!result.moved) return;
+    onConfigChange(result.config);
+    setFieldMoveMenu(undefined);
+  };
   const deleteField = (sourceIndex: number, fieldIndex: number) => {
     const source = config.dataSources[sourceIndex];
     const field = source.fields[fieldIndex];
@@ -5823,8 +5842,22 @@ function DataSourceHeader({
                     className="mini-icon-button drag-handle data-source-field-drag"
                     type="button"
                     draggable
+                    aria-haspopup="menu"
                     aria-label={`Drag ${field.name} to reorder or move into a dimensioned set`}
-                    title="Drag to reorder or move into a dimensioned set"
+                    title="Drag to reorder or move into a dimensioned set · Right-click to move to another table"
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const top = event.clientY || rect.bottom;
+                      const left = event.clientX || rect.left;
+                      setFieldMoveMenu({
+                        sourceDataSourceId: source.id,
+                        fieldId: field.id,
+                        top: Math.min(top, window.innerHeight - 12),
+                        left: Math.min(left, window.innerWidth - 12)
+                      });
+                    }}
                     onDragStart={(event) => {
                       setFieldDrag({ sourceIndex, fieldIndex });
                       setFieldInsertDragOver(null);
@@ -6342,6 +6375,48 @@ function DataSourceHeader({
         onChangeGlobally={(latex, reportProgress) => changeFieldLatexGlobally(fieldDetailsSourceIndex, fieldDetailsFieldIndex, latex, reportProgress)}
         onClose={() => setFieldDetailsEditor(undefined)}
       /> : null}
+      {fieldMoveMenu ? (() => {
+        const moveSource = config.dataSources.find((entry) => entry.id === fieldMoveMenu.sourceDataSourceId);
+        const moveField = moveSource?.fields.find((entry) => entry.id === fieldMoveMenu.fieldId);
+        if (!moveSource || !moveField) return null;
+        const sourceHasRelations = config.tableRelations.some(
+          (relation) => relation.sourceDataSourceId === moveSource.id || relation.targetDataSourceId === moveSource.id
+        );
+        const primaryKeyIsLocked = moveSource.primaryKeyFieldId === moveField.id && sourceHasRelations;
+        const targets = config.dataSources.filter(
+          (entry) => entry.id !== moveSource.id && entry.spatialUnit === moveSource.spatialUnit && !entry.fields.some((field) => field.id === moveField.id)
+        );
+        const citedCount = config.kpis.reduce((count, kpi) => count + kpi.sources.filter(
+          (item) => item.type === 'dataField' && item.dataSourceId === moveSource.id && item.fieldId === moveField.id
+        ).length, 0);
+        return createPortal(
+          <div
+            className="data-source-field-move-menu"
+            role="menu"
+            aria-label={`Move ${moveField.name || 'field'} to another table`}
+            style={{ top: fieldMoveMenu.top, left: fieldMoveMenu.left }}
+          >
+            <div className="data-source-field-move-heading">
+              <strong>Move field to table</strong>
+              <span>{moveField.name || 'Untitled field'} · {moveSource.spatialUnit || 'No spatial unit'}</span>
+            </div>
+            {primaryKeyIsLocked
+              ? <span className="data-source-field-move-empty">Remove this primary key’s relationships before moving it.</span>
+              : targets.length
+                ? <div className="data-source-field-move-targets">{targets.map((target) => <button
+                    type="button"
+                    role="menuitem"
+                    key={target.id}
+                    onClick={() => moveFieldToTable(moveSource.id, moveField.id, target.id)}
+                  ><Table2 size={12} aria-hidden="true" /><span>{target.name || 'Untitled table'}</span><small>{target.fields.length} {target.fields.length === 1 ? 'field' : 'fields'}</small></button>)}</div>
+                : <span className="data-source-field-move-empty">No other table has the same spatial unit.</span>}
+            <small className="data-source-field-move-note">{citedCount
+              ? `${citedCount} KPI source ${citedCount === 1 ? 'reference' : 'references'} will follow this field. LaTeX and formulas stay unchanged.`
+              : 'The field will be appended to the selected table.'}</small>
+          </div>,
+          document.body
+        );
+      })() : null}
       {diagramOpen ? createPortal(<TableDiagram config={config} onClose={() => setDiagramOpen(false)} />, document.body) : null}
     </div>
   );
