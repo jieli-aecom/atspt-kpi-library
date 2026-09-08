@@ -6,8 +6,9 @@ const PADDING = 24;
 const HEADING = 44;
 const TABLE_GAP = 48;
 const GROUP_GAP = 36;
+const MAX_CONTENT_WIDTH = 2400;
 
-/** Pack whole groups into category bands; never split a group across regions. */
+/** Keep groups together, stagger variable-height tables, and place categories side by side. */
 export const layoutTableRegions = (tables: LayoutTable[], groups: DataLibraryGroup[]) => {
   const positions = new Map<string, { x: number; y: number }>();
   const regions: DiagramRegion[] = [];
@@ -20,26 +21,27 @@ export const layoutTableRegions = (tables: LayoutTable[], groups: DataLibraryGro
     ].filter((bucket) => bucket.tables.length);
     return { category, blocks: buckets.map((bucket) => {
       const columns = Math.min(3, Math.ceil(Math.sqrt(bucket.tables.length)));
-      const columnWidths = Array.from({ length: columns }, (_, column) => Math.max(...bucket.tables.filter((_, index) => index % columns === column).map((table) => table.width)));
-      const rowHeights = Array.from({ length: Math.ceil(bucket.tables.length / columns) }, (_, row) => Math.max(...bucket.tables.slice(row * columns, (row + 1) * columns).map((table) => table.height)));
-      const localPositions = bucket.tables.map((table, index) => {
-        const column = index % columns;
-        const row = Math.floor(index / columns);
-        return { id: table.id,
-          x: PADDING + columnWidths.slice(0, column).reduce((sum, width) => sum + width + TABLE_GAP, 0),
-          y: HEADING + rowHeights.slice(0, row).reduce((sum, height) => sum + height + TABLE_GAP, 0) };
+      const columnWidth = Math.max(...bucket.tables.map((table) => table.width));
+      const columnBottoms = Array<number>(columns).fill(HEADING);
+      const localPositions = bucket.tables.map((table) => {
+        const column = columnBottoms.indexOf(Math.min(...columnBottoms));
+        const position = { id: table.id,
+          x: PADDING + column * (columnWidth + TABLE_GAP),
+          y: columnBottoms[column] };
+        columnBottoms[column] += table.height + TABLE_GAP;
+        return position;
       });
       return { ...bucket, localPositions,
-        width: PADDING * 2 + columnWidths.reduce((sum, width) => sum + width, 0) + (columns - 1) * TABLE_GAP,
-        height: HEADING + PADDING + rowHeights.reduce((sum, height) => sum + height, 0) + (rowHeights.length - 1) * TABLE_GAP };
+        width: PADDING * 2 + columns * columnWidth + (columns - 1) * TABLE_GAP,
+        height: Math.max(...columnBottoms) - TABLE_GAP + PADDING };
     }) };
   }).filter(({ blocks }) => blocks.length);
   if (!tables.length) return { positions, regions, width: 760, height: 410 };
-  const contentWidth = Math.max(760, ...categories.map(({ blocks }) => Math.min(1500, blocks.reduce((sum, block) => sum + block.width + GROUP_GAP, -GROUP_GAP))));
-  const bandWidth = contentWidth + PADDING * 2;
-  let bandY = 126;
+  let bandX = 48;
+  let maxBottom = 126;
   for (const { category, blocks } of categories) {
-    const band: DiagramRegion = { id: category, label: category, category, kind: 'category', x: 48, y: bandY, width: bandWidth, height: 0 };
+    const contentWidth = Math.max(...blocks.map((block) => block.width), Math.min(MAX_CONTENT_WIDTH, blocks.reduce((sum, block) => sum + block.width + GROUP_GAP, -GROUP_GAP)));
+    const band: DiagramRegion = { id: category, label: category, category, kind: 'category', x: bandX, y: 126, width: contentWidth + PADDING * 2, height: 0 };
     regions.push(band);
     let x = 0;
     let y = HEADING;
@@ -54,7 +56,8 @@ export const layoutTableRegions = (tables: LayoutTable[], groups: DataLibraryGro
       rowHeight = Math.max(rowHeight, block.height);
     }
     band.height = y + rowHeight + PADDING;
-    bandY += band.height + 56;
+    bandX += band.width + 56;
+    maxBottom = Math.max(maxBottom, band.y + band.height);
   }
-  return { positions, regions, width: bandWidth + 96, height: bandY - 56 + 48 };
+  return { positions, regions, width: bandX - 56 + 48, height: maxBottom + 48 };
 };

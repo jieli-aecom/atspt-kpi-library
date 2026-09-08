@@ -20,6 +20,7 @@ const DIMENSION_ROW_HEIGHT = 23;
 const EMPTY_ROW_HEIGHT = 34;
 const CANVAS_PADDING = 48;
 const DIAGRAM_TOP = 126;
+const DEFAULT_ZOOM = 0.75;
 const OUTER_CANVAS_MARGIN = 140;
 const DRAG_AUTOSCROLL_EDGE = 42;
 const DRAG_AUTOSCROLL_MAX_STEP = 18;
@@ -178,7 +179,7 @@ const supportButton = (x: number, y: number, target: SupportTarget, label: strin
 
 export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPoolConfig; onClose: () => void; onViewSupport: (target: SupportTarget) => void }) {
   const diagram = useMemo(() => buildDiagram(config), [config.dataSourceGroups, config.dataSources, config.tableRelations]);
-  const [zoom, setZoom] = useState(1);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [tablePositions, setTablePositions] = useState<Record<string, { x: number; y: number }>>(() => positionsFromDiagram(diagram));
   const [dragging, setDragging] = useState<{ tableId: string; pointerId: number; offsetX: number; offsetY: number }>();
   const [frontTableId, setFrontTableId] = useState<string>();
@@ -372,7 +373,7 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
           }}><RotateCcw size={13} /> Reset layout</button>
           <div className="table-diagram-zoom" aria-label="Diagram zoom controls">
             <button className="mini-icon-button" type="button" title="Zoom out" aria-label="Zoom out" disabled={zoom <= 0.5} onClick={() => setZoom((current) => Math.max(0.5, current - 0.1))}><Minus size={13} /></button>
-            <button type="button" title="Reset zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+            <button type="button" title="Reset zoom" onClick={() => setZoom(DEFAULT_ZOOM)}>{Math.round(zoom * 100)}%</button>
             <button className="mini-icon-button" type="button" title="Zoom in" aria-label="Zoom in" disabled={zoom >= 1.5} onClick={() => setZoom((current) => Math.min(1.5, current + 0.1))}><Plus size={13} /></button>
           </div>
           <button className="secondary-action small" type="button" disabled={!config.dataSources.length} onClick={exportExcel}><Download size={13} /> Export Excel</button>

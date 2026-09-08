@@ -14,17 +14,33 @@ const tables = Array.from({ length: 30 }, (_, index) => ({
 const overlaps = (a: { x: number; y: number; width: number; height: number }, b: typeof a) =>
   a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 
-test('category bands follow the configured order and contain their group regions', () => {
+test('category regions follow the configured order across the canvas and contain their groups', () => {
   const layout = layoutTableRegions(tables, groups);
   const bands = layout.regions.filter((region) => region.kind === 'category');
   assert.deepEqual(bands.map((band) => band.category), tableSourceCategories);
-  for (let index = 1; index < bands.length; index++) assert.ok(bands[index].y > bands[index - 1].y + bands[index - 1].height);
+  for (let index = 1; index < bands.length; index++) {
+    assert.ok(bands[index].x > bands[index - 1].x + bands[index - 1].width);
+    assert.equal(bands[index].y, bands[0].y);
+  }
   for (const region of layout.regions.filter((entry) => entry.kind === 'group')) {
     const band = bands.find((entry) => entry.category === region.category)!;
     assert.ok(region.x >= band.x && region.y >= band.y);
     assert.ok(region.x + region.width <= band.x + band.width);
     assert.ok(region.y + region.height <= band.y + band.height);
   }
+});
+
+test('shorter tables fill space below their column without waiting for the tallest table', () => {
+  const staggered = [600, 150, 180, 200].map((height, index) => ({
+    id: `staggered-${index}`, width: 300, height, category: tableSourceCategories[0], groupId: 'g1'
+  }));
+  const layout = layoutTableRegions(staggered, groups);
+  const first = layout.positions.get(staggered[0].id)!;
+  const second = layout.positions.get(staggered[1].id)!;
+  const third = layout.positions.get(staggered[2].id)!;
+  assert.equal(third.x, second.x);
+  assert.ok(third.y >= second.y + staggered[1].height);
+  assert.ok(third.y < first.y + staggered[0].height);
 });
 
 test('variable-height tables fit in their own group regions without overlapping', () => {
