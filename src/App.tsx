@@ -6857,21 +6857,15 @@ function KpiSourceEditor({
   }, [selectedDataSource?.id]);
   const groupedPickerDataSourceIds = new Set(config.dataSourceGroups.flatMap((group) => group.itemIds));
   const ungroupedPickerDataSources = config.dataSources.filter((source) => !groupedPickerDataSourceIds.has(source.id));
-  const pickerDataSourceGroups = [
-    ...config.dataSourceGroups
-      .slice()
-      .sort((left, right) => left.position - right.position)
-      .map((group) => ({
-        id: group.id,
-        name: group.name.trim() || 'Untitled group',
-        category: group.category ?? 'Preprocessed Constants',
-        dataSources: config.dataSources.filter((source) => group.itemIds.includes(source.id))
-      })),
-    ...tableSourceCategories.flatMap((category) => {
-      const dataSources = ungroupedPickerDataSources.filter((source) => (source.category ?? 'Preprocessed Constants') === category);
-      return dataSources.length ? [{ id: `__ungrouped__:${category}`, name: 'Ungrouped tables', category, dataSources }] : [];
-    })
-  ];
+  const pickerDataSourceGroups = config.dataSourceGroups
+    .slice()
+    .sort((left, right) => left.position - right.position)
+    .map((group) => ({
+      id: group.id,
+      name: group.name.trim() || 'Untitled group',
+      category: group.category ?? 'Preprocessed Constants',
+      dataSources: config.dataSources.filter((source) => group.itemIds.includes(source.id))
+    }));
   const explicitPickerDataSourceGroupId = pickerScope.startsWith('data-group:')
     ? pickerScope.slice('data-group:'.length)
     : undefined;
@@ -7147,11 +7141,11 @@ function KpiSourceEditor({
               <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
             </div>
             <div className="source-table-group-picker">
-              <div className="source-table-group-picker-title">Source table groups <small>Select a group to open its first table</small></div>
+              <div className="source-table-group-picker-title">Source tables <small>Select a table or group</small></div>
               {tableSourceCategories.map((category) => <section className="table-source-category" key={category}>
-                <button className="table-source-category-heading" type="button" aria-expanded={!collapsedPickerCategories.includes(category)} onClick={() => { setCollapsedPickerCategories((current) => current.includes(category) ? current.filter((entry) => entry !== category) : [...current, category]); if (selectedPickerDataSourceGroup?.category === category) setPickerScope(''); }}><ChevronDown size={13} className={collapsedPickerCategories.includes(category) ? '' : 'is-expanded'} /><strong>{category}</strong></button>
-                {!collapsedPickerCategories.includes(category) ? <div className="source-table-group-buttons" aria-label={`Source table groups in ${category}`}>
-                {!pickerDataSourceGroups.some((group) => group.category === category) ? <span className="empty-option">No source tables.</span> : null}
+                <button className="table-source-category-heading" type="button" aria-expanded={!collapsedPickerCategories.includes(category)} onClick={() => { setCollapsedPickerCategories((current) => current.includes(category) ? current.filter((entry) => entry !== category) : [...current, category]); if ((selectedPickerDataSourceGroup?.category ?? (selectedDataSource ? selectedDataSource.category ?? 'Preprocessed Constants' : undefined)) === category) setPickerScope(''); }}><ChevronDown size={13} className={collapsedPickerCategories.includes(category) ? '' : 'is-expanded'} /><strong>{category}</strong></button>
+                {!collapsedPickerCategories.includes(category) ? <div className="source-table-group-buttons" aria-label={`Source tables and groups in ${category}`}>
+                {!pickerDataSourceGroups.some((group) => group.category === category) && !ungroupedPickerDataSources.some((source) => (source.category ?? 'Preprocessed Constants') === category) ? <span className="empty-option">No source tables.</span> : null}
                 {pickerDataSourceGroups.filter((group) => group.category === category).map((group) => {
                   const isActive = selectedPickerDataSourceGroup?.id === group.id;
                   return <button
@@ -7165,6 +7159,9 @@ function KpiSourceEditor({
                     }}
                   ><Database size={13} aria-hidden="true" /><span><strong>{group.name}</strong><small>{group.dataSources.length} {group.dataSources.length === 1 ? 'table' : 'tables'}</small></span><ChevronDown size={11} className={isActive ? 'rotate' : ''} /></button>;
                 })}
+                {ungroupedPickerDataSources.filter((source) => (source.category ?? 'Preprocessed Constants') === category).map((source) => (
+                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={`table:${source.id}`} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={13} aria-hidden="true" /><span><strong>{spatiallyScaledTableLabel(source.name, source.spatialUnit)}</strong></span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+                ))}
               </div> : null}
               </section>)}
             </div>
@@ -7224,7 +7221,7 @@ function KpiSourceEditor({
             </fieldset>
             ) : null}
             {selectedDataSource ? (
-            <fieldset className="source-scope-panel">
+            <fieldset className="source-scope-panel" ref={selectedPickerDataSourceGroup ? undefined : sourceTablePickerPanelRef}>
               <legend>Fields in {selectedDataSource.name}{selectedDataSource.spatialUnit ? ` · ${selectedDataSource.spatialUnit}` : ''}</legend>
               {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
               {visibleFields.map((field) => {
