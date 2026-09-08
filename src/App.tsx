@@ -2767,11 +2767,38 @@ function GroupedDomainPickerOptions({
       {(!section.label || expandedSectionIds.includes(section.id)) ? section.definitions.map((definition) => (
         <button type="button" role="menuitem" key={definition.id} onClick={() => onSelect(definition.id)}>
           <strong>{definition.name || 'Untitled domain'}</strong>
-          <small>{definition.options.length ? definition.options.join(', ') : 'No options defined'}</small>
+          <small>{domainOptionsSummary(definition)}</small>
         </button>
       )) : null}
     </div>
   ))}</>;
+}
+
+const domainOptionsSummary = (definition: ValueEnumDefinition) => [
+  definition.options.length ? definition.options.join(', ') : '',
+  definition.notes?.trim() ? 'Notes available · View domain for details' : ''
+].filter(Boolean).join(' · ') || 'No options defined';
+
+function DomainNotesEditor({ definition, onChange }: { definition: ValueEnumDefinition; onChange: (notes: string) => void }) {
+  const [showRaw, setShowRaw] = useState(false);
+  return <div className="field lookup-details-field">
+    <div className="lookup-details-heading">
+      <span>Domain notes</span>
+      <label className="lookup-details-mode">
+        <span className={!showRaw ? 'is-active' : ''}>Styled</span>
+        <input type="checkbox" role="switch" aria-label={`Show raw Markdown for ${definition.name || 'untitled domain'} notes`} checked={showRaw} onChange={(event) => setShowRaw(event.target.checked)} />
+        <span className={showRaw ? 'is-active' : ''}>Raw</span>
+      </label>
+    </div>
+    {showRaw ? <AutoGrowTextarea
+      className="markdown-source-textarea"
+      value={definition.notes ?? ''}
+      rows={3}
+      aria-label={`Raw Markdown notes for ${definition.name || 'untitled domain'}`}
+      placeholder="Describe the options, paste a table, or link to a reference. Markdown tables are supported."
+      onValueChange={onChange}
+    /> : <MarkdownContent value={definition.notes ?? ''} placeholder="Describe the options or paste a table" onValueChange={onChange} />}
+  </div>;
 }
 
 function ValueEnumModeControl({
@@ -2808,7 +2835,7 @@ function ValueEnumModeControl({
       {selected ? <>
         <GroupedDomainSelect definitions={definitions} groups={groups} value={selected.id} label={`Global domain for ${label}`} onChange={onEnumChange} />
         <ViewDomainButton domainId={selected.id} domainName={selected.name} onView={onViewDomain} />
-        <small className="value-enum-mode-summary">{selected.options.length ? selected.options.join(', ') : 'No options defined'}</small>
+        <small className="value-enum-mode-summary">{domainOptionsSummary(selected)}</small>
       </> : definitions.length === 0 ? <small className="value-enum-mode-summary">Create a domain in the Domains tray to enable global mode.</small> : null}
     </div>
   );
@@ -5482,8 +5509,13 @@ function DataSourceHeader({
         }}
         onDragEnd={clearLibraryDrag}
       ><GripVertical size={13} aria-hidden="true" /></button>
-      <label className="field value-enum-name"><span>Domain name</span><input value={definition.name} placeholder="Domain name" onChange={(event) => updateValueEnum(enumIndex, { name: event.target.value })} /></label>
-      <div className="field value-enum-options"><span>Options</span><EnumOptionEditor options={definition.options} label={definition.name || 'domain'} onChange={(options) => updateValueEnum(enumIndex, { options })} /></div>
+      <div className="value-enum-name">
+        <label className="field"><span>Domain name</span><input value={definition.name} placeholder="Domain name" onChange={(event) => updateValueEnum(enumIndex, { name: event.target.value })} /></label>
+      </div>
+      <div className="value-enum-options">
+        <div className="field"><span>Options (optional)</span><EnumOptionEditor options={definition.options} label={definition.name || 'domain'} onChange={(options) => updateValueEnum(enumIndex, { options })} /></div>
+        <DomainNotesEditor definition={definition} onChange={(notes) => updateValueEnum(enumIndex, { notes })} />
+      </div>
       <div className="lookup-definition-actions">
         <button className="mini-icon-button" type="button" title="Copy domain" onClick={() => duplicateValueEnum(enumIndex)}><Copy size={11} /></button>
         <button className="mini-icon-button danger" type="button" title="Delete domain" onClick={() => deleteValueEnum(enumIndex)}><Trash2 size={11} /></button>
@@ -6082,7 +6114,7 @@ function DataSourceHeader({
                               {globalDomain ? <div className="global-domain-definition field-group-domain-definition">
                                 <small>Global domain</small>
                                 <strong>{globalDomain.name || 'Untitled domain'}</strong>
-                                <span>{globalDomain.options.length ? globalDomain.options.join(', ') : 'No options defined'}</span>
+                                <span>{domainOptionsSummary(globalDomain)}</span>
                               </div> : <div className="data-source-field-group-control">
                                 <small>Options:</small>
                                 <div className="field-group-dimension-options">
@@ -9269,7 +9301,7 @@ function KpiDimensionControl({
                 {globalDomain ? <div className="global-domain-definition">
                     <small>Global domain</small>
                     <strong>{globalDomain.name || 'Untitled domain'}</strong>
-                    <span>{globalDomain.options.length ? globalDomain.options.join(', ') : 'No options defined'}</span>
+                    <span>{domainOptionsSummary(globalDomain)}</span>
                     <ViewDomainButton domainId={globalDomain.id} domainName={globalDomain.name} onView={onViewDomain} />
                   </div> : <div className="kpi-dimension-options">
                   <EnumOptionEditor

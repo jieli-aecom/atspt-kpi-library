@@ -43,6 +43,7 @@ export type ValueEnumDefinition = {
   id: string;
   name: string;
   options: string[];
+  notes?: string;
 };
 
 export type KpiFormulaTerm = {

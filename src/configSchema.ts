@@ -192,7 +192,8 @@ const variableSchema = z.object({
 const valueEnumSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
-  options: z.array(z.string())
+  options: z.array(z.string()),
+  notes: z.string().optional()
 });
 
 const dataLibraryGroupSchema = z.object({
@@ -545,7 +546,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     isRecord(valueEnum) &&
     typeof valueEnum.id === 'string' &&
     typeof valueEnum.name === 'string' &&
-    isStringArray(valueEnum.options)
+    isStringArray(valueEnum.options) &&
+    (valueEnum.notes === undefined || typeof valueEnum.notes === 'string')
   )) {
     return false;
   }
@@ -2423,7 +2425,8 @@ const repairValueEnums = (rawValue: unknown, warnings: string[]): ValueEnumDefin
     return [{
       id: ensureUniqueId(rawEnum.id, 'value-enum', usedIds, warnings, `Global domain "${name}"`),
       name,
-      options
+      options,
+      ...(typeof rawEnum.notes === 'string' ? { notes: rawEnum.notes } : {})
     }];
   });
 };
