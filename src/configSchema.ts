@@ -70,6 +70,47 @@ const formulaItemSchema = z.object({
   terms: z.array(formulaTermSchema)
 });
 
+const kpiSourceItemSchema = z.discriminatedUnion('type', [
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('dataField'),
+    dataSourceId: z.string().min(1),
+    fieldId: z.string().min(1),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('kpi'),
+    kpiId: z.string().min(1),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('lookup'),
+    lookupId: z.string().min(1),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('variable'),
+    variableId: z.string().min(1),
+    latex: z.string()
+  }),
+  z.object({
+    id: z.string().min(1),
+    type: z.literal('custom'),
+    name: z.string(),
+    latex: z.string()
+  })
+]);
+
+const fieldSourceItemSchema = z.union([
+  kpiSourceItemSchema.options[0],
+  kpiSourceItemSchema.options[2],
+  kpiSourceItemSchema.options[3],
+  kpiSourceItemSchema.options[4]
+]);
+
 const dataSourceFieldSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
@@ -77,6 +118,8 @@ const dataSourceFieldSchema = z.object({
   details: z.string(),
   preprocessingNeeded: z.boolean(),
   preferredLatex: z.string(),
+  sources: z.array(fieldSourceItemSchema).refine((sources) => new Set(sources.map((source) => source.id)).size === sources.length, 'Field source IDs must be unique').optional(),
+  formulas: z.array(formulaItemSchema).optional(),
   dataType: z.enum(dataSourceFieldTypes),
   collectionItemType: z.enum(dataSourceCollectionItemTypes).optional(),
   valueUnit: z.string(),
@@ -96,6 +139,7 @@ const dataSourceFieldDimensionSchema = z.object({
 const dataSourceSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
+  description: z.string().optional(),
   spatialUnit: z.custom<SpatialUnit>(isSpatialUnit, {
     message: `Spatial unit must be blank or one of: ${spatialUnitOptions.join(', ')}`
   }),
@@ -151,43 +195,11 @@ const valueEnumSchema = z.object({
 const dataLibraryGroupSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
+  description: z.string().optional(),
   itemIds: z.array(z.string()),
   position: z.number().int().nonnegative()
 });
 
-const kpiSourceItemSchema = z.discriminatedUnion('type', [
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('dataField'),
-    dataSourceId: z.string().min(1),
-    fieldId: z.string().min(1),
-    latex: z.string()
-  }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('kpi'),
-    kpiId: z.string().min(1),
-    latex: z.string()
-  }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('lookup'),
-    lookupId: z.string().min(1),
-    latex: z.string()
-  }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('variable'),
-    variableId: z.string().min(1),
-    latex: z.string()
-  }),
-  z.object({
-    id: z.string().min(1),
-    type: z.literal('custom'),
-    name: z.string(),
-    latex: z.string()
-  })
-]);
 
 const formulaGroupSchema = z.object({
   name: z.string(),
@@ -2006,6 +2018,9 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
         return [];
       }
       const fieldName = stringValue(rawField.name ?? rawField.Name).trim() || `Field ${fieldIndex + 1}`;
+      if (rawField.formulas != null && !Array.isArray(rawField.formulas)) {
+        warnings.push(`${name}: ${fieldName}: formulae were not a list and were initialized empty.`);
+      }
       const legacyUnit = stringValue(rawField.valueUnit ?? rawField.unit ?? rawField['Value Unit']);
       const dataType = normalizeDataSourceFieldType(rawField.dataType ?? rawField.fieldType ?? rawField.type, legacyUnit);
       const seenOptions = new Set<string>();
@@ -2042,6 +2057,14 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
         details: stringValue(rawField.details ?? rawField.note ?? rawField.Details),
         preprocessingNeeded: Boolean(rawField.preprocessingNeeded) || Boolean(stringValue(rawField.details ?? rawField.note ?? rawField.Details).trim()),
         preferredLatex: stringValue(rawField.preferredLatex ?? rawField.preferredLaTex),
+        sources: repairKpiSources(rawField.sources, warnings, `${name}: ${fieldName}`).filter((source): source is Exclude<KpiSourceItem, { type: 'kpi' }> => {
+          if (source.type !== 'kpi') return true;
+          warnings.push(`${name}: ${fieldName}: removed a KPI source; fields may only reference library inputs.`);
+          return false;
+        }),
+        formulas: Array.isArray(rawField.formulas)
+          ? rawField.formulas.map((item, index) => repairFormulaItem(item, index, warnings, `${name}: ${fieldName}`))
+          : [],
         dataType,
         ...(collectionItemType ? { collectionItemType } : {}),
         valueUnit: dataType === 'number' || (dataType === 'collection' && collectionItemType === 'number') ? legacyUnit : '',
@@ -2129,6 +2152,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
     return [{
       id,
       name,
+      description: stringValue(rawSource.description),
       spatialUnit,
       primaryKeyFieldId: (() => {
         const candidate = stringValue(rawSource.primaryKeyFieldId).trim();
@@ -2441,6 +2465,7 @@ const repairDataLibraryGroups = (
         `${collectionName === 'lookup' ? 'Lookup' : collectionName === 'variable' ? 'Constant' : collectionName === 'enum' ? 'Domain' : 'Source table'} group ${groupIndex + 1}`
       ),
       name: stringValue(rawGroup.name ?? rawGroup.label).trim() || `Group ${groupIndex + 1}`,
+      description: stringValue(rawGroup.description),
       itemIds,
       position: Math.max(0, Math.min(Number.isFinite(rawPosition) ? Math.floor(rawPosition) : items.length, items.length))
     }];
@@ -2692,7 +2717,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < CELL_TERMINOLOGY_SCHEMA_VERSION;
   const migratedInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
 
-  if (isCurrentKpiPoolConfig(migratedInput)) {
+  if (isCurrentKpiPoolConfig(migratedInput) && kpiPoolConfigSchema.safeParse(migratedInput).success && reconcileFieldSources(migratedInput) === migratedInput.dataSources) {
     return { config: migratedInput, warnings: [] };
   }
 
@@ -2951,6 +2976,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     kpis: scopedKpis
   };
 
+  repaired.dataSources = reconcileFieldSources(repaired, warnings);
   const parsed = kpiPoolConfigSchema.safeParse(repaired);
   if (!parsed.success) {
     warnings.push('The repaired configuration still had validation issues; preserved the repaired data for review.');
@@ -2967,4 +2993,37 @@ export const prepareForExport = (config: KpiPoolConfig): KpiPoolConfig => {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     updatedAt: new Date().toISOString()
   };
+};
+
+/** Keep field references valid after imports and library edits, retaining written formulae. */
+export const reconcileFieldSources = (config: KpiPoolConfig, warnings?: string[]): DataSource[] => {
+  const fields = new Map(config.dataSources.map((table) => [table.id, new Set(table.fields.map((field) => field.id))]));
+  const lookups = new Set(config.lookups.map((lookup) => lookup.id));
+  const variables = new Set(config.variables.map((variable) => variable.id));
+  let changed = false;
+  const tables = config.dataSources.map((table) => {
+    let tableChanged = false;
+    const nextFields = table.fields.map((field) => {
+      const seen = new Set<string>();
+      const sources = field.sources?.filter((source) => {
+        const valid = source.type === 'dataField'
+          ? fields.get(source.dataSourceId)?.has(source.fieldId) && !(source.dataSourceId === table.id && source.fieldId === field.id)
+          : source.type === 'lookup' ? lookups.has(source.lookupId)
+          : source.type === 'variable' ? variables.has(source.variableId)
+          : source.type === 'custom';
+        const key = source.type === 'dataField' ? JSON.stringify([source.type, source.dataSourceId, source.fieldId])
+          : source.type === 'lookup' ? `lookup:${source.lookupId}`
+          : source.type === 'variable' ? `variable:${source.variableId}` : `custom:${source.id}`;
+        if (!valid || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+      if (sources?.length === field.sources?.length) return field;
+      changed = tableChanged = true;
+      warnings?.push(`${table.name}: ${field.name}: removed invalid or duplicate field sources; formula text was retained.`);
+      return { ...field, sources };
+    });
+    return tableChanged ? { ...table, fields: nextFields } : table;
+  });
+  return changed ? tables : config.dataSources;
 };

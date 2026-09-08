@@ -1,4 +1,4 @@
-import type { KpiPoolConfig } from './types';
+import type { KpiPoolConfig } from './types.js';
 
 export type TableFieldMoveResult = {
   config: KpiPoolConfig;
@@ -36,7 +36,7 @@ export const moveTableField = (
     return { config, moved: false };
   }
 
-  const dataSources = config.dataSources.map((entry) => {
+  const movedTables = config.dataSources.map((entry) => {
     if (entry.id === source.id) {
       return {
         ...entry,
@@ -56,6 +56,17 @@ export const moveTableField = (
 
     return entry;
   });
+
+  const dataSources = movedTables.map((table) => ({
+    ...table,
+    fields: table.fields.map((entry) => entry.sources?.some((item) =>
+      item.type === 'dataField' && item.dataSourceId === source.id && item.fieldId === field.id
+    ) ? {
+      ...entry,
+      sources: entry.sources.map((item) => item.type === 'dataField' && item.dataSourceId === source.id && item.fieldId === field.id
+        ? { ...item, dataSourceId: target.id } : item)
+    } : entry)
+  }));
 
   const kpis = config.kpis.map((kpi) => {
     const citesMovedField = kpi.sources.some(

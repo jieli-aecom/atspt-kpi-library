@@ -45,7 +45,8 @@ import {
   createBlankKpi,
   createEnumOption,
   prepareForExport,
-  repairConfig
+  repairConfig,
+  reconcileFieldSources
 } from './configSchema';
 import { mergeImportedConfig } from './configMerge';
 import { buildSystematicJsonExport } from './systematicJsonExport';
@@ -74,6 +75,7 @@ import {
   type ValueEnumDefinition,
   type DataSource,
   type DataSourceField,
+  type FieldSourceItem,
   dataSourceCollectionItemTypes,
   type DataSourceCollectionItemType,
   dataSourceFieldTypes,
@@ -3693,7 +3695,7 @@ const formulaFieldDomains = (config: KpiPoolConfig, kpi: KpiMetric): FormulaFiel
 
 function DataSourceHeader({
   config,
-  onConfigChange,
+  onConfigChange: commitConfig,
   editRequest,
   onEditLibrarySource
 }: {
@@ -3702,6 +3704,7 @@ function DataSourceHeader({
   editRequest?: SourceLibraryEditRequest;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
 }) {
+  const onConfigChange = (next: KpiPoolConfig) => commitConfig({ ...next, dataSources: reconcileFieldSources(next) });
   const [open, setOpen] = useState(false);
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
   const [expandedSourceGroupIds, setExpandedSourceGroupIds] = useState<string[]>([]);
@@ -3721,6 +3724,7 @@ function DataSourceHeader({
   } | null>(null);
   const [fieldGroupDomainPickerId, setFieldGroupDomainPickerId] = useState<string>();
   const [fieldDetailsEditor, setFieldDetailsEditor] = useState<{ dataSourceId: string; fieldId: string }>();
+  const closeFieldDetails = useCallback(() => setFieldDetailsEditor(undefined), []);
   const [diagramOpen, setDiagramOpen] = useState(false);
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -4595,12 +4599,24 @@ function DataSourceHeader({
     if (!source) return;
     const copiedFields = source.fields.filter((field) => !field.generatedRelationId);
     const fieldIdMap = new Map(copiedFields.map((field) => [field.id, createLocalId('field')]));
+    const duplicateId = createLocalId('source');
     const duplicate: DataSource = {
       ...source,
-      id: createLocalId('source'),
+      id: duplicateId,
       name: `${source.name || 'Untitled data source'} copy`,
       primaryKeyFieldId: source.primaryKeyFieldId ? fieldIdMap.get(source.primaryKeyFieldId) : undefined,
-      fields: copiedFields.map((field) => ({ ...field, id: fieldIdMap.get(field.id)!, options: [...field.options] })),
+      fields: copiedFields.map((field) => ({
+        ...field,
+        id: fieldIdMap.get(field.id)!,
+        options: [...field.options],
+        sources: field.sources?.map((item) => ({
+          ...item,
+          id: createLocalId('field-source'),
+          ...(item.type === 'dataField' && item.dataSourceId === source.id && fieldIdMap.has(item.fieldId)
+            ? { dataSourceId: duplicateId, fieldId: fieldIdMap.get(item.fieldId)! } : {})
+        })),
+        formulas: field.formulas?.map((item) => ({ ...item, terms: item.terms.map((term) => ({ ...term })) }))
+      })),
       fieldGroups: source.fieldGroups.map((group) => ({
         ...group,
         id: createLocalId('field-group'),
@@ -4667,7 +4683,9 @@ function DataSourceHeader({
           ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}),
           ...(partial.details !== undefined ? { details: partial.details } : {}),
           ...(partial.preprocessingNeeded !== undefined ? { preprocessingNeeded: partial.preprocessingNeeded } : {}),
-          ...(partial.preferredLatex !== undefined ? { preferredLatex: partial.preferredLatex } : {})
+          ...(partial.preferredLatex !== undefined ? { preferredLatex: partial.preferredLatex } : {}),
+          ...(partial.sources !== undefined ? { sources: partial.sources } : {}),
+          ...(partial.formulas !== undefined ? { formulas: partial.formulas } : {})
         }
       : partial;
     const next = { ...current, ...editablePartial };
@@ -4732,12 +4750,24 @@ function DataSourceHeader({
         await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
       }
     }
-    const dataSources = config.dataSources.map((entry, entryIndex) => entryIndex === sourceIndex ? {
+    const dataSources = config.dataSources.map((entry, entryIndex) => ({
       ...entry,
-      fields: entry.fields.map((entryField, entryFieldIndex) => entryFieldIndex === fieldIndex
-        ? { ...entryField, preferredLatex: nextLatex }
-        : entryField)
-    } : entry);
+      fields: entry.fields.map((entryField, entryFieldIndex) => {
+        const matchingSources = (entryField.sources ?? []).filter((item) => item.type === 'dataField' && item.dataSourceId === source.id && item.fieldId === field.id);
+        let context = fieldFormulaContext(entry, entryField);
+        matchingSources.forEach((item) => { context = { ...context, ...replaceKpiSourceLatex(context, item, item.latex, nextLatex) }; });
+        changedInstances += matchingSources.length;
+        const matchingIds = new Set(matchingSources.map((item) => item.id));
+        return {
+          ...entryField,
+          ...(entryIndex === sourceIndex && entryFieldIndex === fieldIndex ? { preferredLatex: nextLatex } : {}),
+          ...(matchingSources.length ? {
+            sources: entryField.sources?.map((item) => matchingIds.has(item.id) ? { ...item, latex: nextLatex } : item),
+            formulas: context.description.formulas.flatMap((group) => group.items)
+          } : {})
+        };
+      })
+    }));
     onConfigChange({ ...config, dataSources, kpis });
     return changedInstances;
   };
@@ -5247,14 +5277,17 @@ function DataSourceHeader({
         onDragEnd={clearLibraryDrag}
       ><GripVertical size={13} aria-hidden="true" /></button>
       <ChevronDown className={`lookup-library-chevron ${expanded ? 'is-expanded' : ''}`} size={12} aria-hidden="true" />
-      <input
-        className="library-group-name-input"
-        value={group.name}
-        size={Math.min(28, Math.max(10, group.name.length || 'Untitled group'.length))}
-        aria-label={`${itemLabel} group name`}
-        placeholder="Untitled group"
-        onChange={(event) => updateLibraryGroup(kind, group.id, { name: event.target.value })}
-      />
+      <div className="library-name-description">
+        <input
+          className="library-group-name-input"
+          value={group.name}
+          size={Math.min(28, Math.max(10, group.name.length || 'Untitled group'.length))}
+          aria-label={`${itemLabel} group name`}
+          placeholder="Untitled group"
+          onChange={(event) => updateLibraryGroup(kind, group.id, { name: event.target.value })}
+        />
+        {kind === 'source' ? <textarea className="library-description-input" rows={1} aria-label="Table group description" placeholder="Add description (optional)" value={group.description ?? ''} onChange={(event) => updateLibraryGroup(kind, group.id, { description: event.target.value })} /> : null}
+      </div>
       <small>{group.itemIds.length} {group.itemIds.length === 1 ? itemLabel : `${itemLabel}s`}</small>
       <button className="mini-icon-button danger library-group-delete" type="button" title={`Delete ${itemLabel} group`} aria-label={`Delete ${group.name.trim() || `untitled ${itemLabel}`} group`} onClick={() => deleteLibraryGroup(kind, group.id)}><Trash2 size={12} /></button>
     </div>
@@ -5948,6 +5981,7 @@ function DataSourceHeader({
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
                     ><Trash2 size={12} /></button>}
                   </div>
+                  {field.formulas?.some((item) => item.formula.trim()) ? <FieldFormulaSummary config={config} table={source} field={field} /> : null}
                   {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="data-source-field-enum-options">
                     {renderLookupEnumOptions(
                       field.options,
@@ -6113,14 +6147,17 @@ function DataSourceHeader({
                     />
                     <ChevronDown className={`data-source-chevron ${expanded ? 'is-expanded' : ''}`} size={15} aria-hidden="true" />
                     <Table2 className="data-source-header-icon" size={15} aria-hidden="true" />
-                    <input
-                      className="data-source-header-name"
-                      value={source.name}
-                      size={Math.min(30, Math.max(10, source.name.length || 'Untitled table'.length))}
-                      aria-label="Table name"
-                      placeholder="Untitled table"
-                      onChange={(event) => updateDataSource(sourceIndex, { name: event.target.value })}
-                    />
+                    <div className="library-name-description">
+                      <input
+                        className="data-source-header-name"
+                        value={source.name}
+                        size={Math.min(30, Math.max(10, source.name.length || 'Untitled table'.length))}
+                        aria-label="Table name"
+                        placeholder="Untitled table"
+                        onChange={(event) => updateDataSource(sourceIndex, { name: event.target.value })}
+                      />
+                      <textarea className="library-description-input" rows={1} aria-label="Table description" placeholder="Add description (optional)" value={source.description ?? ''} onChange={(event) => updateDataSource(sourceIndex, { description: event.target.value })} />
+                    </div>
                     <select
                       className="data-source-header-spatial-unit"
                       value={source.spatialUnit}
@@ -6369,11 +6406,15 @@ function DataSourceHeader({
         document.body
       ) : null}
       {fieldDetailsField ? <FieldDetailsDialog
+        key={`${fieldDetailsSource!.id}:${fieldDetailsField.id}`}
+        config={config}
+        table={fieldDetailsSource!}
+        onEditLibrarySource={(target) => { closeFieldDetails(); onEditLibrarySource(target); }}
         field={fieldDetailsField}
         defaultLatex={fieldDetailsField.preferredLatex || sourceFieldDefaultLatex(fieldDetailsField, fieldDetailsSource?.spatialUnit ?? '', fieldDetailsGroup?.dimensions)}
         onChange={(partial) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, partial)}
         onChangeGlobally={(latex, reportProgress) => changeFieldLatexGlobally(fieldDetailsSourceIndex, fieldDetailsFieldIndex, latex, reportProgress)}
-        onClose={() => setFieldDetailsEditor(undefined)}
+        onClose={closeFieldDetails}
       /> : null}
       {fieldMoveMenu ? (() => {
         const moveSource = config.dataSources.find((entry) => entry.id === fieldMoveMenu.sourceDataSourceId);
@@ -6584,7 +6625,8 @@ function KpiSourceEditor({
   onViewKpi,
   transientHighlightedSource,
   openOnTransientHighlight = true,
-  compact = false
+  compact = false,
+  fieldOwner
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
@@ -6594,6 +6636,7 @@ function KpiSourceEditor({
   transientHighlightedSource?: FormulaSourceHighlight;
   openOnTransientHighlight?: boolean;
   compact?: boolean;
+  fieldOwner?: { dataSourceId: string; fieldId: string };
 }) {
   const [open, setOpen] = useState(false);
   const [pickerScope, setPickerScope] = useState('');
@@ -6724,6 +6767,7 @@ function KpiSourceEditor({
   const transientHighlightedSourceId = transientHighlightedSource?.sourceId;
   const normalizedQuery = normalize(query);
   const toggleDataField = (dataSourceId: string, fieldId: string) => {
+    if (fieldOwner?.dataSourceId === dataSourceId && fieldOwner.fieldId === fieldId) return;
     const sameField = (item: KpiSourceItem) => item.type === 'dataField' && item.dataSourceId === dataSourceId && item.fieldId === fieldId;
     const existing = kpi.sources.find(sameField);
     const dataSource = config.dataSources.find((source) => source.id === dataSourceId);
@@ -6742,6 +6786,7 @@ function KpiSourceEditor({
         }]);
   };
   const toggleKpi = (kpiId: string) => {
+    if (fieldOwner) return;
     const existing = kpi.sources.find((item) => item.type === 'kpi' && item.kpiId === kpiId);
     const prerequisiteKpi = config.kpis.find((entry) => entry.id === kpiId);
     if (!existing && !prerequisiteKpi) return;
@@ -6818,6 +6863,7 @@ function KpiSourceEditor({
       ? pickerDataSourceGroups.find((group) => group.dataSources.some((source) => source.id === selectedDataSource.id))
       : undefined;
   const visibleFields = selectedDataSource?.fields.filter((field) => {
+    if (fieldOwner?.dataSourceId === selectedDataSource.id && fieldOwner.fieldId === field.id) return false;
     const dimensions = selectedDataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id))?.dimensions ?? [];
     const sourceItem = kpi.sources.find((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)
       ?? { id: '', type: 'dataField' as const, dataSourceId: selectedDataSource.id, fieldId: field.id, latex: '' };
@@ -7008,7 +7054,9 @@ function KpiSourceEditor({
       {open && popoverPosition ? createPortal(
         <>
           <div
+            data-preserve-source-library-state={fieldOwner ? true : undefined}
             className="kpi-source-popover-shield"
+            style={fieldOwner ? { zIndex: 11999 } : undefined}
             aria-hidden="true"
             onClick={stopSourceControlClick}
             onMouseDown={stopSourcePopoverMouseEvent}
@@ -7018,11 +7066,12 @@ function KpiSourceEditor({
             onWheel={blockSourcePopoverShieldWheel}
           />
           <div
+            data-preserve-source-library-state={fieldOwner ? true : undefined}
             className="kpi-source-popover"
             ref={popoverRef}
             role="dialog"
-            aria-label="KPI sources"
-            style={popoverPosition}
+            aria-label={fieldOwner ? "Field sources" : "KPI sources"}
+            style={{ ...popoverPosition, ...(fieldOwner ? { zIndex: 12000 } : {}) }}
             onClick={stopSourceControlClick}
             onClickCapture={preventSourcePopoverSelectionClick}
             onMouseDown={stopSourcePopoverMouseEvent}
@@ -7030,7 +7079,7 @@ function KpiSourceEditor({
             onPointerDown={stopSourcePopoverPointerEvent}
             onPointerUp={stopSourcePopoverPointerEvent}
           >
-          <div className="popover-title">KPI sources</div>
+          <div className="popover-title">{fieldOwner ? 'Field sources' : 'KPI sources'}</div>
           <section className="selected-source-section">
             <div className="popover-title">Selected sources</div>
             {kpi.sources.length ? (
@@ -7074,7 +7123,7 @@ function KpiSourceEditor({
           <section className="source-picker-section" ref={sourcePickerSectionRef}>
             <div className="popover-title source-picker-title">Add sources</div>
             <div className="source-scope-buttons" aria-label="Add source from">
-              <button className={pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={pickerScope === 'kpis' ? 'rotate' : ''} /></button>
+              {!fieldOwner ? <button className={!fieldOwner && pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={!fieldOwner && pickerScope === 'kpis' ? 'rotate' : ''} /></button> : null}
               <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
               <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Constants<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
               <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
@@ -7107,9 +7156,9 @@ function KpiSourceEditor({
               </div>
             </fieldset> : null}
             {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
-              <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search constants…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
+              <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={!fieldOwner && pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search constants…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
             ) : null}
-            {pickerScope === 'kpis' ? (
+            {!fieldOwner && pickerScope === 'kpis' ? (
             <fieldset className="source-scope-panel">
               <legend>Other KPIs</legend>
               {visibleKpis.length === 0 ? <span className="empty-option">No matching KPIs.</span> : null}
@@ -7187,13 +7236,113 @@ function KpiSourceEditor({
   );
 }
 
+// Adapt the flat field formula data to the shared KPI formula controls only in memory.
+const fieldFormulaContext = (table: DataSource, field: DataSourceField): KpiMetric => ({
+  ...createBlankKpi(),
+  id: `field:${table.id}:${field.id}`,
+  name: field.name,
+  dimensions: table.fieldGroups.find((group) => group.fieldIds.includes(field.id))?.dimensions ?? [],
+  sources: field.sources ?? [],
+  description: { overview: '', formulaComment: '', formulas: [{ name: '', items: field.formulas ?? [] }] }
+});
+
+function FieldFormulaSummary({ config, table, field }: { config: KpiPoolConfig; table: DataSource; field: DataSourceField }) {
+  const context = useMemo(() => fieldFormulaContext(table, field), [table, field]);
+  return <div className="field-formula-summary" aria-label={`Processing formulae for ${field.name}`}>
+    {(field.formulas ?? []).filter((item) => item.formula.trim()).map((item, index) =>
+      <InteractiveFormulaPreview key={index} config={config} kpi={context} item={item} inline />
+    )}
+  </div>;
+}
+
+function FieldProcessingEditor({ config, table, field, onChange, onEditLibrarySource }: {
+  config: KpiPoolConfig;
+  table: DataSource;
+  field: DataSourceField;
+  onChange: (partial: Partial<DataSourceField>) => void;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
+}) {
+  const context = useMemo(() => fieldFormulaContext(table, field), [table, field]);
+  const [highlight, setHighlight] = useState<FormulaSourceHighlight>();
+  const [highlightedFormula, setHighlightedFormula] = useState<number>();
+  const [dragIndex, setDragIndex] = useState<number>();
+  const editorRef = useRef<HTMLDetailsElement | null>(null);
+  const formulas = field.formulas ?? [];
+  const patch = (index: number, partial: Partial<KpiFormulaItem>) => onChange({
+    formulas: formulas.map((item, itemIndex) => itemIndex === index ? { ...item, ...partial } : item)
+  });
+  const add = (index: number) => {
+    const next = [...formulas];
+    next.splice(index, 0, createBlankFormulaItem(formulas.length));
+    onChange({ formulas: next });
+  };
+  const move = (from: number, to: number) => {
+    if (from === to || to < 0 || to >= formulas.length) return;
+    const next = [...formulas];
+    const [item] = next.splice(from, 1);
+    next.splice(to, 0, item);
+    onChange({ formulas: next });
+  };
+  const handleTarget = (target: FormulaSemanticTarget) => {
+    if (target.kind === 'source') setHighlight({ sourceId: target.sourceId, requestId: Date.now() });
+    if (target.kind === 'formula') {
+      setHighlightedFormula(target.formulaIndex);
+      editorRef.current?.querySelector(`[data-field-formula-index="${target.formulaIndex}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  };
+  useEffect(() => {
+    const timer = window.setTimeout(() => { setHighlight(undefined); setHighlightedFormula(undefined); }, transientSourceHighlightDurationMs);
+    return () => window.clearTimeout(timer);
+  }, [highlight, highlightedFormula]);
+  return <details className="field-processing-editor" ref={editorRef}>
+    <summary>Sources and processing formulae (optional)</summary>
+    <KpiSourceEditor config={config} kpi={context} compact fieldOwner={{ dataSourceId: table.id, fieldId: field.id }} transientHighlightedSource={highlight} onEditLibrarySource={onEditLibrarySource} onViewKpi={() => {}} onChange={(sources, updates) => onChange({
+      sources: sources.filter((source): source is FieldSourceItem => source.type !== 'kpi'),
+      ...(updates ? { formulas: updates.description.formulas.flatMap((group) => group.items) } : {})
+    })} />
+    {formulas.map((item, index) => <section className="formula-item-editor" key={index} data-field-formula-index={index}
+      onDragOver={(event) => { if (dragIndex !== undefined) event.preventDefault(); }}
+      onDrop={(event) => { if (dragIndex === undefined) return; event.preventDefault(); move(dragIndex, index); setDragIndex(undefined); }}>
+      <button className="list-insert-divider" type="button" onClick={() => add(index)}><Plus size={11} />Add formula here</button>
+      <div className="field-formula-heading">
+        <button className="mini-icon-button drag-handle" type="button" draggable aria-label={`Drag formula ${index + 1}`} onDragStart={(event) => { setDragIndex(index); event.dataTransfer.setData('text/plain', String(index)); }} onDragEnd={() => setDragIndex(undefined)}><GripVertical size={13} /></button>
+        <DebouncedInput value={item.tag} aria-label={`Formula ${index + 1} tag`} placeholder={`Formula ${index + 1}`} onValueChange={(tag) => patch(index, { tag })} />
+        <button className="mini-icon-button" type="button" disabled={index === 0} aria-label={`Move formula ${index + 1} up`} onClick={() => move(index, index - 1)}>↑</button>
+        <button className="mini-icon-button" type="button" disabled={index === formulas.length - 1} aria-label={`Move formula ${index + 1} down`} onClick={() => move(index, index + 1)}>↓</button>
+        <button className="mini-icon-button danger" type="button" aria-label={`Delete formula item ${index + 1}`} onClick={() => onChange({ formulas: formulas.filter((_, i) => i !== index) })}><Trash2 size={13} /></button>
+      </div>
+      <FormulaExpressionEditor config={config} kpi={context} item={item} priorItems={formulas.slice(0, index)} onChange={(partial) => patch(index, partial)} />
+      <InteractiveFormulaPreview config={config} kpi={context} item={item} onSemanticTarget={handleTarget} highlightedFormulaIndex={highlightedFormula} />
+      <details className="formula-explanations">
+        <summary><Info size={13} />Optional explanations</summary>
+        <label className="field"><span>General Explanation</span><DebouncedTextarea rows={2} value={item.generalExplanation} onValueChange={(generalExplanation) => patch(index, { generalExplanation })} /></label>
+        <div className="formula-preview-title">Term-wise Explanation</div>
+        {item.terms.map((term, termIndex) => <div className="term-explanation-row" key={termIndex}>
+          <DebouncedInput className="latex-code-editor" value={term.term} placeholder="x_i" aria-label={`Term ${termIndex + 1} LaTeX`} onValueChange={(value) => patch(index, { terms: item.terms.map((entry, i) => i === termIndex ? { ...entry, term: value } : entry) })} />
+          <span className="term-preview"><InlineMath math={term.term} errorColor="#b42318" /></span>
+          <DebouncedInput value={term.explanation} placeholder="Meaning..." aria-label={`Term ${termIndex + 1} explanation`} onValueChange={(explanation) => patch(index, { terms: item.terms.map((entry, i) => i === termIndex ? { ...entry, explanation } : entry) })} />
+          <button className="mini-icon-button danger" type="button" aria-label={`Delete term ${termIndex + 1}`} onClick={() => patch(index, { terms: item.terms.filter((_, i) => i !== termIndex) })}><Trash2 size={12} /></button>
+        </div>)}
+        <button className="secondary-action tiny" type="button" onClick={() => patch(index, { terms: [...item.terms, createBlankFormulaTerm()] })}><Plus size={12} />Add term</button>
+      </details>
+    </section>)}
+    <button className="secondary-action tiny" type="button" onClick={() => add(formulas.length)}><Plus size={12} />Add formula</button>
+  </details>;
+}
+
 function FieldDetailsDialog({
+  config,
+  table,
+  onEditLibrarySource,
   field,
   defaultLatex,
   onChange,
   onChangeGlobally,
   onClose
 }: {
+  config: KpiPoolConfig;
+  table: DataSource;
+  onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
   field: DataSourceField;
   defaultLatex: string;
   onChange: (partial: Partial<DataSourceField>) => void;
@@ -7224,7 +7373,7 @@ function FieldDetailsDialog({
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     closeButtonRef.current?.focus();
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !document.querySelector('.kpi-source-popover')) {
         event.preventDefault();
         closeDialog();
       }
@@ -7306,10 +7455,11 @@ function FieldDetailsDialog({
               <MarkdownContent value={field.details} placeholder="Click to add preprocessing notes" onValueChange={changeDetails} />
             )}
           </section>
+          <FieldProcessingEditor config={config} table={table} field={field} onChange={onChange} onEditLibrarySource={onEditLibrarySource} />
           <section className="field-preferred-latex">
             <div>
               <strong>Preferred LaTeX expression</strong>
-              <small>New KPI sources for this field will use this expression by default.</small>
+              <small>New sources for this field will use this expression by default.</small>
             </div>
             <div className="field-preferred-latex-editor">
               <input className="latex-code-editor" value={preferredLatex} placeholder="x_{unit,dimension}" aria-label={`Preferred LaTeX expression for ${field.name || 'untitled field'}`} onChange={(event) => changePreferredLatex(event.target.value)} />
@@ -7320,7 +7470,7 @@ function FieldDetailsDialog({
                 {isApplyingGlobally ? <RefreshCw className="field-progress-spin" size={13} aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
                 {isApplyingGlobally ? 'Changing formula expressions…' : 'Change formula expression globally'}
               </button>
-              <small>This updates every matching KPI source and its formula references in responsive batches.</small>
+              <small>This updates every matching field or KPI source and its formula references in responsive batches.</small>
               <span className="field-global-latex-status" role="status" aria-live="polite">
                 {isApplyingGlobally && globalProgress
                   ? `Processed ${globalProgress.completed} of ${globalProgress.total} KPIs…`

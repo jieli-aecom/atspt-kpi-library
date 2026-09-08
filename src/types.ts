@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 39 as const;
+export const CURRENT_SCHEMA_VERSION = 40 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -66,6 +66,8 @@ export type DataSourceField = {
   details: string;
   preprocessingNeeded: boolean;
   preferredLatex: string;
+  sources?: FieldSourceItem[];
+  formulas?: KpiFormulaItem[];
   dataType: DataSourceFieldType;
   collectionItemType?: DataSourceCollectionItemType;
   valueUnit: string;
@@ -97,6 +99,7 @@ export type DataSourceFieldGroup = {
 export type DataSource = {
   id: string;
   name: string;
+  description?: string;
   spatialUnit: SpatialUnit;
   primaryKeyFieldId?: string;
   fields: DataSourceField[];
@@ -144,6 +147,7 @@ export type VariableDefinition = {
 export type DataLibraryGroup = {
   id: string;
   name: string;
+  description?: string;
   itemIds: string[];
   position: number;
 };
@@ -185,6 +189,8 @@ export type KpiCustomSource = {
 };
 
 export type KpiSourceItem = KpiDataFieldSource | KpiReferenceSource | KpiLookupSource | KpiVariableSource | KpiCustomSource;
+
+export type FieldSourceItem = Exclude<KpiSourceItem, KpiReferenceSource>;
 
 export type KpiFormulaGroup = {
   name: string;
