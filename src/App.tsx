@@ -6666,7 +6666,7 @@ function KpiSourceEditor({
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const sourcePickerSectionRef = useRef<HTMLElement | null>(null);
-  const sourceFieldsPanelRef = useRef<HTMLFieldSetElement | null>(null);
+  const sourceTablePickerPanelRef = useRef<HTMLFieldSetElement | null>(null);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
   const stopSourceControlClick = (event: React.MouseEvent) => event.stopPropagation();
   const stopSourcePopoverPointerEvent = (event: React.PointerEvent) => event.stopPropagation();
@@ -6844,12 +6844,12 @@ function KpiSourceEditor({
     if (!selectedDataSource) return undefined;
     const frame = window.requestAnimationFrame(() => {
       const scroller = sourcePickerSectionRef.current;
-      const fieldsPanel = sourceFieldsPanelRef.current;
-      if (!scroller || !fieldsPanel) return;
+      const tablePickerPanel = sourceTablePickerPanelRef.current;
+      if (!scroller || !tablePickerPanel) return;
       const scrollerRect = scroller.getBoundingClientRect();
-      const fieldsRect = fieldsPanel.getBoundingClientRect();
+      const tablePickerRect = tablePickerPanel.getBoundingClientRect();
       scroller.scrollTo({
-        top: Math.max(0, scroller.scrollTop + fieldsRect.top - scrollerRect.top - 6),
+        top: Math.max(0, scroller.scrollTop + tablePickerRect.top - scrollerRect.top - 6),
         behavior: 'smooth'
       });
     });
@@ -7168,7 +7168,7 @@ function KpiSourceEditor({
               </div> : null}
               </section>)}
             </div>
-            {selectedPickerDataSourceGroup ? <fieldset className="source-scope-panel source-table-picker-panel">
+            {selectedPickerDataSourceGroup ? <fieldset className="source-scope-panel source-table-picker-panel" ref={sourceTablePickerPanelRef}>
               <legend>{selectedPickerDataSourceGroup.category} / {selectedPickerDataSourceGroup.name}</legend>
               {selectedPickerDataSourceGroup.dataSources.length === 0 ? <span className="empty-option">No tables in this group.</span> : null}
               <div className="source-table-buttons" aria-label={`Tables in ${selectedPickerDataSourceGroup.name}`}>
@@ -7178,7 +7178,7 @@ function KpiSourceEditor({
               </div>
             </fieldset> : null}
             {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
-              <label className="popover-search"><Search size={13} /><input value={query} autoFocus placeholder={!fieldOwner && pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search constants…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
+              <label className="popover-search"><Search size={13} /><input value={query} autoFocus={!selectedDataSource} placeholder={!fieldOwner && pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search constants…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
             ) : null}
             {!fieldOwner && pickerScope === 'kpis' ? (
             <fieldset className="source-scope-panel">
@@ -7224,7 +7224,7 @@ function KpiSourceEditor({
             </fieldset>
             ) : null}
             {selectedDataSource ? (
-            <fieldset className="source-scope-panel" ref={sourceFieldsPanelRef}>
+            <fieldset className="source-scope-panel">
               <legend>Fields in {selectedDataSource.name}{selectedDataSource.spatialUnit ? ` · ${selectedDataSource.spatialUnit}` : ''}</legend>
               {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
               {visibleFields.map((field) => {

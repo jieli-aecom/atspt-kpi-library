@@ -1,3 +1,4 @@
+import { layoutTableRegions } from './tableDiagramLayout';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Download, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type {
@@ -11,8 +12,6 @@ import type {
 import type { SupportTarget } from './kpiSupport';
 import { downloadTableSchemaExcelWorkbook } from './excelExport';
 
-const CARD_GAP_X = 92;
-const CARD_GAP_Y = 78;
 const CARD_HEADER_HEIGHT = 68;
 const CARD_META_HEIGHT = 24;
 const FIELD_ROW_HEIGHT = 28;
@@ -100,46 +99,8 @@ const tableWidth = (source: DataSource, groupName: string) => {
   return Math.max(286, Math.min(374, 216 + richness * 2.35));
 };
 
-const connectedOrder = (sources: DataSource[], relations: TableRelation[]) => {
-  const sourceIds = new Set(sources.map((source) => source.id));
-  const neighbors = new Map(sources.map((source) => [source.id, new Set<string>()]));
-  relations.forEach((relation) => {
-    if (!sourceIds.has(relation.sourceDataSourceId) || !sourceIds.has(relation.targetDataSourceId)) return;
-    neighbors.get(relation.sourceDataSourceId)?.add(relation.targetDataSourceId);
-    neighbors.get(relation.targetDataSourceId)?.add(relation.sourceDataSourceId);
-  });
-  const sourceIndex = new Map(sources.map((source, index) => [source.id, index]));
-  const remaining = new Set(sources.map((source) => source.id));
-  const components: string[][] = [];
-  while (remaining.size) {
-    const seed = [...remaining].sort((left, right) =>
-      (neighbors.get(right)?.size ?? 0) - (neighbors.get(left)?.size ?? 0) ||
-      (sourceIndex.get(left) ?? 0) - (sourceIndex.get(right) ?? 0)
-    )[0];
-    const queue = [seed];
-    const component: string[] = [];
-    remaining.delete(seed);
-    while (queue.length) {
-      const current = queue.shift()!;
-      component.push(current);
-      [...(neighbors.get(current) ?? [])]
-        .filter((id) => remaining.has(id))
-        .sort((left, right) => (neighbors.get(right)?.size ?? 0) - (neighbors.get(left)?.size ?? 0))
-        .forEach((id) => {
-          remaining.delete(id);
-          queue.push(id);
-        });
-    }
-    components.push(component);
-  }
-  components.sort((left, right) => right.length - left.length);
-  const sourceById = new Map(sources.map((source) => [source.id, source]));
-  return components.flatMap((component) => component.map((id) => sourceById.get(id)!));
-};
-
 const buildDiagram = (config: KpiPoolConfig) => {
-  const orderedSources = connectedOrder(config.dataSources, config.tableRelations);
-  const tableDrafts = orderedSources.map((source) => {
+  const tableDrafts = config.dataSources.map((source) => {
     const rows = buildRows(source);
     const groupName = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.name.trim() || '';
     return {
@@ -154,40 +115,21 @@ const buildDiagram = (config: KpiPoolConfig) => {
       fieldY: new Map<string, number>()
     } satisfies DiagramTable;
   });
-  if (!tableDrafts.length) {
-    return { tables: tableDrafts, width: 760, height: 410 };
-  }
-  const columns = Math.max(1, Math.min(5, Math.ceil(Math.sqrt(tableDrafts.length * 1.35))));
-  const rowCount = Math.ceil(tableDrafts.length / columns);
-  const placements = tableDrafts.map((_, index) => {
-    const row = Math.floor(index / columns);
-    const indexInRow = index % columns;
-    const tablesInRow = Math.min(columns, tableDrafts.length - row * columns);
-    return { row, column: indexInRow + Math.floor((columns - tablesInRow) / 2) };
-  });
-  const columnWidths = Array.from({ length: columns }, (_, column) => Math.max(
-    ...tableDrafts.filter((_, index) => placements[index].column === column).map((table) => table.width),
-    0
-  ));
-  const rowHeights = Array.from({ length: rowCount }, (_, row) => Math.max(
-    ...tableDrafts.filter((_, index) => placements[index].row === row).map((table) => table.height),
-    0
-  ));
-  const columnX = columnWidths.map((_, column) => CANVAS_PADDING + columnWidths.slice(0, column).reduce((sum, width) => sum + width, 0) + column * CARD_GAP_X);
-  const rowY = rowHeights.map((_, row) => DIAGRAM_TOP + rowHeights.slice(0, row).reduce((sum, height) => sum + height, 0) + row * CARD_GAP_Y);
-  tableDrafts.forEach((table, index) => {
-    const { column, row } = placements[index];
-    table.x = columnX[column] + (columnWidths[column] - table.width) / 2;
-    table.y = rowY[row];
+  const layout = layoutTableRegions(tableDrafts.map((table) => ({
+    id: table.source.id, width: table.width, height: table.height, category: table.category,
+    groupId: config.dataSourceGroups.find((group) => group.itemIds.includes(table.source.id))?.id
+  })), config.dataSourceGroups);
+  tableDrafts.forEach((table) => {
+    const position = layout.positions.get(table.source.id)!;
+    table.x = position.x;
+    table.y = position.y;
     let rowYPosition = table.y + CARD_HEADER_HEIGHT + CARD_META_HEIGHT;
     table.rows.forEach((diagramRow) => {
       if (diagramRow.kind === 'field') table.fieldY.set(diagramRow.field.id, rowYPosition + diagramRow.height / 2);
       rowYPosition += diagramRow.height;
     });
   });
-  const width = CANVAS_PADDING * 2 + columnWidths.reduce((sum, value) => sum + value, 0) + (columns - 1) * CARD_GAP_X;
-  const height = DIAGRAM_TOP + rowHeights.reduce((sum, value) => sum + value, 0) + (rowCount - 1) * CARD_GAP_Y + CANVAS_PADDING;
-  return { tables: tableDrafts, width, height };
+  return { tables: tableDrafts, regions: layout.regions, width: layout.width, height: layout.height };
 };
 
 const relationLabel = (relation: TableRelation) => relation.cardinality === 'oneToOne'
@@ -473,6 +415,12 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
               <marker id="relation-many-end-highlight" markerWidth="15" markerHeight="15" refX="14" refY="7.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M14 7.5L3 1M14 7.5H3M14 7.5L3 14" stroke="#d75a32" strokeWidth="2.4" fill="none" /></marker>
             </defs>
             {!diagram.tables.length ? <g transform="translate(380,224)" textAnchor="middle"><text fill="#4f6670" fontSize="17" fontWeight="700">No source tables to diagram</text><text y="27" fill="#788990" fontSize="12">Add a source table, then reopen this view.</text></g> : null}
+            <g className="table-diagram-regions" pointerEvents="none">
+              {diagram.regions.map((region) => <g key={`${region.kind}:${region.id}`}>
+                <rect x={region.x} y={region.y} width={region.width} height={region.height} rx={region.kind === 'category' ? 16 : 10} fill={region.kind === 'category' ? '#e8eff3' : '#f7fafb'} stroke={region.kind === 'category' ? '#b9cbd5' : '#cbd8df'} strokeDasharray={region.kind === 'group' ? '5 4' : undefined} />
+                <text x={region.x + 20} y={region.y + 28} fill="#315f70" fontSize={region.kind === 'category' ? 18 : 13} fontWeight="700">{shortened(region.label, Math.floor((region.width - 40) / (region.kind === 'category' ? 10 : 8)))}<title>{region.label}</title></text>
+              </g>)}
+            </g>
             <g className="table-diagram-relations">
               {config.tableRelations.map((relation, relationIndex) => {
                 const source = diagram.tables.find((table) => table.source.id === relation.sourceDataSourceId);
