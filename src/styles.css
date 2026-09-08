@@ -7105,14 +7105,10 @@ h1 {
 .table-source-category-heading > svg.is-expanded { transform: rotate(0deg); }
 .table-source-category-content { padding: 4px 10px 10px; }
 .table-source-category > .source-table-group-buttons { padding: 8px; }
-.table-category-select {
-  position: relative;
-  z-index: 1;
-  max-width: 180px;
-  padding: 3px 5px;
-  border: 1px solid #cbd5e1;
-  border-radius: 4px;
-  background: white;
-  color: #475569;
-  font-size: 11px;
+.table-source-category.is-category-drag-over {
+  border-color: #527e8e;
+  box-shadow: inset 0 0 0 2px #527e8e;
+}
+.table-source-category.is-category-drag-over > .table-source-category-heading {
+  background: #d9eaf0;
 }

@@ -3736,6 +3736,7 @@ function DataSourceHeader({
 }) {
   const onConfigChange = (next: KpiPoolConfig) => commitConfig({ ...next, dataSources: reconcileFieldSources(next).map((source) => ({ ...source, category: next.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.category ?? source.category ?? 'Preprocessed Constants' })) });
   const [open, setOpen] = useState(false);
+  const [sourceCategoryDragOver, setSourceCategoryDragOver] = useState<TableSourceCategory>();
   const [collapsedSourceCategories, setCollapsedSourceCategories] = useState<TableSourceCategory[]>([]);
   const [expandedSourceIds, setExpandedSourceIds] = useState<string[]>([]);
   const [expandedSourceGroupIds, setExpandedSourceGroupIds] = useState<string[]>([]);
@@ -4687,7 +4688,7 @@ function DataSourceHeader({
   };
   const updateDataSource = (sourceIndex: number, partial: Partial<DataSource>) =>
     patchDataSources(config.dataSources.map((source, index) => index === sourceIndex ? { ...source, ...partial } : source));
-  const moveDataSource = (targetIndex: number, position: DropPosition, groupId?: string, shiftGroupsAtTarget = true) => {
+  const moveDataSource = (targetIndex: number, position: DropPosition, groupId?: string, shiftGroupsAtTarget = true, category?: TableSourceCategory) => {
     if (sourceDragIndex === null) return;
     const result = moveLibraryCollection(
       config.dataSources,
@@ -4698,7 +4699,7 @@ function DataSourceHeader({
       groupId,
       shiftGroupsAtTarget
     );
-    patchDataSources(result.items.map((source) => source.id === config.dataSources[sourceDragIndex]?.id ? { ...source, category: config.dataSourceGroups.find((group) => group.id === groupId)?.category ?? config.dataSources[targetIndex]?.category ?? source.category } : source), result.groups);
+    patchDataSources(result.items.map((source) => source.id === config.dataSources[sourceDragIndex]?.id ? { ...source, category: category ?? config.dataSourceGroups.find((group) => group.id === groupId)?.category ?? config.dataSources[targetIndex]?.category ?? source.category } : source), result.groups);
   };
   const deleteDataSource = (sourceIndex: number) => {
     const sourceId = config.dataSources[sourceIndex]?.id;
@@ -4992,6 +4993,7 @@ function DataSourceHeader({
     });
   };
   const clearLibraryDrag = () => {
+    setSourceCategoryDragOver(undefined);
     setLibraryItemDrag(null);
     setLibraryGroupDrag(null);
     setLibraryItemDragOver(null);
@@ -5325,7 +5327,6 @@ function DataSourceHeader({
         />
         {kind === 'source' ? <textarea className="library-description-input" rows={1} aria-label="Table group description" placeholder="Add description (optional)" value={group.description ?? ''} onChange={(event) => updateLibraryGroup(kind, group.id, { description: event.target.value })} /> : null}
       </div>
-      {kind === 'source' ? <select className="table-category-select" aria-label="Table group category" value={group.category ?? 'Preprocessed Constants'} onChange={(event) => updateLibraryGroup('source', group.id, { category: event.target.value as TableSourceCategory })}>{tableSourceCategories.map((category) => <option key={category}>{category}</option>)}</select> : null}
       <small>{group.itemIds.length} {group.itemIds.length === 1 ? itemLabel : `${itemLabel}s`}</small>
       <button className="mini-icon-button danger library-group-delete" type="button" title={`Delete ${itemLabel} group`} aria-label={`Delete ${group.name.trim() || `untitled ${itemLabel}`} group`} onClick={() => deleteLibraryGroup(kind, group.id)}><Trash2 size={12} /></button>
     </div>
@@ -6225,7 +6226,6 @@ function DataSourceHeader({
                       </span> : null}
                     </span>
                     <div className="data-source-expander-actions">
-                      {!groupId ? <select className="table-category-select" aria-label="Table category" value={source.category ?? 'Preprocessed Constants'} onChange={(event) => updateDataSource(sourceIndex, { category: event.target.value as TableSourceCategory })}>{tableSourceCategories.map((category) => <option key={category}>{category}</option>)}</select> : null}
                       <button className="mini-icon-button" type="button" title="View supported KPIs" aria-label={`View KPIs supported by ${source.name || 'table'}`} onClick={() => setSupportTarget({ dataSourceId: source.id })}><Eye size={13} /></button>
                       <button
                         className="mini-icon-button drag-handle data-source-drag"
@@ -6389,9 +6389,9 @@ function DataSourceHeader({
                     if (libraryGroupDrag?.kind === 'source') {
                       moveLibraryGroup('source', { type: 'group', groupId: group.id, position: position ?? 'before' });
                     } else if (position === 'before') {
-                      moveDataSource(group.position, 'before', undefined, true);
+                      moveDataSource(group.position, 'before', undefined, true, group.category);
                     } else if (position === 'after') {
-                      moveDataSource(group.position, 'before', undefined, false);
+                      moveDataSource(group.position, 'before', undefined, false, group.category);
                     } else {
                       const dragged = config.dataSources[sourceDragIndex!];
                       if (dragged) assignLibraryItemToGroup('source', dragged.id, group.id);
@@ -6415,8 +6415,36 @@ function DataSourceHeader({
                   </div> : null}
                 </div>;
               };
-              return tableSourceCategories.map((category) => <section className="table-source-category" key={category}>
-                <button className="table-source-category-heading" type="button" aria-expanded={!collapsedSourceCategories.includes(category)} onClick={() => setCollapsedSourceCategories((current) => current.includes(category) ? current.filter((entry) => entry !== category) : [...current, category])}><ChevronDown size={15} className={collapsedSourceCategories.includes(category) ? '' : 'is-expanded'} /><strong>{category}</strong></button>
+              return tableSourceCategories.map((category) => <section
+                className={`table-source-category ${sourceCategoryDragOver === category ? 'is-category-drag-over' : ''}`}
+                key={category}
+                onDragOver={(event) => {
+                  if (libraryItemDrag?.kind !== 'source' && libraryGroupDrag?.kind !== 'source') return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  event.dataTransfer.dropEffect = 'move';
+                  setSourceCategoryDragOver(category);
+                  setSourceDragOver(null);
+                  setLibraryItemDragOver(null);
+                  setLibraryGroupDragOver(null);
+                  setLibraryInsertDragOver(null);
+                }}
+                onDragLeave={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setSourceCategoryDragOver(undefined);
+                }}
+                onDrop={(event) => {
+                  if (libraryItemDrag?.kind !== 'source' && libraryGroupDrag?.kind !== 'source') return;
+                  event.preventDefault();
+                  event.stopPropagation();
+                  if (libraryGroupDrag?.kind === 'source') moveLibraryGroup('source', { type: 'end' }, category);
+                  else moveLibraryItem('source', config.dataSources.length, 'before', undefined, false, category);
+                  setCollapsedSourceCategories((current) => current.filter((entry) => entry !== category));
+                  setSourceDragIndex(null);
+                  setSourceDragOver(null);
+                  clearLibraryDrag();
+                }}
+              >
+                <button className="table-source-category-heading" type="button" title="Drag a table or group here to change its category" aria-expanded={!collapsedSourceCategories.includes(category)} onClick={() => setCollapsedSourceCategories((current) => current.includes(category) ? current.filter((entry) => entry !== category) : [...current, category])}><ChevronDown size={15} className={collapsedSourceCategories.includes(category) ? '' : 'is-expanded'} /><strong>{category}</strong></button>
                 {!collapsedSourceCategories.includes(category) ? <div className="table-source-category-content">
                 {config.dataSources.flatMap((source, sourceIndex) => {
                   const groupsAtPosition = config.dataSourceGroups.filter((group) => group.position === sourceIndex && (group.category ?? 'Preprocessed Constants') === category);
