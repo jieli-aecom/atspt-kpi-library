@@ -3764,6 +3764,7 @@ function DataSourceHeader({
   const navigatedEditRequestIdRef = useRef<number>();
   const [sourceDragIndex, setSourceDragIndex] = useState<number | null>(null);
   const [sourceDragOver, setSourceDragOver] = useState<{ sourceIndex: number; position: DropPosition } | null>(null);
+  const [dimensionGroupDrag, setDimensionGroupDrag] = useState<{ sourceIndex: number; groupId: string } | null>(null);
   const [fieldDrag, setFieldDrag] = useState<{ sourceIndex: number; fieldIndex: number } | null>(null);
   const [fieldMoveMenu, setFieldMoveMenu] = useState<{
     sourceDataSourceId: string;
@@ -4821,7 +4822,7 @@ function DataSourceHeader({
         : entry)
     });
   };
-  const addField = (sourceIndex: number, insertionIndex?: number, groupId?: string, shiftGroupsAtPosition = false) => {
+  const addField = (sourceIndex: number, insertionIndex?: number, groupId?: string, shiftGroupsAtPosition = false, beforeGroupId?: string) => {
     const source = config.dataSources[sourceIndex];
     const index = Math.max(0, Math.min(insertionIndex ?? source.fields.length, source.fields.length));
     const field: DataSourceField = {
@@ -4837,26 +4838,27 @@ function DataSourceHeader({
     };
     updateDataSource(sourceIndex, {
       fields: [...source.fields.slice(0, index), field, ...source.fields.slice(index)],
-      fieldGroups: source.fieldGroups.map((group) => ({
+      fieldGroups: source.fieldGroups.map((group, groupIndex) => ({
         ...group,
-        position: group.position > index || (shiftGroupsAtPosition && group.position === index && group.id !== groupId)
+        position: group.position > index || (shiftGroupsAtPosition && group.position === index && group.id !== groupId && (!beforeGroupId || groupIndex >= source.fieldGroups.findIndex((entry) => entry.id === beforeGroupId)))
           ? group.position + 1
           : group.position,
         fieldIds: group.id === groupId ? [...group.fieldIds, field.id] : group.fieldIds
       }))
     });
   };
-  const addFieldGroup = (sourceIndex: number, position: number) => {
+  const addFieldGroup = (sourceIndex: number, position: number, beforeGroupId?: string) => {
     const source = config.dataSources[sourceIndex];
     const groupId = createLocalId('field-group');
-    updateDataSource(sourceIndex, {
-      fieldGroups: [...source.fieldGroups, {
+    const groups = [...source.fieldGroups];
+    const beforeIndex = beforeGroupId ? groups.findIndex((group) => group.id === beforeGroupId) : -1;
+    groups.splice(beforeIndex < 0 ? groups.length : beforeIndex, 0, {
         id: groupId,
         dimensions: [],
         fieldIds: [],
         position: Math.max(0, Math.min(position, source.fields.length))
-      }]
     });
+    updateDataSource(sourceIndex, { fieldGroups: groups });
     setCollapsedFieldGroupIds((current) => current.filter((id) => id !== groupId));
   };
   const updateFieldGroup = (sourceIndex: number, groupId: string, partial: Partial<DataSourceFieldGroup>) => {
@@ -4927,7 +4929,17 @@ function DataSourceHeader({
     setFieldGroupDomainPickerId((current) => current === groupId ? undefined : current);
     updateDataSource(sourceIndex, { fieldGroups: source.fieldGroups.filter((group) => group.id !== groupId) });
   };
-  const moveField = (sourceIndex: number, targetIndex: number, position: DropPosition, groupId?: string, shiftGroupsAtTarget = true) => {
+  const moveDimensionGroup = (sourceIndex: number, position: number, beforeGroupId?: string) => {
+    if (dimensionGroupDrag?.sourceIndex !== sourceIndex) return;
+    const source = config.dataSources[sourceIndex];
+    const moved = source.fieldGroups.find((group) => group.id === dimensionGroupDrag.groupId);
+    if (!moved || beforeGroupId === moved.id) return;
+    const groups = source.fieldGroups.filter((group) => group.id !== moved.id);
+    const beforeIndex = beforeGroupId ? groups.findIndex((group) => group.id === beforeGroupId) : -1;
+    groups.splice(beforeIndex < 0 ? groups.length : beforeIndex, 0, { ...moved, position });
+    updateDataSource(sourceIndex, { fieldGroups: groups });
+  };
+  const moveField = (sourceIndex: number, targetIndex: number, position: DropPosition, groupId?: string, shiftGroupsAtTarget = true, beforeGroupId?: string) => {
     if (!fieldDrag || fieldDrag.sourceIndex !== sourceIndex) return;
     const source = config.dataSources[sourceIndex];
     const fields = [...source.fields];
@@ -4941,9 +4953,10 @@ function DataSourceHeader({
     fields.splice(Math.max(0, Math.min(insertionIndex, fields.length)), 0, moved);
     updateDataSource(sourceIndex, {
       fields,
-      fieldGroups: source.fieldGroups.map((group) => {
+      fieldGroups: source.fieldGroups.map((group, groupIndex) => {
         const positionAfterRemoval = group.position > sourceFieldIndex ? group.position - 1 : group.position;
-        const nextPosition = shiftGroupsAtTarget && group.id !== groupId && group.position >= targetBoundary
+        const shiftsAtBoundary = shiftGroupsAtTarget && (!beforeGroupId || groupIndex >= source.fieldGroups.findIndex((entry) => entry.id === beforeGroupId));
+        const nextPosition = group.id !== groupId && (group.position > targetBoundary || (shiftsAtBoundary && group.position === targetBoundary))
           ? positionAfterRemoval + 1
           : positionAfterRemoval;
         return {
@@ -5856,13 +5869,14 @@ function DataSourceHeader({
                 groupId?: string,
                 key = `insert-field-${position}`,
                 isFieldGroupBoundary = false,
-                shiftGroupsAtPosition = false
+                shiftGroupsAtPosition = false,
+                beforeGroupId?: string
               ) => (
                 <div
                   className={`field-insert-actions ${isFieldGroupBoundary ? 'is-field-group-boundary' : ''} ${fieldInsertDragOver?.sourceIndex === sourceIndex && fieldInsertDragOver.targetKey === key ? 'is-drag-over' : ''}`}
                   key={key}
                   onDragOver={(event) => {
-                    if (fieldDrag?.sourceIndex !== sourceIndex) return;
+                    if (fieldDrag?.sourceIndex !== sourceIndex && (dimensionGroupDrag?.sourceIndex !== sourceIndex || groupId)) return;
                     event.preventDefault();
                     event.stopPropagation();
                     event.dataTransfer.dropEffect = 'move';
@@ -5871,18 +5885,20 @@ function DataSourceHeader({
                     setFieldInsertDragOver({ sourceIndex, targetKey: key });
                   }}
                   onDrop={(event) => {
-                    if (fieldDrag?.sourceIndex !== sourceIndex) return;
+                    if (fieldDrag?.sourceIndex !== sourceIndex && (dimensionGroupDrag?.sourceIndex !== sourceIndex || groupId)) return;
                     event.preventDefault();
                     event.stopPropagation();
-                    moveField(sourceIndex, position, 'before', groupId, shiftGroupsAtPosition);
+                    if (dimensionGroupDrag) moveDimensionGroup(sourceIndex, position, beforeGroupId);
+                    else moveField(sourceIndex, position, 'before', groupId, shiftGroupsAtPosition, beforeGroupId);
+                    setDimensionGroupDrag(null);
                     setFieldDrag(null);
                     setFieldDragOver(null);
                     setFieldInsertDragOver(null);
                     setFieldGroupDragOver(null);
                   }}
                 >
-                  <button className="list-insert-divider field-insert-divider" type="button" onClick={() => addField(sourceIndex, position, groupId, shiftGroupsAtPosition)}><Plus size={11} aria-hidden="true" />Add field here</button>
-                  <button className="list-insert-divider field-group-insert-divider" type="button" onClick={() => addFieldGroup(sourceIndex, position)}><Plus size={11} aria-hidden="true" />Add field group</button>
+                  <button className="list-insert-divider field-insert-divider" type="button" onClick={() => addField(sourceIndex, position, groupId, shiftGroupsAtPosition, beforeGroupId)}><Plus size={11} aria-hidden="true" />Add field here</button>
+                  <button className="list-insert-divider field-group-insert-divider" type="button" onClick={() => addFieldGroup(sourceIndex, position, beforeGroupId)}><Plus size={11} aria-hidden="true" />Add field group</button>
                 </div>
               );
               const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => {
@@ -5915,16 +5931,17 @@ function DataSourceHeader({
                     setFieldGroupDragOver(null);
                   }}
                 >
-                  {field.generatedRelationId ? <span className="data-source-field-drag relation-field-marker" title="Generated by a table relation"><GitFork size={12} aria-hidden="true" /></span> : <button
+                  <button
                     className="mini-icon-button drag-handle data-source-field-drag"
                     type="button"
                     draggable
-                    aria-haspopup="menu"
+                    aria-haspopup={field.generatedRelationId ? undefined : "menu"}
                     aria-label={`Drag ${field.name} to reorder or move into a dimensioned set`}
-                    title="Drag to reorder or move into a dimensioned set · Right-click to move to another table"
+                    title={field.generatedRelationId ? 'Linked field · Drag to reorder' : 'Drag to reorder or move into a dimensioned set · Right-click to move to another table'}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       event.stopPropagation();
+                      if (field.generatedRelationId) return;
                       const rect = event.currentTarget.getBoundingClientRect();
                       const top = event.clientY || rect.bottom;
                       const left = event.clientX || rect.left;
@@ -5947,7 +5964,7 @@ function DataSourceHeader({
                       setFieldInsertDragOver(null);
                       setFieldGroupDragOver(null);
                     }}
-                  ><GripVertical size={13} aria-hidden="true" /></button>}
+                  >{field.generatedRelationId ? <GitFork size={13} aria-hidden="true" /> : <GripVertical size={13} aria-hidden="true" />}</button>
                   <div className="primary-key-cell">
                     <label className="primary-key-check" title={groupId ? 'Dimensioned fields cannot be primary keys' : field.generatedRelationId ? 'Relationship fields cannot be primary keys' : isPrimaryKey && primaryKeyRelations.length ? 'Choose another primary key or remove this key’s relations first' : 'Use this field as the table primary key'}>
                       <input type="checkbox" checked={isPrimaryKey} disabled={Boolean(groupId || field.generatedRelationId || (isPrimaryKey && primaryKeyRelations.length))} aria-label={`${field.name || 'Field'} is primary key`} onChange={() => setPrimaryKey(sourceIndex, fieldIndex)} />
@@ -6082,6 +6099,24 @@ function DataSourceHeader({
                     }}
                   >
                     <summary>
+                      <button
+                        className="mini-icon-button drag-handle"
+                        type="button"
+                        draggable
+                        aria-label="Drag dimensioned field group to reorder"
+                        title="Drag the entire dimensioned field group"
+                        onClick={(event) => { event.preventDefault(); event.stopPropagation(); }}
+                        onDragStart={(event) => {
+                          event.stopPropagation();
+                          setDimensionGroupDrag({ sourceIndex, groupId: group.id });
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', group.id);
+                        }}
+                        onDragEnd={() => {
+                          setDimensionGroupDrag(null);
+                          setFieldInsertDragOver(null);
+                        }}
+                      ><GripVertical size={13} aria-hidden="true" /></button>
                       <span>Dimensioned fields</span>
                       <small>{group.fieldIds.length} {group.fieldIds.length === 1 ? 'field' : 'fields'}{group.dimensions.length ? ` by ${group.dimensions.map((dimension) => `${dimension.name || 'Untitled dimension'}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join(' · ')}` : ' · add dimensions'}</small>
                       <ChevronDown size={12} aria-hidden="true" />
@@ -6276,28 +6311,22 @@ function DataSourceHeader({
                         {source.fields.flatMap((field, fieldIndex) => {
                           const groupsAtPosition = source.fieldGroups.filter((group) => group.position === fieldIndex);
                           const isUngrouped = !groupedFieldIds.has(field.id);
-                          const followsDimensionedGroup = isUngrouped && groupsAtPosition.length === 0 && followsFieldGroup(fieldIndex);
                           return [
-                            ...((isUngrouped || groupsAtPosition.length > 0)
-                              ? [renderInsertControls(
-                                  fieldIndex,
-                                  undefined,
-                                  `top-insert-${field.id}`,
-                                  groupsAtPosition.length > 0 || followsDimensionedGroup,
-                                  groupsAtPosition.length > 0
-                                )]
-                              : []),
-                            ...groupsAtPosition.map(renderFieldGroup),
-                            ...(isUngrouped && groupsAtPosition.length > 0
-                              ? [renderInsertControls(fieldIndex, undefined, `after-groups-insert-${field.id}`, true)]
-                              : []),
-                            ...(isUngrouped ? [renderFieldRow(field, fieldIndex)] : [])
+                            ...groupsAtPosition.flatMap((group) => [
+                              renderInsertControls(fieldIndex, undefined, `before-group-${group.id}`, true, true, group.id),
+                              renderFieldGroup(group)
+                            ]),
+                            ...(isUngrouped ? [
+                              renderInsertControls(fieldIndex, undefined, `top-insert-${field.id}`, groupsAtPosition.length > 0 || followsFieldGroup(fieldIndex)),
+                              renderFieldRow(field, fieldIndex)
+                            ] : [])
                           ];
                         })}
-                        {source.fieldGroups.some((group) => group.position === source.fields.length)
-                          ? renderInsertControls(source.fields.length, undefined, `top-insert-final-groups-${source.id}`, true, true)
-                          : null}
-                        {source.fieldGroups.filter((group) => group.position === source.fields.length).map(renderFieldGroup)}
+                        {source.fieldGroups.filter((group) => group.position === source.fields.length).flatMap((group) => [
+                          renderInsertControls(source.fields.length, undefined, `before-final-group-${group.id}`, true, true, group.id),
+                          renderFieldGroup(group)
+                        ])}
+                        {renderInsertControls(source.fields.length, undefined, `final-insert-${source.id}`, true)}
                         <div className="field-final-actions">
                           <button className="secondary-action tiny data-source-add-field" type="button" onClick={() => addField(sourceIndex)}><Plus size={12} /> Add field</button>
                           <button className="secondary-action tiny" type="button" onClick={() => addFieldGroup(sourceIndex, source.fields.length)}><Plus size={12} /> Add field group</button>

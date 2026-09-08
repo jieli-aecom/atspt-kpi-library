@@ -3334,7 +3334,7 @@ h1 {
 
 .data-source-field-group > summary {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) 14px;
+  grid-template-columns: auto auto minmax(0, 1fr) 14px;
   align-items: center;
   gap: 6px;
   min-height: 27px;
@@ -3359,12 +3359,12 @@ h1 {
   white-space: nowrap;
 }
 
-.data-source-field-group > summary svg {
+.data-source-field-group > summary > svg {
   transform: rotate(-90deg);
   transition: transform 120ms ease;
 }
 
-.data-source-field-group[open] > summary svg {
+.data-source-field-group[open] > summary > svg {
   transform: rotate(0deg);
 }
 
