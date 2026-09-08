@@ -5971,11 +5971,11 @@ function DataSourceHeader({
                     <button
                       className={`mini-icon-button field-details-button ${preprocessingNeeded ? 'needs-preprocessing' : ''}`}
                       type="button"
-                      title={preprocessingNeeded ? 'Preprocessing required — edit settings' : 'Configure field preprocessing and preferred formula'}
-                      aria-label={`Configure preprocessing and preferred formula for ${field.name || 'field'}`}
+                      title={preprocessingNeeded ? 'View field details — preprocessing required' : 'View field details and supported KPIs'}
+                      aria-label={`View field details and supported KPIs for ${field.name || 'field'}`}
                       aria-haspopup="dialog"
                       onClick={() => setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id })}
-                    ><AlertTriangle size={12} aria-hidden="true" /></button>
+                    ><Eye size={12} aria-hidden="true" /></button>
                     {field.generatedRelationId ? <><span className="relation-field-badge">Linked</span><button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <button
                       className="mini-icon-button danger"
                       type="button"
