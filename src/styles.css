@@ -5877,6 +5877,8 @@ h1 {
 }
 
 .formula-item-editor {
+  /* Shared by KPI cards and field popups, regardless of their parent font. */
+  font-size: 12px;
   gap: 9px;
   border: 1px solid #c7d2d8;
   border-left: 4px solid #91a9b3;
@@ -7037,9 +7039,9 @@ h1 {
 .field-processing-editor { min-width: 0; border-top: 1px solid #d5dfe3; padding-top: 12px; }
 .field-processing-editor > summary { cursor: pointer; font-size: 12px; font-weight: 700; margin-bottom: 12px; }
 .field-processing-editor > .kpi-source-control { margin-bottom: 12px; }
-.field-processing-editor > .formula-item-editor { margin-bottom: 12px; padding: 10px; }
+.field-processing-editor > .formula-item-editor { margin-bottom: 12px; }
 .field-formula-heading { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
-.field-formula-heading > input { flex: 1; min-width: 0; }
+.field-formula-heading > .formula-tag-field { flex: 1; min-width: 0; }
 .field-processing-editor .formula-expression-workbench { width: 100%; min-width: 0; }
 
 @media (max-width: 1100px) {
@@ -7078,3 +7080,39 @@ h1 {
 }
 .diagram-support-button:hover { background: #d9e9ee; }
 .diagram-support-button:focus-visible { outline: 2px solid #d75a32; outline-offset: -2px; }
+
+
+.table-source-category {
+  border: 1px solid #dce3eb;
+  border-radius: 8px;
+  margin-block: 8px;
+  overflow: hidden;
+}
+.table-source-category-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  background: #f1f5f9;
+  color: #334155;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.table-source-category-heading > svg { transform: rotate(-90deg); }
+.table-source-category-heading > svg.is-expanded { transform: rotate(0deg); }
+.table-source-category-content { padding: 4px 10px 10px; }
+.table-source-category > .source-table-group-buttons { padding: 8px; }
+.table-category-select {
+  position: relative;
+  z-index: 1;
+  max-width: 180px;
+  padding: 3px 5px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: white;
+  color: #475569;
+  font-size: 11px;
+}

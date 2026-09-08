@@ -5,14 +5,15 @@ import type {
   DataSourceField,
   DataSourceFieldDimension,
   KpiPoolConfig,
-  TableRelation
+  TableRelation,
+  TableSourceCategory
 } from './types';
 import type { SupportTarget } from './kpiSupport';
 import { downloadTableSchemaExcelWorkbook } from './excelExport';
 
 const CARD_GAP_X = 92;
 const CARD_GAP_Y = 78;
-const CARD_HEADER_HEIGHT = 50;
+const CARD_HEADER_HEIGHT = 68;
 const CARD_META_HEIGHT = 24;
 const FIELD_ROW_HEIGHT = 28;
 const GROUP_ROW_HEIGHT = 27;
@@ -33,6 +34,7 @@ type DiagramRow =
 type DiagramTable = {
   source: DataSource;
   groupName: string;
+  category: TableSourceCategory;
   rows: DiagramRow[];
   width: number;
   height: number;
@@ -143,6 +145,7 @@ const buildDiagram = (config: KpiPoolConfig) => {
     return {
       source,
       groupName,
+      category: config.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.category ?? source.category ?? 'Preprocessed Constants',
       rows,
       width: tableWidth(source, groupName),
       height: CARD_HEADER_HEIGHT + CARD_META_HEIGHT + rows.reduce((total, row) => total + row.height, 0),
@@ -603,12 +606,13 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
                 >
                   <rect x={table.x} y={table.y} width={table.width} height={table.height} rx="10" fill="#ffffff" stroke={relatedToActive ? '#d75a32' : '#b8c8cf'} strokeWidth={relatedToActive ? 2.5 : 1} filter="url(#table-shadow)" />
                   <path d={`M${table.x + 10} ${table.y}H${table.x + table.width - 10}Q${table.x + table.width} ${table.y} ${table.x + table.width} ${table.y + 10}V${table.y + CARD_HEADER_HEIGHT}H${table.x}V${table.y + 10}Q${table.x} ${table.y} ${table.x + 10} ${table.y}`} fill="#315f70" />
-                  {table.groupName ? <g><title>{table.groupName}</title><rect x={table.x + 14} y={table.y + 4} width={groupBadgeWidth} height="13" rx="6.5" fill="#d9e9ee" /><text x={table.x + 21} y={table.y + 13.5} fill="#315f70" fontSize="8" fontWeight="800">{groupBadgeLabel}</text></g> : null}
-                  <text x={table.x + 15} y={table.y + (table.groupName ? 29 : 23)} fill="#ffffff" fontSize={table.groupName ? 14 : 15} fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 90) / 8))}</text>
-                  <text x={table.x + 15} y={table.y + (table.groupName ? 43 : 40)} fill="#d8e8ee" fontSize={table.groupName ? 9.5 : 10.5}>{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
-                  {supportButton(table.x + table.width - 70, table.y + 14, { dataSourceId: table.source.id }, table.source.name || 'table', onViewSupport)}
+                  <text x={table.x + 15} y={table.y + 14} fill="#d8e8ee" fontSize="10" fontWeight="700">{table.category}</text>
+                  {table.groupName ? <g><title>{table.groupName}</title><rect x={table.x + 14} y={table.y + 22} width={groupBadgeWidth} height="13" rx="6.5" fill="#d9e9ee" /><text x={table.x + 21} y={table.y + 31.5} fill="#315f70" fontSize="8" fontWeight="800">{groupBadgeLabel}</text></g> : null}
+                  <text x={table.x + 15} y={table.y + (table.groupName ? 47 : 41)} fill="#ffffff" fontSize={table.groupName ? 14 : 15} fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 90) / 8))}</text>
+                  <text x={table.x + 15} y={table.y + (table.groupName ? 61 : 58)} fill="#d8e8ee" fontSize={table.groupName ? 9.5 : 10.5}>{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
+                  {supportButton(table.x + table.width - 70, table.y + 32, { dataSourceId: table.source.id }, table.source.name || 'table', onViewSupport)}
                   <g className="table-diagram-drag-handle" aria-hidden="true">
-                    {[0, 1, 2].flatMap((row) => [0, 1].map((column) => <circle key={`${row}:${column}`} cx={table.x + table.width - 17 + column * 5} cy={table.y + 16 + row * 5} r="1.25" fill="#d8e8ee" />))}
+                    {[0, 1, 2].flatMap((row) => [0, 1].map((column) => <circle key={`${row}:${column}`} cx={table.x + table.width - 17 + column * 5} cy={table.y + 34 + row * 5} r="1.25" fill="#d8e8ee" />))}
                   </g>
                   <rect x={table.x} y={table.y + CARD_HEADER_HEIGHT} width={table.width} height={CARD_META_HEIGHT} fill="#edf3f5" />
                   <text x={table.x + 14} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">KEY</text>

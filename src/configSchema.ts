@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import {
   CURRENT_SCHEMA_VERSION,
+  tableSourceCategories,
+  type TableSourceCategory,
   enumCategoryKeys,
   type EnumCategoryKey,
   type EnumDefinitions,
@@ -137,6 +139,7 @@ const dataSourceFieldDimensionSchema = z.object({
 });
 
 const dataSourceSchema = z.object({
+  category: z.enum(tableSourceCategories).default('Preprocessed Constants'),
   id: z.string().min(1),
   name: z.string(),
   description: z.string().optional(),
@@ -193,6 +196,7 @@ const valueEnumSchema = z.object({
 });
 
 const dataLibraryGroupSchema = z.object({
+  category: z.enum(tableSourceCategories).optional(),
   id: z.string().min(1),
   name: z.string(),
   description: z.string().optional(),
@@ -633,7 +637,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   const groupedDataSourceIds = currentDataSourceGroups.flatMap((group) => group.itemIds);
   const validDataSourceIds = new Set(currentDataSources.map((source) => source.id));
   if (
-    !currentDataSourceGroups.every((group) => isCurrentDataLibraryGroup(group, currentDataSources.length)) ||
+    !currentDataSourceGroups.every((group) => isCurrentDataLibraryGroup(group, currentDataSources.length) && tableSourceCategories.includes(group.category!)) ||
     hasDuplicate(currentDataSourceGroups.map((group) => group.id)) ||
     hasDuplicate(groupedDataSourceIds) ||
     currentDataSourceGroups.some((group) => !group.itemIds.every((id) => validDataSourceIds.has(id)))
@@ -645,7 +649,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     currentDataSources.some((source) => {
       const fieldIds = new Set(source.fields.map((field) => field.id));
       const groupedFieldIds = source.fieldGroups.flatMap((group) => group.fieldIds);
-      return hasDuplicate(source.fields.map((field) => field.id)) ||
+      return !tableSourceCategories.includes(source.category!) || hasDuplicate(source.fields.map((field) => field.id)) ||
         source.fields.some((field) => field.enumId !== undefined && (
           !validValueEnumIds.has(field.enumId) ||
           JSON.stringify(field.options) !== JSON.stringify(valueEnumById.get(field.enumId)?.options)
@@ -2153,6 +2157,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
       id,
       name,
       description: stringValue(rawSource.description),
+      category: tableSourceCategories.includes(rawSource.category as TableSourceCategory) ? rawSource.category as TableSourceCategory : 'Preprocessed Constants',
       spatialUnit,
       primaryKeyFieldId: (() => {
         const candidate = stringValue(rawSource.primaryKeyFieldId).trim();
@@ -2466,6 +2471,7 @@ const repairDataLibraryGroups = (
       ),
       name: stringValue(rawGroup.name ?? rawGroup.label).trim() || `Group ${groupIndex + 1}`,
       description: stringValue(rawGroup.description),
+      ...(collectionName === 'dataSource' ? { category: tableSourceCategories.includes(rawGroup.category as TableSourceCategory) ? rawGroup.category as TableSourceCategory : 'Preprocessed Constants' as const } : {}),
       itemIds,
       position: Math.max(0, Math.min(Number.isFinite(rawPosition) ? Math.floor(rawPosition) : items.length, items.length))
     }];
