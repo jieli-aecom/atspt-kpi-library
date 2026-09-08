@@ -51,6 +51,8 @@ import {
 import { mergeImportedConfig } from './configMerge';
 import { buildSystematicJsonExport } from './systematicJsonExport';
 import { TableDiagram } from './TableDiagram';
+import { KpiSupportDialog, KpiSupportSummary } from './KpiSupportView';
+import type { SupportTarget } from './kpiSupport';
 import { moveTableField } from './tableFieldMove';
 import {
   buildKpiExcelRows,
@@ -3726,6 +3728,7 @@ function DataSourceHeader({
   const [fieldDetailsEditor, setFieldDetailsEditor] = useState<{ dataSourceId: string; fieldId: string }>();
   const closeFieldDetails = useCallback(() => setFieldDetailsEditor(undefined), []);
   const [diagramOpen, setDiagramOpen] = useState(false);
+  const [supportTarget, setSupportTarget] = useState<SupportTarget>();
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const navigatedEditRequestIdRef = useRef<number>();
@@ -3862,7 +3865,7 @@ function DataSourceHeader({
           setFieldMoveMenu(undefined);
           return;
         }
-        if (fieldDetailsEditor) return;
+        if (fieldDetailsEditor || supportTarget) return;
         if (diagramOpen) {
           setDiagramOpen(false);
           return;
@@ -3882,7 +3885,7 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [diagramOpen, fieldDetailsEditor, fieldMoveMenu, open, relationEditor]);
+  }, [diagramOpen, fieldDetailsEditor, fieldMoveMenu, open, relationEditor, supportTarget]);
   const patchDataSources = (dataSources: DataSource[], dataSourceGroups = config.dataSourceGroups) => {
     onConfigChange({ ...config, dataSources, dataSourceGroups });
   };
@@ -6182,6 +6185,7 @@ function DataSourceHeader({
                       </span> : null}
                     </span>
                     <div className="data-source-expander-actions">
+                      <button className="mini-icon-button" type="button" title="View supported KPIs" aria-label={`View KPIs supported by ${source.name || 'table'}`} onClick={() => setSupportTarget({ dataSourceId: source.id })}><Eye size={13} /></button>
                       <button
                         className="mini-icon-button drag-handle data-source-drag"
                         type="button"
@@ -6458,7 +6462,8 @@ function DataSourceHeader({
           document.body
         );
       })() : null}
-      {diagramOpen ? createPortal(<TableDiagram config={config} onClose={() => setDiagramOpen(false)} />, document.body) : null}
+      {supportTarget ? <KpiSupportDialog config={config} target={supportTarget} onClose={() => setSupportTarget(undefined)} /> : null}
+      {diagramOpen ? createPortal(<TableDiagram config={config} onViewSupport={setSupportTarget} onClose={() => setDiagramOpen(false)} />, document.body) : null}
     </div>
   );
 }
@@ -7422,6 +7427,7 @@ function FieldDetailsDialog({
           </button>
         </header>
         <div className="kpi-note-dialog-body">
+          <KpiSupportSummary config={config} target={{ dataSourceId: table.id, fieldId: field.id }} />
           <section className={`field-preprocessing-setting ${preprocessingNeeded ? 'is-needed' : ''}`}>
             <div>
               <strong>Preprocessing needed</strong>

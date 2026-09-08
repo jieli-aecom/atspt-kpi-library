@@ -7,6 +7,7 @@ import type {
   KpiPoolConfig,
   TableRelation
 } from './types';
+import type { SupportTarget } from './kpiSupport';
 import { downloadTableSchemaExcelWorkbook } from './excelExport';
 
 const CARD_GAP_X = 92;
@@ -213,6 +214,7 @@ const downloadBlob = (blob: Blob, name: string) => {
 
 const serializedSvg = (svg: SVGSVGElement) => {
   const clone = svg.cloneNode(true) as SVGSVGElement;
+  clone.querySelectorAll('.diagram-support-control').forEach((control) => control.remove());
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('width', svg.viewBox.baseVal.width.toString());
   clone.setAttribute('height', svg.viewBox.baseVal.height.toString());
@@ -223,7 +225,13 @@ const positionsFromDiagram = (diagram: ReturnType<typeof buildDiagram>) => Objec
   diagram.tables.map((table) => [table.source.id, { x: table.x, y: table.y }])
 );
 
-export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClose: () => void }) {
+const supportButton = (x: number, y: number, target: SupportTarget, label: string, onViewSupport: (target: SupportTarget) => void) => (
+  <foreignObject className="diagram-support-control" x={x} y={y} width="42" height="24" onPointerDown={(event) => event.stopPropagation()}>
+    <button className="diagram-support-button" type="button" title={`View KPIs supported by ${label}`} aria-label={`View KPIs supported by ${label}`} onClick={(event) => { event.stopPropagation(); onViewSupport(target); }}>View</button>
+  </foreignObject>
+);
+
+export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPoolConfig; onClose: () => void; onViewSupport: (target: SupportTarget) => void }) {
   const diagram = useMemo(() => buildDiagram(config), [config.dataSourceGroups, config.dataSources, config.tableRelations]);
   const [zoom, setZoom] = useState(1);
   const [tablePositions, setTablePositions] = useState<Record<string, { x: number; y: number }>>(() => positionsFromDiagram(diagram));
@@ -437,7 +445,7 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
             width={canvasBounds.width}
             height={canvasBounds.height}
             style={{ transform: `scale(${zoom})` }}
-            role="img"
+            role="group"
             aria-label="Entity relationship diagram of the current source tables"
           >
             <rect x={canvasBounds.minX} y={canvasBounds.minY} width={canvasBounds.width} height={canvasBounds.height} fill="#f5f8f9" onClick={() => setSelectedRelationId(undefined)} />
@@ -596,15 +604,16 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                   <rect x={table.x} y={table.y} width={table.width} height={table.height} rx="10" fill="#ffffff" stroke={relatedToActive ? '#d75a32' : '#b8c8cf'} strokeWidth={relatedToActive ? 2.5 : 1} filter="url(#table-shadow)" />
                   <path d={`M${table.x + 10} ${table.y}H${table.x + table.width - 10}Q${table.x + table.width} ${table.y} ${table.x + table.width} ${table.y + 10}V${table.y + CARD_HEADER_HEIGHT}H${table.x}V${table.y + 10}Q${table.x} ${table.y} ${table.x + 10} ${table.y}`} fill="#315f70" />
                   {table.groupName ? <g><title>{table.groupName}</title><rect x={table.x + 14} y={table.y + 4} width={groupBadgeWidth} height="13" rx="6.5" fill="#d9e9ee" /><text x={table.x + 21} y={table.y + 13.5} fill="#315f70" fontSize="8" fontWeight="800">{groupBadgeLabel}</text></g> : null}
-                  <text x={table.x + 15} y={table.y + (table.groupName ? 29 : 23)} fill="#ffffff" fontSize={table.groupName ? 14 : 15} fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 30) / 8))}</text>
+                  <text x={table.x + 15} y={table.y + (table.groupName ? 29 : 23)} fill="#ffffff" fontSize={table.groupName ? 14 : 15} fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 90) / 8))}</text>
                   <text x={table.x + 15} y={table.y + (table.groupName ? 43 : 40)} fill="#d8e8ee" fontSize={table.groupName ? 9.5 : 10.5}>{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
+                  {supportButton(table.x + table.width - 70, table.y + 14, { dataSourceId: table.source.id }, table.source.name || 'table', onViewSupport)}
                   <g className="table-diagram-drag-handle" aria-hidden="true">
                     {[0, 1, 2].flatMap((row) => [0, 1].map((column) => <circle key={`${row}:${column}`} cx={table.x + table.width - 17 + column * 5} cy={table.y + 16 + row * 5} r="1.25" fill="#d8e8ee" />))}
                   </g>
                   <rect x={table.x} y={table.y + CARD_HEADER_HEIGHT} width={table.width} height={CARD_META_HEIGHT} fill="#edf3f5" />
                   <text x={table.x + 14} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">KEY</text>
                   <text x={table.x + 54} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">FIELD</text>
-                  <text x={table.x + table.width - 12} y={table.y + CARD_HEADER_HEIGHT + 16} textAnchor="end" fill="#60747d" fontSize="9.5" fontWeight="700">TYPE / UNIT</text>
+                  <text x={table.x + table.width - 58} y={table.y + CARD_HEADER_HEIGHT + 16} textAnchor="end" fill="#60747d" fontSize="9.5" fontWeight="700">TYPE / UNIT</text>
                   {table.rows.map((row, rowIndex) => {
                     const y = rowTop;
                     rowTop += row.height;
@@ -642,8 +651,9 @@ export function TableDiagram({ config, onClose }: { config: KpiPoolConfig; onClo
                       {needsPreprocessing ? <><rect x={table.x + 1} y={y} width="4" height={row.height} fill="#c85a50" /><circle cx={table.x + 43} cy={y + row.height / 2} r="3.5" fill="#c85a50" /></> : null}
                       {isPrimary ? <g><rect x={table.x + 10} y={y + 6} width="26" height="16" rx="4" fill="#f5e9bd" stroke="#b88b13" /><text x={table.x + 23} y={y + 17.5} textAnchor="middle" fill="#76580b" fontSize="8.5" fontWeight="900">PK</text></g> : null}
                       {!isPrimary && isVirtual ? <text x={table.x + 13} y={y + 18} fill="#397562" fontSize="8" fontWeight="900">V</text> : null}
-                      <text x={nameX} y={y + 18} fill="#223d47" fontSize="11" fontWeight={isPrimary ? 750 : 600}><title>{field.name || 'Untitled field'}</title>{shortened(field.name || 'Untitled field', Math.floor((table.width * 0.55) / 6.2))}</text>
-                      <text x={table.x + table.width - 12} y={y + 18} textAnchor="end" fill={isVirtual ? '#397562' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.35) / 5.5))}</text>
+                      <text x={nameX} y={y + 18} fill="#223d47" fontSize="11" fontWeight={isPrimary ? 750 : 600}><title>{field.name || 'Untitled field'}</title>{shortened(field.name || 'Untitled field', Math.floor((table.width * 0.43) / 6.2))}</text>
+                      <text x={table.x + table.width - 58} y={y + 18} textAnchor="end" fill={isVirtual ? '#397562' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.25) / 5.5))}</text>
+                      {supportButton(table.x + table.width - 48, y + 2, { dataSourceId: table.source.id, fieldId: field.id }, `${table.source.name}.${field.name}`, onViewSupport)}
                       <line x1={table.x + 1} y1={y + row.height} x2={table.x + table.width - 1} y2={y + row.height} stroke="#e2e9ec" />
                     </g>;
                   })}

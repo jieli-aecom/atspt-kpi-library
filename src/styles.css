@@ -7045,3 +7045,36 @@ h1 {
 @media (max-width: 1100px) {
   .field-formula-summary { grid-column: 1 / -1; grid-row: auto; }
 }
+.kpi-note-dialog-backdrop.kpi-support-backdrop {
+  z-index: 13000;
+}
+
+.kpi-support-summary {
+  padding: 14px;
+  border: 1px solid #dce5e9;
+  border-radius: 8px;
+  background: #f7fafb;
+}
+
+.kpi-support-summary p, .kpi-support-summary small, .kpi-support-path {
+  color: #526872;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.kpi-support-summary h3 { font-size: 13px; margin: 16px 0 8px; }
+.kpi-support-summary ul { padding-left: 20px; margin: 0; }
+.kpi-support-summary li { margin: 10px 0; }
+.kpi-support-path { overflow-wrap: anywhere; margin-top: 4px; }
+.diagram-support-button {
+  width: 40px;
+  height: 22px;
+  border: 1px solid #b8c8cf;
+  border-radius: 4px;
+  background: #f5fafc;
+  color: #315f70;
+  font: 600 10px Inter, 'Segoe UI', sans-serif;
+  cursor: pointer;
+}
+.diagram-support-button:hover { background: #d9e9ee; }
+.diagram-support-button:focus-visible { outline: 2px solid #d75a32; outline-offset: -2px; }
