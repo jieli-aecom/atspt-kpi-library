@@ -1,5 +1,5 @@
 import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
-import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex } from './scenarios';
+import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex, scenarioFormulaTokens, scenarioBaseFromLatex } from './scenarios';
 import { kpiScenarioTypes } from './types';
 import { tableSourceCategories, type TableSourceCategory } from './types';
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
@@ -6971,7 +6971,9 @@ function KpiSourceEditor({
   const updateItem = (id: string, partial: Partial<KpiSourceItem>) => {
     const currentItem = kpi.sources.find((item) => item.id === id);
     if ((currentItem?.type === 'dataField' || currentItem?.type === 'kpi') && (currentItem.scenarioSlot !== undefined || currentItem.scenarioBaseLatex !== undefined) && partial.latex !== undefined) {
-      partial = { ...partial, scenarioBaseLatex: partial.latex, latex: currentItem.scenarioSlot === undefined ? partial.latex : scenarioLatex(partial.latex, kpi.scenarioNames[currentItem.scenarioSlot]) };
+      const name = currentItem.scenarioSlot === undefined ? undefined : kpi.scenarioNames[currentItem.scenarioSlot];
+      const base = name === undefined ? partial.latex : scenarioBaseFromLatex(partial.latex, name);
+      partial = { ...partial, scenarioBaseLatex: base, latex: name === undefined ? partial.latex : scenarioLatex(base, name) };
     }
     const sources = kpi.sources.map((item) => item.id === id ? { ...item, ...partial } as KpiSourceItem : item);
     if (currentItem && partial.latex !== undefined && partial.latex !== currentItem.latex) {
@@ -7132,7 +7134,7 @@ function KpiSourceEditor({
             })}
           </div> : null}
         </div>}
-      <DebouncedInput className="latex-code-editor" value={(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? item.scenarioBaseLatex ?? item.latex : item.latex} title={(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? 'Edit the base expression; the scenario suffix is added automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}${(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? ` — ${kpi.scenarioNames[item.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
+      <DebouncedInput className="latex-code-editor" value={item.latex} title={(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? 'This is the expression inserted into formulas. The scenario suffix is retained automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}${(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? ` — ${kpi.scenarioNames[item.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : 'â€”'}</span>
       <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={() => editSelectedSource(item)}><Eye size={12} /></button>
       <button className="mini-icon-button danger" type="button" title="Remove source" aria-label={`Remove source ${label}`} onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
@@ -7939,7 +7941,7 @@ type FormulaSemanticToken = {
   latex: string;
   matchLatex?: string;
   requiresFollowingParenthesis?: boolean;
-  kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale';
+  kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale' | 'scenario';
   prominent?: boolean;
   label: string;
   target?: FormulaSemanticTarget;
@@ -8128,7 +8130,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
     };
     const decorateNestedSemanticTokens = (parentLatex: string, parentToken: typeof uniqueTokens[number]) => {
       const nestedTokens = activeTokens.filter((token) =>
-        token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale')
+        token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale' || token.kind === 'scenario')
       );
       const qualifiedPrefix = qualifiedFormulaTokenPrefix(parentToken);
       const nestedSearchLatex = qualifiedPrefix && parentLatex[qualifiedPrefix.length] === '|'
@@ -8389,6 +8391,7 @@ function InteractiveFormulaPreview({
         label: `Spatial scale: ${keyword}`
       })),
       ...priorItemTokens,
+      ...scenarioFormulaTokens(kpi),
       {
         latex: item.leftExpression,
         kind: 'result' as const,
@@ -8397,7 +8400,7 @@ function InteractiveFormulaPreview({
         originFormulaIndex: currentFormulaIndex >= 0 ? currentFormulaIndex : undefined
       }
     ]),
-    [currentFormulaIndex, dimensionTokens, fieldDomainTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
+    [kpi.scenarioNames, currentFormulaIndex, dimensionTokens, fieldDomainTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
   const renderedHtml = useMemo(
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),

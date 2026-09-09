@@ -6373,6 +6373,20 @@ h1 {
   box-shadow: inset 0 -2px 0 rgba(180, 35, 24, 0.5);
 }
 
+.formula-semantic-token.formula-scenario-token {
+  background: rgba(103, 183, 225, 0.16) !important;
+  color: #4198c7 !important;
+  box-shadow: inset 0 -2px 0 rgba(103, 183, 225, 0.5);
+}
+
+.formula-result-token .formula-scenario-token,
+.formula-source-token .formula-scenario-token,
+.formula-collection-token .formula-scenario-token {
+  background: transparent !important;
+  box-shadow: none;
+  padding: 0;
+}
+
 .formula-semantic-token.formula-result-token {
   background: rgba(52, 113, 184, 0.12) !important;
   color: #245d99 !important;

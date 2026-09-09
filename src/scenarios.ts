@@ -1,5 +1,39 @@
 import type { DataSource, KpiMetric, KpiPoolConfig, KpiSourceItem } from './types.js';
 
+/** Remove only the generated v42/v43 wrapper, preserving the mathematical content. */
+export const stripLegacyScenarioColor = (latex: string): string => {
+  const prefix = '\\textcolor{#67b7e1}{';
+  let result = '';
+  let cursor = 0;
+  while (cursor < latex.length) {
+    const start = latex.indexOf(prefix, cursor);
+    if (start < 0) return result + latex.slice(cursor);
+    const contentStart = start + prefix.length;
+    let depth = 1;
+    let end = contentStart;
+    for (; end < latex.length; end++) {
+      if (latex[end] === '\\') { end++; continue; }
+      if (latex[end] === '{') depth++;
+      if (latex[end] === '}' && --depth === 0) break;
+    }
+    if (depth !== 0) return result + latex.slice(cursor);
+    const content = latex.slice(contentStart, end);
+    result += latex.slice(cursor, start) + (content.startsWith('\\mathrm{')
+      ? stripLegacyScenarioColor(content) : latex.slice(start, end + 1));
+    cursor = end + 1;
+  }
+  return result;
+};
+
+export const migrateScenarioDecoration = (value: unknown): unknown => {
+  if (Array.isArray(value)) return value.map(migrateScenarioDecoration);
+  if (!value || typeof value !== 'object') return value;
+  const latexKeys = new Set(['latex', 'scenarioBaseLatex', 'preferredLatex', 'formula', 'leftExpression', 'rightExpression', 'term']);
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key,
+    typeof entry === 'string' && latexKeys.has(key) ? stripLegacyScenarioColor(entry) : migrateScenarioDecoration(entry)
+  ]));
+};
+
 export const isScenarioTable = (config: Pick<KpiPoolConfig, 'dataSourceGroups'>, table: DataSource) =>
   ['Scenario Upstream', 'KPI Preparation'].includes(config.dataSourceGroups.find((group) => group.itemIds.includes(table.id))?.category ?? table.category ?? 'Preprocessed Constants');
 
@@ -11,11 +45,21 @@ export const normalizeScenarioNames = (value: unknown): [string, string] => {
   return [first, second];
 };
 
-// Add to the first subscript, respecting nested braces and collection expressions.
-export const scenarioLatex = (base: string, name: string) => {
+export const scenarioNameLatex = (name: string) => {
   const escapes: Record<string, string> = { '\\': '\\backslash{}', '^': '\\text{\\^{}}', '~': '\\text{\\~{}}' };
   const token = name.replace(/\s/g, '').replace(/[\\{}_$%&#^~]/g, (char) => escapes[char] ?? `\\${char}`);
-  const suffix = `\\textcolor{#67b7e1}{\\mathrm{${token}}}`;
+  return token;
+};
+
+export const scenarioFormulaTokens = (kpi: Pick<KpiMetric, 'scenarioNames'>) => kpi.scenarioNames.map((name) => ({
+  latex: scenarioNameLatex(name),
+  kind: 'scenario' as const,
+  label: `Scenario: ${name}`
+}));
+
+// Add to the first subscript, respecting nested braces and collection expressions.
+export const scenarioLatex = (base: string, name: string) => {
+  const suffix = scenarioNameLatex(name);
   const start = base.indexOf('_{');
   if (start >= 0) {
     let depth = 1;
@@ -26,6 +70,28 @@ export const scenarioLatex = (base: string, name: string) => {
     }
   }
   return `{${base}}_{${suffix}}`;
+};
+
+/** Accept the full visible expression without appending the same scenario twice. */
+export const scenarioBaseFromLatex = (expression: string, name: string) => {
+  const suffix = scenarioNameLatex(name);
+  const start = expression.indexOf('_{');
+  if (start < 0) return expression;
+  let depth = 1;
+  for (let end = start + 2; end < expression.length; end++) {
+    if (expression[end] === '\\') { end++; continue; }
+    if (expression[end] === '{') depth++;
+    if (expression[end] !== '}' || --depth !== 0) continue;
+    const subscript = expression.slice(start + 2, end);
+    const tail = new RegExp(`,\\s*${suffix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*$`);
+    if (tail.test(subscript)) return expression.slice(0, start + 2) + subscript.replace(tail, '') + expression.slice(end);
+    if (subscript.trim() === suffix) {
+      const head = expression.slice(0, start);
+      return (head.startsWith('{') && head.endsWith('}') ? head.slice(1, -1) : head) + expression.slice(end + 1);
+    }
+    return expression;
+  }
+  return expression;
 };
 
 export const reconcileKpiScenarios = (config: Pick<KpiPoolConfig, 'dataSourceGroups' | 'dataSources' | 'kpis'>, kpi: KpiMetric): KpiMetric => {

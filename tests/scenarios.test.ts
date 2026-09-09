@@ -18,14 +18,16 @@ test('version 41 migrates all existing KPIs to Scenario and preserves expression
   assert.ok(kpiPoolConfigSchema.safeParse(result.config).success);
 });
 
-test('scenario suffix extends subscripts and renders safe light-blue names', () => {
+test('scenario suffix extends subscripts without embedding visual styling', () => {
   for (const base of ['Flow_{Link}', String.raw`\{Flow\}_{Link}`, String.raw`x_{\mathrm{Link}}`, 'x']) {
     const latex = scenarioLatex(base, 'Build Alternative');
     assert.ok(latex.includes('BuildAlternative'));
     assert.doesNotThrow(() => katex.renderToString(latex, { throwOnError: true }));
-    assert.ok(katex.renderToString(latex).includes('#67b7e1'));
+    assert.ok(!latex.includes('textcolor'));
+    assert.ok(!latex.includes('#'));
+    assert.ok(!latex.includes('htmlClass'));
   }
-  assert.equal(scenarioLatex('Flow_{Link}', 'Build Alternative'), String.raw`Flow_{Link, \textcolor{#67b7e1}{\mathrm{BuildAlternative}}}`);
+  assert.equal(scenarioLatex('Flow_{Link}', 'Build Alternative'), String.raw`Flow_{Link, BuildAlternative}`);
   for (const name of ['A&B', 'A_{B}', '50%', 'A\\B', 'A^B', 'A~B']) assert.doesNotThrow(() => katex.renderToString(scenarioLatex('x', name), { throwOnError: true }));
 });
 

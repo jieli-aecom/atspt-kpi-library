@@ -1,4 +1,4 @@
-import { normalizeScenarioNames, reconcileKpiScenarios } from './scenarios.js';
+import { normalizeScenarioNames, reconcileKpiScenarios, migrateScenarioDecoration } from './scenarios.js';
 import { z } from 'zod';
 import {
   CURRENT_SCHEMA_VERSION,
@@ -2739,7 +2739,9 @@ export const repairConfig = (input: unknown): RepairResult => {
 
   const requiresCellTerminologyMigration =
     !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < CELL_TERMINOLOGY_SCHEMA_VERSION;
-  const migratedInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
+  const terminologyInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
+  const migratedInput = !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 44
+    ? migrateScenarioDecoration(terminologyInput) : terminologyInput;
 
   if (isCurrentKpiPoolConfig(migratedInput) && kpiPoolConfigSchema.safeParse(migratedInput).success && reconcileFieldSources(migratedInput) === migratedInput.dataSources) {
     const kpis = migratedInput.kpis.map((kpi) => reconcileKpiScenarios(migratedInput, kpi));
