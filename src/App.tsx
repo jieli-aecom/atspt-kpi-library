@@ -1,5 +1,5 @@
 import { tableSourceCategories, type TableSourceCategory } from './types';
-import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { BlockMath, InlineMath } from 'react-katex';
 import katex, { type TrustContext } from 'katex';
 import { createPortal } from 'react-dom';
@@ -3759,6 +3759,7 @@ function DataSourceHeader({
   const closeFieldDetails = useCallback(() => setFieldDetailsEditor(undefined), []);
   const [diagramOpen, setDiagramOpen] = useState(false);
   const [supportTarget, setSupportTarget] = useState<SupportTarget>();
+  const [groupDetailsEditor, setGroupDetailsEditor] = useState<{ dataSourceId: string; groupId: string }>();
   const controlRef = useRef<HTMLDivElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const navigatedEditRequestIdRef = useRef<number>();
@@ -3897,7 +3898,7 @@ function DataSourceHeader({
           setFieldMoveMenu(undefined);
           return;
         }
-        if (fieldDetailsEditor || supportTarget) return;
+        if (fieldDetailsEditor || supportTarget || groupDetailsEditor) return;
         if (diagramOpen) {
           setDiagramOpen(false);
           return;
@@ -3917,7 +3918,7 @@ function DataSourceHeader({
       document.removeEventListener('pointerdown', handlePointerDown, true);
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, [diagramOpen, fieldDetailsEditor, fieldMoveMenu, open, relationEditor, supportTarget]);
+  }, [diagramOpen, fieldDetailsEditor, fieldMoveMenu, open, relationEditor, supportTarget, groupDetailsEditor]);
   const patchDataSources = (dataSources: DataSource[], dataSourceGroups = config.dataSourceGroups) => {
     onConfigChange({ ...config, dataSources, dataSourceGroups });
   };
@@ -6118,6 +6119,7 @@ function DataSourceHeader({
                         }}
                       ><GripVertical size={13} aria-hidden="true" /></button>
                       <span>Dimensioned fields</span>
+                      <button className="mini-icon-button" type="button" aria-label="Edit field group" onClick={(event) => { event.preventDefault(); setGroupDetailsEditor({ dataSourceId: source.id, groupId: group.id }); }}><Eye size={12} /></button>
                       <small>{group.fieldIds.length} {group.fieldIds.length === 1 ? 'field' : 'fields'}{group.dimensions.length ? ` by ${group.dimensions.map((dimension) => `${dimension.name || 'Untitled dimension'}: ${dimension.options.length ? dimension.options.join(', ') : 'no options'}`).join(' · ')}` : ' · add dimensions'}</small>
                       <ChevronDown size={12} aria-hidden="true" />
                     </summary>
@@ -6261,7 +6263,7 @@ function DataSourceHeader({
                       </span> : null}
                     </span>
                     <div className="data-source-expander-actions">
-                      <button className="mini-icon-button" type="button" title="View supported KPIs" aria-label={`View KPIs supported by ${source.name || 'table'}`} onClick={() => setSupportTarget({ dataSourceId: source.id })}><Eye size={13} /></button>
+                      <button className="mini-icon-button" type="button" title="Edit table details and view supported KPIs" aria-label={`View KPIs supported by ${source.name || 'table'}`} onClick={() => setSupportTarget({ dataSourceId: source.id })}><Eye size={13} /></button>
                       <button
                         className="mini-icon-button drag-handle data-source-drag"
                         type="button"
@@ -6516,6 +6518,9 @@ function DataSourceHeader({
         table={fieldDetailsSource!}
         onEditLibrarySource={(target) => { closeFieldDetails(); onEditLibrarySource(target); }}
         field={fieldDetailsField}
+        enumEditor={renderLookupEnumOptions(fieldDetailsField.options, fieldDetailsField.name || 'Field',
+          (options) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { options }), fieldDetailsField.enumId,
+          (enumId) => { const definition = config.valueEnums.find((entry) => entry.id === enumId); updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { enumId, ...(definition ? { options: [...definition.options] } : {}) }); })}
         defaultLatex={fieldDetailsField.preferredLatex || sourceFieldDefaultLatex(fieldDetailsField, fieldDetailsSource?.spatialUnit ?? '', fieldDetailsGroup?.dimensions)}
         onChange={(partial) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, partial)}
         onChangeGlobally={(latex, reportProgress) => changeFieldLatexGlobally(fieldDetailsSourceIndex, fieldDetailsFieldIndex, latex, reportProgress)}
@@ -6563,8 +6568,36 @@ function DataSourceHeader({
           document.body
         );
       })() : null}
-      {supportTarget ? <KpiSupportDialog config={config} target={supportTarget} onClose={() => setSupportTarget(undefined)} /> : null}
-      {diagramOpen ? createPortal(<TableDiagram config={config} onViewSupport={setSupportTarget} onClose={() => setDiagramOpen(false)} />, document.body) : null}
+      {supportTarget ? (() => {
+        const index = config.dataSources.findIndex((source) => source.id === supportTarget.dataSourceId);
+        const source = config.dataSources[index];
+        if (!source) return null;
+        return <KpiSupportDialog config={config} target={supportTarget} onClose={() => setSupportTarget(undefined)}>
+          <div className="library-detail-properties">
+            <label className="field"><span>Name</span><input aria-label="Table name" value={source.name} onChange={(event) => updateDataSource(index, { name: event.target.value })} /></label>
+            <label className="field"><span>Spatial unit</span><select aria-label="Spatial unit" value={source.spatialUnit} onChange={(event) => updateDataSource(index, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}><option value="">No spatial unit</option>{spatialUnitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
+            <label className="field full-width"><span>Description</span><textarea rows={2} aria-label="Table description" value={source.description ?? ''} onChange={(event) => updateDataSource(index, { description: event.target.value })} /></label>
+          </div>
+          <div className="library-detail-links">{source.fields.map((field) => <button type="button" className="secondary-action tiny" key={field.id} onClick={() => { setSupportTarget(undefined); setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id }); }}>{field.name || 'Untitled field'}</button>)}</div>
+        </KpiSupportDialog>;
+      })() : null}
+      {groupDetailsEditor ? (() => {
+        const index = config.dataSources.findIndex((source) => source.id === groupDetailsEditor.dataSourceId);
+        const source = config.dataSources[index];
+        const group = source?.fieldGroups.find((entry) => entry.id === groupDetailsEditor.groupId);
+        if (!group) return null;
+        return <KpiSupportDialog config={config} target={{ dataSourceId: source.id }} heading="Field group" showSupport={false} onClose={() => setGroupDetailsEditor(undefined)}>
+          {group.dimensions.map((dimension) => <div className="library-detail-dimension" key={dimension.id}>
+            <label className="field"><span>Dimension name</span><input aria-label="Dimension name" value={dimension.name} onChange={(event) => updateFieldGroupDimension(index, group.id, dimension.id, { name: event.target.value })} /></label>
+            {linkedDomainDefinition(config, dimension.enumId) ? <span>Global domain: {linkedDomainDefinition(config, dimension.enumId)!.name}<ViewDomainButton domainId={dimension.enumId!} domainName={dimension.name} onView={(domainId) => { setGroupDetailsEditor(undefined); onEditLibrarySource({ kind: 'domain', domainId }); }} /></span> : <EnumOptionEditor options={dimension.options} label={`${dimension.name || 'dimension'} dimension`} onChange={(options) => updateFieldGroupDimension(index, group.id, dimension.id, { options })} />}
+            <button type="button" className="mini-icon-button danger" aria-label={`Delete ${dimension.name || 'dimension'}`} onClick={() => removeFieldGroupDimension(index, group.id, dimension.id)}><Trash2 size={12} /></button>
+          </div>)}
+          <div className="library-detail-links"><button className="secondary-action tiny" type="button" onClick={() => addFieldGroupDimension(index, group.id)}><Plus size={11} />Add custom dimension</button>
+          <select aria-label="Add global domain" value="" onChange={(event) => { if (event.target.value) addFieldGroupEnumDimension(index, group.id, event.target.value); }}><option value="">Add global domain…</option>{config.valueEnums.map((domain) => <option key={domain.id} value={domain.id}>{domain.name}</option>)}</select></div>
+          <div className="library-detail-links">{source.fields.filter((field) => group.fieldIds.includes(field.id)).map((field) => <button type="button" className="secondary-action tiny" key={field.id} onClick={() => { setGroupDetailsEditor(undefined); setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id }); }}>{field.name || 'Untitled field'}</button>)}</div>
+        </KpiSupportDialog>;
+      })() : null}
+      {diagramOpen ? createPortal(<TableDiagram config={config} onViewSupport={(target) => { if (target.fieldId !== undefined) setFieldDetailsEditor({ dataSourceId: target.dataSourceId, fieldId: target.fieldId }); else setSupportTarget(target); }} onClose={() => setDiagramOpen(false)} />, document.body) : null}
     </div>
   );
 }
@@ -6581,6 +6614,17 @@ function KpiSourceGroupedSummary({
   highlightedSourceId?: string;
 }) {
   const dataGroups = selectedDataSourceGroups(config, kpi);
+  const categories = tableSourceCategories.map((category) => {
+    const groups = new Map<string, { name: string; tables: typeof dataGroups }>();
+    for (const table of dataGroups) {
+      const group = config.dataSourceGroups.find((entry) => entry.itemIds.includes(table.dataSource.id));
+      if ((group?.category ?? table.dataSource.category ?? 'Preprocessed Constants') !== category) continue;
+      const key = group?.id ?? '';
+      if (!groups.has(key)) groups.set(key, { name: group?.name.trim() ?? '', tables: [] });
+      groups.get(key)!.tables.push(table);
+    }
+    return { category, groups: [...groups.entries()] };
+  }).filter(({ groups }) => groups.length > 0);
   const prerequisiteKpis = kpi.sources.flatMap((source) =>
     source.type === 'kpi' ? [{ source, kpi: config.kpis.find((entry) => entry.id === source.kpiId) }] : []
   );
@@ -6598,13 +6642,23 @@ function KpiSourceGroupedSummary({
 
   return (
     <span className="kpi-source-summary">
-      {dataGroups.map(({ dataSource, items }) => (
-        <span className="source-summary-group" key={dataSource.id}>
-          <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><GroupedDataSourceDisplay config={config} source={dataSource} /></span>
-          <span className="source-summary-items">{items.map(({ source, field }) => {
-            const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(field.name, dimensionLabel)}</span>;
-          })}</span>
+      {categories.map(({ category, groups }) => (
+        <span className="source-summary-category" key={category}>
+          <span className="source-summary-category-heading">{category}</span>
+          {groups.map(([groupId, { name, tables }]) => (
+            <span className={`source-summary-table-group${name ? ' is-named' : ''}`} key={groupId}>
+              {name ? <span className="source-summary-table-group-heading">{name}</span> : null}
+              {tables.map(({ dataSource, items }) => (
+                <span className="source-summary-group" key={dataSource.id}>
+                  <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}{dataSource.spatialUnit.trim() ? <> <span className="source-summary-dimension-badge">[by {dataSource.spatialUnit.trim()}]</span></> : null}</span></span>
+                  <span className="source-summary-items">{items.map(({ source, field }) => {
+                    const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
+                    return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{field.name}{dimensionLabel ? <> <span className="source-summary-dimension-badge">[by {dimensionLabel}]</span></> : null}</span>;
+                  })}</span>
+                </span>
+              ))}
+            </span>
+          ))}
         </span>
       ))}
       {prerequisiteKpis.length ? (
@@ -6612,7 +6666,7 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{dimensionedSourceLabel(prerequisite?.name ?? 'Missing KPI', dimensionLabel)}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{prerequisite?.name ?? 'Missing KPI'}{dimensionLabel ? <> <span className="source-summary-dimension-badge">[by {dimensionLabel}]</span></> : null}</span>;
           })}</span>
         </span>
       ) : null}
@@ -7402,7 +7456,8 @@ function FieldProcessingEditor({ config, table, field, onChange, onEditLibrarySo
     const timer = window.setTimeout(() => { setHighlight(undefined); setHighlightedFormula(undefined); }, transientSourceHighlightDurationMs);
     return () => window.clearTimeout(timer);
   }, [highlight, highlightedFormula]);
-  return <details className="field-processing-editor" ref={editorRef}>
+  const [expanded, setExpanded] = useState(() => formulas.length > 0);
+  return <details className="field-processing-editor" ref={editorRef} open={expanded} onToggle={(event) => setExpanded(event.currentTarget.open)}>
     <summary>Sources and processing formulae (optional)</summary>
     <KpiSourceEditor config={config} kpi={context} compact fieldOwner={{ dataSourceId: table.id, fieldId: field.id }} transientHighlightedSource={highlight} onEditLibrarySource={onEditLibrarySource} onViewKpi={() => {}} onChange={(sources, updates) => onChange({
       sources: sources.filter((source): source is FieldSourceItem => source.type !== 'kpi'),
@@ -7411,7 +7466,7 @@ function FieldProcessingEditor({ config, table, field, onChange, onEditLibrarySo
     {formulas.map((item, index) => <section className="formula-item-editor" key={index} data-field-formula-index={index}
       onDragOver={(event) => { if (dragIndex !== undefined) event.preventDefault(); }}
       onDrop={(event) => { if (dragIndex === undefined) return; event.preventDefault(); move(dragIndex, index); setDragIndex(undefined); }}>
-      <button className="list-insert-divider" type="button" onClick={() => add(index)}><Plus size={11} />Add formula here</button>
+      <button className="list-insert-divider formula-item-insert-divider" type="button" onClick={() => add(index)}><Plus size={11} />Add formula here</button>
       <div className="field-formula-heading">
         <button className="mini-icon-button drag-handle" type="button" draggable aria-label={`Drag formula ${index + 1}`} onDragStart={(event) => { setDragIndex(index); event.dataTransfer.setData('text/plain', String(index)); }} onDragEnd={() => setDragIndex(undefined)}><GripVertical size={13} /></button>
         <label className="field formula-tag-field">
@@ -7421,8 +7476,10 @@ function FieldProcessingEditor({ config, table, field, onChange, onEditLibrarySo
         <button className="mini-icon-button" type="button" disabled={index === formulas.length - 1} aria-label={`Move formula ${index + 1} down`} onClick={() => move(index, index + 1)}>↓</button>
         <button className="mini-icon-button danger" type="button" aria-label={`Delete formula item ${index + 1}`} onClick={() => onChange({ formulas: formulas.filter((_, i) => i !== index) })}><Trash2 size={13} /></button>
       </div>
+      <div className="field-formula-main-row">
       <FormulaExpressionEditor config={config} kpi={context} item={item} priorItems={formulas.slice(0, index)} onChange={(partial) => patch(index, partial)} />
       <InteractiveFormulaPreview config={config} kpi={context} item={item} onSemanticTarget={handleTarget} highlightedFormulaIndex={highlightedFormula} />
+      </div>
       <details className="formula-explanations">
         <summary title="Show optional explanations"><Info size={13} aria-hidden="true" /><span>Optional explanations</span></summary>
         <label className="field"><span>General Explanation</span><DebouncedTextarea rows={2} value={item.generalExplanation} onValueChange={(generalExplanation) => patch(index, { generalExplanation })} /></label>
@@ -7446,6 +7503,7 @@ function FieldDetailsDialog({
   onEditLibrarySource,
   field,
   defaultLatex,
+  enumEditor,
   onChange,
   onChangeGlobally,
   onClose
@@ -7455,6 +7513,7 @@ function FieldDetailsDialog({
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
   field: DataSourceField;
   defaultLatex: string;
+  enumEditor: ReactNode;
   onChange: (partial: Partial<DataSourceField>) => void;
   onChangeGlobally: (latex: string, reportProgress: (completed: number, total: number) => void) => Promise<number>;
   onClose: () => void;
@@ -7518,20 +7577,28 @@ function FieldDetailsDialog({
   };
 
   return createPortal(
-    <div className="kpi-note-dialog-backdrop" onMouseDown={(event) => {
+    <div className="kpi-note-dialog-backdrop library-details-backdrop" data-preserve-source-library-state onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeDialog();
     }}>
       <section ref={dialogRef} className="kpi-note-dialog field-preprocessing-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={isApplyingGlobally}>
         <header className="kpi-note-dialog-header">
           <div>
-            <span>Field preprocessing</span>
+            <span>Field details</span>
             <strong id={titleId}>{field.name || 'Untitled field'}</strong>
           </div>
-          <button ref={closeButtonRef} className="mini-icon-button" type="button" disabled={isApplyingGlobally} title={isApplyingGlobally ? 'Wait for the global update to finish' : 'Close'} aria-label="Close field preprocessing" onClick={closeDialog}>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" disabled={isApplyingGlobally} title={isApplyingGlobally ? 'Wait for the global update to finish' : 'Close'} aria-label="Close field details" onClick={closeDialog}>
             <X size={16} aria-hidden="true" />
           </button>
         </header>
         <div className="kpi-note-dialog-body">
+          <div className="library-detail-properties">
+            <label className="field"><span>Name</span><input aria-label="Field name" value={field.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
+            <label className="field"><span>Type</span><select aria-label="Field data type" value={field.dataType} disabled={Boolean(field.generatedRelationId || table.primaryKeyFieldId === field.id)} onChange={(event) => onChange({ dataType: event.target.value as DataSourceFieldType })}>{dataSourceFieldTypes.map((type) => <option key={type} value={type}>{dataSourceFieldTypeLabels[type]}</option>)}</select></label>
+            <label className="field full-width"><span>Meaning / description</span><textarea aria-label="Field meaning" rows={2} value={field.meaning} onChange={(event) => onChange({ meaning: event.target.value })} /></label>
+            {field.dataType === 'collection' ? <label className="field"><span>Collection item type</span><select aria-label="Collection item data type" value={field.collectionItemType ?? 'number'} disabled={Boolean(field.generatedRelationId)} onChange={(event) => onChange({ collectionItemType: event.target.value as DataSourceCollectionItemType })}>{dataSourceCollectionItemTypes.map((type) => <option key={type} value={type}>{dataSourceCollectionItemTypeLabels[type]}</option>)}</select></label> : null}
+            {field.dataType === 'number' || (field.dataType === 'collection' && field.collectionItemType === 'number') ? <label className="field"><span>Value unit</span><input aria-label="Field value unit" value={field.valueUnit} onChange={(event) => onChange({ valueUnit: event.target.value })} /></label> : null}
+            {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="full-width">{enumEditor}</div> : null}
+          </div>
           <KpiSupportSummary config={config} target={{ dataSourceId: table.id, fieldId: field.id }} />
           <section className={`field-preprocessing-setting ${preprocessingNeeded ? 'is-needed' : ''}`}>
             <div>
@@ -7577,7 +7644,7 @@ function FieldDetailsDialog({
               <span className="source-latex-preview">{preferredLatex.trim() ? <InlineMath math={preferredLatex} errorColor="#b42318" /> : 'Preview'}</span>
             </div>
             <div className="field-global-latex-action">
-              <button className="secondary-action small" type="button" disabled={isApplyingGlobally || !preferredLatex.trim()} onClick={applyLatexGlobally}>
+              <button className="secondary-action tiny" type="button" disabled={isApplyingGlobally || !preferredLatex.trim()} onClick={applyLatexGlobally}>
                 {isApplyingGlobally ? <RefreshCw className="field-progress-spin" size={13} aria-hidden="true" /> : <RefreshCw size={13} aria-hidden="true" />}
                 {isApplyingGlobally ? 'Changing formula expressions…' : 'Change formula expression globally'}
               </button>
@@ -9500,7 +9567,7 @@ function KpiNoteDialog({
   };
 
   return createPortal(
-    <div className="kpi-note-dialog-backdrop" onMouseDown={(event) => {
+    <div className="kpi-note-dialog-backdrop library-details-backdrop" data-preserve-source-library-state onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeDialog();
     }}>
       <section ref={dialogRef} className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>

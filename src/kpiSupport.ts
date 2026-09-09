@@ -1,7 +1,7 @@
 import type { KpiPoolConfig } from './types.js';
 
 export type SupportTarget = { dataSourceId: string; fieldId?: string };
-export type SupportNode = { key: string; label: string; kind: 'field' | 'kpi' };
+export type SupportNode = { key: string; label: string; kind: 'field' | 'kpi'; tableName?: string };
 export type KpiSupport = { kpiId: string; name: string; direct?: SupportNode[]; indirect?: SupportNode[] };
 const fieldKey = (tableId: string, fieldId: string) => JSON.stringify(['field', tableId, fieldId]);
 const kpiKey = (id: string) => JSON.stringify(['kpi', id]);
@@ -12,7 +12,7 @@ export function traceKpiSupport(config: KpiPoolConfig, target: SupportTarget): K
   const edges = new Map<string, Set<string>>();
   config.dataSources.forEach((table) => table.fields.forEach((field) => {
     const key = fieldKey(table.id, field.id);
-    nodes.set(key, { key, kind: 'field', label: `${table.name || 'Untitled table'}.${field.name || 'Untitled field'}` });
+    nodes.set(key, { key, kind: 'field', tableName: table.name || 'Untitled table', label: field.name || 'Untitled field' });
   }));
   config.kpis.forEach((kpi) => {
     const key = kpiKey(kpi.id);

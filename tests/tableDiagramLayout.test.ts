@@ -47,7 +47,7 @@ test('variable-height tables fit in their own group regions without overlapping'
   const layout = layoutTableRegions(tables, groups);
   const placed = tables.map((table) => ({ ...table, ...layout.positions.get(table.id)! }));
   for (const table of placed) {
-    const region = layout.regions.find((entry) => entry.kind === 'group' && entry.id === `${table.category}:${table.groupId ?? '__ungrouped__'}`)!;
+    const region = layout.regions.find((entry) => table.groupId ? entry.kind === 'group' && entry.id === `${table.category}:${table.groupId}` : entry.kind === 'category' && entry.category === table.category)!;
     assert.ok(table.x >= region.x && table.y >= region.y + 44);
     assert.ok(table.x + table.width <= region.x + region.width);
     assert.ok(table.y + table.height <= region.y + region.height);
@@ -60,7 +60,7 @@ test('variable-height tables fit in their own group regions without overlapping'
 test('empty and single-table layouts remain finite and show only populated regions', () => {
   assert.equal(layoutTableRegions([], groups).regions.length, 0);
   const layout = layoutTableRegions([tables[0]], groups);
-  assert.equal(layout.regions.length, 2);
+  assert.equal(layout.regions.length, 1);
   assert.equal(layout.positions.size, 1);
   assert.ok(Number.isFinite(layout.width) && Number.isFinite(layout.height));
 });

@@ -10,7 +10,7 @@ const config = (kpis: unknown[], fields: unknown[] = [{ id: 'raw', name: 'raw' }
 test('traces fields through processing, KPI sources and legacy prerequisites', () => {
   const result = traceKpiSupport(config([kpi('a', [ref('raw')]), kpi('b', [ref('derived')]), kpi('c', [kr('b')]), kpi('d', [], ['c'])]), { dataSourceId: 't', fieldId: 'raw' });
   assert.deepEqual(result.map((r) => [r.kpiId, Boolean(r.direct), Boolean(r.indirect)]), [['a', true, false], ['b', false, true], ['c', false, true], ['d', false, true]]);
-  assert.deepEqual(result[3].indirect?.map((n) => n.label), ['Table.raw', 'Table.derived', 'b', 'c', 'd']);
+  assert.deepEqual(result[3].indirect?.map((n) => [n.tableName, n.label]), [['Table', 'raw'], ['Table', 'derived'], [undefined, 'b'], [undefined, 'c'], [undefined, 'd']]);
 });
 test('keeps direct and indirect support and deduplicates table totals', () => {
   const result = traceKpiSupport(config([kpi('a', [ref('raw'), ref('derived'), ref('raw')])]), { dataSourceId: 't' });

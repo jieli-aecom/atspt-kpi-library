@@ -17,12 +17,12 @@ export const layoutTableRegions = (tables: LayoutTable[], groups: DataLibraryGro
     const categoryTables = tables.filter((table) => table.category === category);
     const buckets = [
       ...orderedGroups.map((group) => ({ id: group.id, label: group.name.trim() || 'Untitled group', tables: categoryTables.filter((table) => table.groupId === group.id) })),
-      { id: '__ungrouped__', label: 'Ungrouped tables', tables: categoryTables.filter((table) => !table.groupId) }
+      { id: '__ungrouped__', label: '', tables: categoryTables.filter((table) => !table.groupId) }
     ].filter((bucket) => bucket.tables.length);
     return { category, blocks: buckets.map((bucket) => {
       const columns = Math.min(3, Math.ceil(Math.sqrt(bucket.tables.length)));
       const columnWidth = Math.max(...bucket.tables.map((table) => table.width));
-      const columnBottoms = Array<number>(columns).fill(HEADING);
+      const columnBottoms = Array<number>(columns).fill(bucket.id === '__ungrouped__' ? PADDING : HEADING);
       const localPositions = bucket.tables.map((table) => {
         const column = columnBottoms.indexOf(Math.min(...columnBottoms));
         const position = { id: table.id,
@@ -50,7 +50,7 @@ export const layoutTableRegions = (tables: LayoutTable[], groups: DataLibraryGro
       if (x && x + block.width > contentWidth) { x = 0; y += rowHeight + GROUP_GAP; rowHeight = 0; }
       const blockX = band.x + PADDING + x;
       const blockY = band.y + y;
-      regions.push({ id: `${category}:${block.id}`, label: block.label, category, kind: 'group', x: blockX, y: blockY, width: block.width, height: block.height });
+      if (block.id !== '__ungrouped__') regions.push({ id: `${category}:${block.id}`, label: block.label, category, kind: 'group', x: blockX, y: blockY, width: block.width, height: block.height });
       for (const position of block.localPositions) positions.set(position.id, { x: blockX + position.x, y: blockY + position.y });
       x += block.width + GROUP_GAP;
       rowHeight = Math.max(rowHeight, block.height);

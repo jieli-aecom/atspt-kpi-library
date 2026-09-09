@@ -236,7 +236,7 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape' && !document.querySelector('.library-details-backdrop, .kpi-support-backdrop')) onClose();
     };
     document.body.style.overflow = 'hidden';
     document.addEventListener('keydown', closeOnEscape);
@@ -606,7 +606,7 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
                       {!isPrimary && isVirtual ? <text x={table.x + 13} y={y + 18} fill="#397562" fontSize="8" fontWeight="900">V</text> : null}
                       <text x={nameX} y={y + 18} fill="#223d47" fontSize="11" fontWeight={isPrimary ? 750 : 600}><title>{field.name || 'Untitled field'}</title>{shortened(field.name || 'Untitled field', Math.floor((table.width * 0.43) / 6.2))}</text>
                       <text x={table.x + table.width - 58} y={y + 18} textAnchor="end" fill={isVirtual ? '#397562' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.25) / 5.5))}</text>
-                      {supportButton(table.x + table.width - 48, y + 2, { dataSourceId: table.source.id, fieldId: field.id }, `${table.source.name}.${field.name}`, onViewSupport)}
+                      {supportButton(table.x + table.width - 48, y + 2, { dataSourceId: table.source.id, fieldId: field.id }, `${table.source.name} — ${field.name}`, onViewSupport)}
                       <line x1={table.x + 1} y1={y + row.height} x2={table.x + table.width - 1} y2={y + row.height} stroke="#e2e9ec" />
                     </g>;
                   })}
