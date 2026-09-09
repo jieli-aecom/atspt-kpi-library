@@ -6261,6 +6261,16 @@ h1 {
   color: #a52a22 !important;
 }
 
+.formula-scenario-insert {
+  border-color: #89c7e8 !important;
+  background: #edf8fe !important;
+  color: #4198c7 !important;
+}
+
+.formula-scenario-insert .katex {
+  color: #4198c7;
+}
+
 .formula-dimension-insert > .formula-shortcut-kind,
 .formula-scale-insert > .formula-shortcut-kind {
   font-size: 9px;

@@ -7140,10 +7140,10 @@ function KpiSourceEditor({
         </div>}
       {paired ? <div className="selected-source-scenarios">{variants.map((variant) => <div className="selected-source-scenario" key={variant.id} data-kpi-source-id={variant.id}>
         <span className="source-summary-dimension-badge">{(variant.type === 'dataField' || variant.type === 'kpi') && variant.scenarioSlot !== undefined ? kpi.scenarioNames[variant.scenarioSlot] : ''}</span>
-      <DebouncedInput className="latex-code-editor" value={variant.latex} title={(variant.type === 'dataField' || variant.type === 'kpi') && variant.scenarioSlot !== undefined ? 'This is the expression inserted into formulas. The scenario suffix is retained automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, variant)}${(variant.type === 'dataField' || variant.type === 'kpi') && variant.scenarioSlot !== undefined ? ` � ${kpi.scenarioNames[variant.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(variant.id, { latex })} />
+      <DebouncedInput className="latex-code-editor" value={variant.latex} title={(variant.type === 'dataField' || variant.type === 'kpi') && variant.scenarioSlot !== undefined ? 'This is the expression inserted into formulas. The scenario suffix is retained automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, variant)}${(variant.type === 'dataField' || variant.type === 'kpi') && variant.scenarioSlot !== undefined ? ` — ${kpi.scenarioNames[variant.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(variant.id, { latex })} />
       <span className="source-latex-preview">{variant.latex.trim() ? <InlineMath math={variant.latex} errorColor="#b42318" /> : '—'}</span>
       </div>)}</div> : <>
-      <DebouncedInput className="latex-code-editor" value={item.latex} title={(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? 'This is the expression inserted into formulas. The scenario suffix is retained automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}${(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? ` � ${kpi.scenarioNames[item.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
+      <DebouncedInput className="latex-code-editor" value={item.latex} title={(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? 'This is the expression inserted into formulas. The scenario suffix is retained automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}${(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? ` — ${kpi.scenarioNames[item.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
       </>}
       <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={() => editSelectedSource(item)}><Eye size={12} /></button>
@@ -7754,6 +7754,8 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const sourceFieldShortcuts = kpi.sources.filter((source) => source.type !== 'lookup' && source.type !== 'variable');
   const lookupShortcuts = kpi.sources.filter((source) => source.type === 'lookup');
   const variableShortcuts = kpi.sources.filter((source) => source.type === 'variable');
+  const scenarioShortcuts = useMemo(() => kpi.scenarioType === 'Inter-Scenario'
+    ? scenarioFormulaTokens(kpi) : [], [kpi.scenarioType, kpi.scenarioNames]);
   const insertableResults = priorItems.filter((prior) => prior.tag.trim() && prior.leftExpression.trim());
   const lastFormulaItem = priorItems.slice().reverse().find((prior) => prior.formula.trim() || prior.leftExpression.trim());
   const basicUnitScale = spatialScaleKeys.find((scale) => kpi.spatialScales[scale].applicable && kpi.spatialScales[scale].isBasicUnit);
@@ -7812,7 +7814,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [config, dimensionShortcuts, insertableResults, kpi.sources, paletteExpanded, spatialScale]);
+  }, [config, dimensionShortcuts, scenarioShortcuts, insertableResults, kpi.sources, paletteExpanded, spatialScale]);
   useLayoutEffect(() => {
     if (!paletteExpanded) {
       setPalettePosition(undefined);
@@ -7892,6 +7894,14 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
                 {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
               </button>;
               })}
+            </div>
+          </section> : null}
+          {scenarioShortcuts.length ? <section className="formula-shortcut-group">
+            <span className="formula-shortcut-group-label">Scenarios</span>
+            <div className="formula-shortcut-group-options">
+              {scenarioShortcuts.map((shortcut, slot) => <button className="formula-scenario-insert" type="button" title={shortcut.label} aria-label={`Insert ${shortcut.label}`} key={slot} onClick={() => insertLatex(shortcut.latex)}>
+                <InlineMath math={shortcut.latex} errorColor="#b42318" />
+              </button>)}
             </div>
           </section> : null}
           {dimensionShortcuts.length ? <section className="formula-shortcut-group">
