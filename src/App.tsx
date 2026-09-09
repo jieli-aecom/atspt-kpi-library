@@ -3747,6 +3747,8 @@ function DataSourceHeader({
   const [expandedVariableGroupIds, setExpandedVariableGroupIds] = useState<string[]>([]);
   const [expandedValueEnumGroupIds, setExpandedValueEnumGroupIds] = useState<string[]>([]);
   const [activeLibrarySection, setActiveLibrarySection] = useState<'variables' | 'enums' | 'lookups' | 'tables'>('variables');
+  const libraryListRef = useRef<HTMLDivElement | null>(null);
+  const libraryScrollPositionsRef = useRef<Partial<Record<typeof activeLibrarySection, number>>>({});
   const [relationEditor, setRelationEditor] = useState<{
     sourceDataSourceId: string;
     targetDataSourceId: string;
@@ -3783,6 +3785,13 @@ function DataSourceHeader({
   const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: LibraryKind; key: string } | null>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const [focusedEditRequest, setFocusedEditRequest] = useState<SourceLibraryEditRequest>();
+  const libraryVisible = open && Boolean(popoverPosition);
+  useLayoutEffect(() => {
+    const list = libraryListRef.current;
+    if (!libraryVisible || !list) return;
+    // Restore before paint; explicit source links can still scroll to their target afterward.
+    list.scrollTop = libraryScrollPositionsRef.current[activeLibrarySection] ?? 0;
+  }, [activeLibrarySection, libraryVisible]);
   useEffect(() => {
     if (!editRequest) return;
     setFocusedEditRequest(editRequest);
@@ -3900,7 +3909,6 @@ function DataSourceHeader({
         }
         if (fieldDetailsEditor || supportTarget || groupDetailsEditor) return;
         if (diagramOpen) {
-          setDiagramOpen(false);
           return;
         }
         if (relationEditor) {
@@ -5656,12 +5664,19 @@ function DataSourceHeader({
               {activeLibrarySection === 'enums' ? <button className="primary-action tiny" type="button" onClick={() => addValueEnum()}><Plus size={12} /> Add domain</button> : null}
               {activeLibrarySection === 'lookups' ? <button className="primary-action tiny" type="button" onClick={() => addLookup()}><Plus size={12} /> Add lookup</button> : null}
               {activeLibrarySection === 'tables' ? <>
-                <button className="secondary-action tiny" type="button" onClick={() => { setOpen(false); setDiagramOpen(true); }}><GitBranch size={12} /> View diagram</button>
+                <button className="secondary-action tiny" type="button" onClick={() => setDiagramOpen(true)}><GitBranch size={12} /> View diagram</button>
                 <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add source table</button>
               </> : null}
             </div>
           </div>
-          <div className="data-source-list">
+          <div
+            className="data-source-list"
+            key={activeLibrarySection}
+            ref={libraryListRef}
+            onScroll={(event) => {
+              libraryScrollPositionsRef.current[activeLibrarySection] = event.currentTarget.scrollTop;
+            }}
+          >
             {activeLibrarySection === 'lookups' ? <section className="lookup-library is-direct-library">
               <div
                 className={`lookup-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'lookup' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
@@ -6218,6 +6233,24 @@ function DataSourceHeader({
                   }}
                 >
                   <div className="data-source-expander-heading">
+                      <button
+                        className="mini-icon-button drag-handle data-source-drag"
+                        type="button"
+                        draggable
+                        title="Drag to reorder tables"
+                        aria-label={`Drag ${source.name || 'table'} to reorder tables`}
+                        onDragStart={(event) => {
+                          setSourceDragIndex(sourceIndex);
+                          setLibraryItemDrag({ kind: 'source', itemIndex: sourceIndex });
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', source.id);
+                        }}
+                        onDragEnd={() => {
+                          setSourceDragIndex(null);
+                          setSourceDragOver(null);
+                          clearLibraryDrag();
+                        }}
+                      ><GripVertical size={13} aria-hidden="true" /></button>
                     <button
                       className="data-source-expander-toggle"
                       type="button"
@@ -6264,24 +6297,6 @@ function DataSourceHeader({
                     </span>
                     <div className="data-source-expander-actions">
                       <button className="mini-icon-button" type="button" title="Edit table details and view supported KPIs" aria-label={`View KPIs supported by ${source.name || 'table'}`} onClick={() => setSupportTarget({ dataSourceId: source.id })}><Eye size={13} /></button>
-                      <button
-                        className="mini-icon-button drag-handle data-source-drag"
-                        type="button"
-                        draggable
-                        title="Drag to reorder tables"
-                        aria-label={`Drag ${source.name || 'table'} to reorder tables`}
-                        onDragStart={(event) => {
-                          setSourceDragIndex(sourceIndex);
-                          setLibraryItemDrag({ kind: 'source', itemIndex: sourceIndex });
-                          event.dataTransfer.effectAllowed = 'move';
-                          event.dataTransfer.setData('text/plain', source.id);
-                        }}
-                        onDragEnd={() => {
-                          setSourceDragIndex(null);
-                          setSourceDragOver(null);
-                          clearLibraryDrag();
-                        }}
-                      ><GripVertical size={13} aria-hidden="true" /></button>
                       <button className="mini-icon-button" type="button" title="Copy data source" aria-label={`Copy ${source.name || 'data source'}`} onClick={() => duplicateDataSource(sourceIndex)}><Copy size={12} /></button>
                       <button className="mini-icon-button danger" type="button" title="Delete data source" aria-label={`Delete ${source.name || 'data source'}`} onClick={() => deleteDataSource(sourceIndex)}><Trash2 size={13} /></button>
                     </div>

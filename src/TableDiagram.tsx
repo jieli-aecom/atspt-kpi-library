@@ -16,7 +16,7 @@ const CARD_HEADER_HEIGHT = 68;
 const CARD_META_HEIGHT = 24;
 const FIELD_ROW_HEIGHT = 28;
 const GROUP_ROW_HEIGHT = 27;
-const DIMENSION_ROW_HEIGHT = 23;
+const DIMENSION_LINE_HEIGHT = 16;
 const EMPTY_ROW_HEIGHT = 34;
 const CANVAS_PADDING = 48;
 const DIAGRAM_TOP = 126;
@@ -28,7 +28,7 @@ const DRAG_AUTOSCROLL_MAX_STEP = 18;
 type DiagramRow =
   | { kind: 'field'; field: DataSourceField; grouped: boolean; height: number }
   | { kind: 'group'; id: string; label: string; height: number }
-  | { kind: 'dimension'; id: string; dimension: DataSourceFieldDimension; height: number }
+  | { kind: 'dimension'; id: string; dimension: DataSourceFieldDimension; lines: string[]; height: number }
   | { kind: 'empty'; height: number };
 
 type DiagramTable = {
@@ -60,7 +60,24 @@ const groupedByLabel = (dimensions: DataSourceFieldDimension[]) => {
   return `BY ${names.length ? names.join(' · ').toLocaleUpperCase() : 'CATEGORY'}`;
 };
 
-const buildRows = (source: DataSource): DiagramRow[] => {
+const dimensionLabel = (dimension: DataSourceFieldDimension) =>
+  `${dimension.name.trim() || 'Category'} = ${dimension.options.length ? dimension.options.join(' · ') : 'no values defined'}`;
+
+const wrapDimension = (label: string, width: number) => {
+  const limit = Math.max(1, Math.floor((width - 40) / 10));
+  const lines: string[] = [];
+  let remaining = label;
+  while (remaining.length > limit) {
+    const space = remaining.lastIndexOf(' ', limit);
+    const end = space > 0 ? space : limit;
+    lines.push(remaining.slice(0, end));
+    remaining = remaining.slice(end).trimStart();
+  }
+  if (remaining) lines.push(remaining);
+  return lines;
+};
+
+const buildRows = (source: DataSource, width: number, config: KpiPoolConfig): DiagramRow[] => {
   const groupedFieldIds = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
   const rows: DiagramRow[] = [];
   for (let position = 0; position <= source.fields.length; position += 1) {
@@ -73,12 +90,18 @@ const buildRows = (source: DataSource): DiagramRow[] => {
           label: groupedByLabel(group.dimensions),
           height: GROUP_ROW_HEIGHT
         });
-        group.dimensions.forEach((dimension) => rows.push({
-          kind: 'dimension',
-          id: `${group.id}:${dimension.id}`,
-          dimension,
-          height: DIMENSION_ROW_HEIGHT
-        }));
+        group.dimensions.forEach((original) => {
+          const domain = config.valueEnums.find((entry) => entry.id === original.enumId);
+          const dimension = domain ? { ...original, options: domain.options } : original;
+          const lines = wrapDimension(dimensionLabel(dimension), width);
+          rows.push({
+            kind: 'dimension',
+            id: `${group.id}:${dimension.id}`,
+            dimension,
+            lines,
+            height: lines.length * DIMENSION_LINE_HEIGHT + 10
+          });
+        });
         group.fieldIds.forEach((fieldId) => {
           const field = source.fields.find((entry) => entry.id === fieldId);
           if (field) rows.push({ kind: 'field', field, grouped: true, height: FIELD_ROW_HEIGHT });
@@ -102,14 +125,15 @@ const tableWidth = (source: DataSource, groupName: string) => {
 
 const buildDiagram = (config: KpiPoolConfig) => {
   const tableDrafts = config.dataSources.map((source) => {
-    const rows = buildRows(source);
     const groupName = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.name.trim() || '';
+    const width = tableWidth(source, groupName);
+    const rows = buildRows(source, width, config);
     return {
       source,
       groupName,
       category: config.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.category ?? source.category ?? 'Preprocessed Constants',
       rows,
-      width: tableWidth(source, groupName),
+      width,
       height: CARD_HEADER_HEIGHT + CARD_META_HEIGHT + rows.reduce((total, row) => total + row.height, 0),
       x: 0,
       y: 0,
@@ -178,7 +202,15 @@ const supportButton = (x: number, y: number, target: SupportTarget, label: strin
 );
 
 export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPoolConfig; onClose: () => void; onViewSupport: (target: SupportTarget) => void }) {
-  const diagram = useMemo(() => buildDiagram(config), [config.dataSourceGroups, config.dataSources, config.tableRelations]);
+  const diagram = useMemo(() => buildDiagram(config), [config.dataSourceGroups, config.dataSources, config.tableRelations, config.valueEnums]);
+  const [viewedDimension, setViewedDimension] = useState<DataSourceFieldDimension>();
+  const domainDialogRef = useRef<HTMLDialogElement>(null);
+  const viewedDomain = config.valueEnums.find((domain) => domain.id === viewedDimension?.enumId);
+  useEffect(() => {
+    const dialog = domainDialogRef.current;
+    if (viewedDimension) dialog?.showModal();
+    return () => { dialog?.close(); };
+  }, [viewedDimension]);
   const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const [tablePositions, setTablePositions] = useState<Record<string, { x: number; y: number }>>(() => positionsFromDiagram(diagram));
   const [dragging, setDragging] = useState<{ tableId: string; pointerId: number; offsetX: number; offsetY: number }>();
@@ -580,15 +612,22 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
                       <text x={table.x + 13} y={y + 18} fill="#684b91" fontSize="9.5" fontWeight="800" letterSpacing="0.6"><title>{row.label}</title>{shortened(row.label, Math.floor((table.width - 26) / 6))}</text>
                     </g>;
                     if (row.kind === 'dimension') {
-                      const optionText = row.dimension.options.length
-                        ? `${row.dimension.options.slice(0, 3).join(' · ')}${row.dimension.options.length > 3 ? ` · +${row.dimension.options.length - 3}` : ''}`
-                        : 'no values defined';
-                      const label = `${row.dimension.name.trim() || 'Category'} = ${optionText}`;
-                      return <g key={`dimension:${row.id}`}>
+                      const label = dimensionLabel(row.dimension);
+                      return <g key={`dimension:${row.id}`} className="diagram-dimension" role="button" tabIndex={0}
+                        aria-label={`View domain: ${label}`} aria-haspopup="dialog"
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onClick={() => setViewedDimension(row.dimension)}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            setViewedDimension(row.dimension);
+                          }
+                        }}>
                         <rect x={table.x + 1} y={y} width={table.width - 2} height={row.height} fill="#f8f4fd" />
                         <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#8062a8" />
                         <circle cx={table.x + 17} cy={y + row.height / 2} r="3" fill="#8062a8" />
-                        <text x={table.x + 27} y={y + 15.5} fill="#665778" fontSize="10"><title>{label}</title>{shortened(label, Math.floor((table.width - 40) / 5.8))}</text>
+                        <text x={table.x + 27} y={y + 16} fill="#665778" fontSize="10"><title>{label} — Click to view domain</title>{row.lines.map((line, index) => <tspan key={index} x={table.x + 27} dy={index ? DIMENSION_LINE_HEIGHT : 0}>{line}</tspan>)}</text>
                       </g>;
                     }
                     const field = row.field;
@@ -617,5 +656,15 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
         </div>
       </div>
     </section>
+    {viewedDimension ? <dialog ref={domainDialogRef} className="diagram-domain-dialog" aria-labelledby="diagram-domain-title"
+      onKeyDown={(event) => event.stopPropagation()}
+      onCancel={(event) => { event.preventDefault(); setViewedDimension(undefined); }}>
+      <header><div><strong id="diagram-domain-title">{viewedDomain?.name || viewedDimension.name || 'Custom domain'}</strong><small>{viewedDomain ? 'Global domain' : 'Custom dimension domain'} · Read only</small></div>
+        <button autoFocus className="mini-icon-button" type="button" aria-label="Close domain details" onClick={() => setViewedDimension(undefined)}><X size={16} /></button>
+      </header>
+      <h3>Options</h3>
+      {(viewedDomain?.options ?? viewedDimension.options).length ? <ul>{(viewedDomain?.options ?? viewedDimension.options).map((option, index) => <li key={index}>{option}</li>)}</ul> : <p>No options defined.</p>}
+      <h3>Notes</h3><p className="diagram-domain-notes">{viewedDomain?.notes || 'No notes.'}</p>
+    </dialog> : null}
   </div>;
 }
