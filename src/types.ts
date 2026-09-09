@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 41 as const;
+export const CURRENT_SCHEMA_VERSION = 42 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -158,7 +158,12 @@ export type DataLibraryGroup = {
   position: number;
 };
 
+export const kpiScenarioTypes = ['Base Year', 'Scenario', 'Inter-Scenario'] as const;
+export type KpiScenarioType = typeof kpiScenarioTypes[number];
+
 export type KpiDataFieldSource = {
+  scenarioSlot?: 0 | 1;
+  scenarioBaseLatex?: string;
   id: string;
   type: 'dataField';
   dataSourceId: string;
@@ -250,6 +255,8 @@ export type KpiDefaultFocus = {
 };
 
 export type KpiMetric = {
+  scenarioType: KpiScenarioType;
+  scenarioNames: [string, string];
   id: string;
   lastModified: string;
   name: string;

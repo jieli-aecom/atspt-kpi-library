@@ -23,6 +23,8 @@ export const buildSystematicJsonExport = (config: KpiPoolConfig, kpis: readonly 
     'Data Source Groups': config.dataSourceGroups,
     KPIs: kpis.map((kpi) => ({
       Name: kpi.name,
+      ScenarioType: kpi.scenarioType,
+      ScenarioNames: kpi.scenarioNames,
       Note: kpi.note,
       Source: kpi.sources.map((source) => {
         if (source.type !== 'dataField') return source;

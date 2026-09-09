@@ -1,6 +1,8 @@
+import { normalizeScenarioNames, reconcileKpiScenarios } from './scenarios.js';
 import { z } from 'zod';
 import {
   CURRENT_SCHEMA_VERSION,
+  kpiScenarioTypes,
   tableSourceCategories,
   type TableSourceCategory,
   enumCategoryKeys,
@@ -76,6 +78,8 @@ const kpiSourceItemSchema = z.discriminatedUnion('type', [
   z.object({
     id: z.string().min(1),
     type: z.literal('dataField'),
+    scenarioSlot: z.union([z.literal(0), z.literal(1)]).optional(),
+    scenarioBaseLatex: z.string().optional(),
     dataSourceId: z.string().min(1),
     fieldId: z.string().min(1),
     latex: z.string()
@@ -237,6 +241,8 @@ const defaultFocusSchema = z.object({
 });
 
 const kpiSchema = z.object({
+  scenarioType: z.enum(kpiScenarioTypes),
+  scenarioNames: z.tuple([z.string().min(1), z.string().min(1)]),
   id: z.string().min(1),
   lastModified: z.string().datetime(),
   name: z.string(),
@@ -731,7 +737,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       return false;
     }
     const dataFieldKeys = kpi.sources.flatMap((source) => source.type === 'dataField'
-      ? [`${source.dataSourceId}\u0000${source.fieldId}`]
+      ? [`${source.dataSourceId}\u0000${source.fieldId}\u0000${source.scenarioSlot ?? ""}`]
       : []
     );
     const variableIds = kpi.sources.flatMap((source) => source.type === 'variable' ? [source.variableId] : []);
@@ -2534,6 +2540,8 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
       type,
       dataSourceId,
       fieldId,
+      ...(rawSource.scenarioSlot === 0 || rawSource.scenarioSlot === 1 ? { scenarioSlot: rawSource.scenarioSlot } : {}),
+      ...(typeof rawSource.scenarioBaseLatex === 'string' ? { scenarioBaseLatex: rawSource.scenarioBaseLatex } : {}),
       ...(legacyOption ? { version: legacyOption } : {}),
       latex: stringValue(rawSource.latex ?? rawSource.symbol)
     } as KpiSourceItem];
@@ -2664,6 +2672,8 @@ export const createBlankConfig = (): KpiPoolConfig => ({
 });
 
 export const createBlankKpi = (): KpiMetric => ({
+  scenarioType: 'Scenario',
+  scenarioNames: ['Scenario', 'Scenario 2'],
   id: createId('kpi'),
   lastModified: new Date().toISOString(),
   name: 'Untitled KPI',
@@ -2727,7 +2737,8 @@ export const repairConfig = (input: unknown): RepairResult => {
   const migratedInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
 
   if (isCurrentKpiPoolConfig(migratedInput) && kpiPoolConfigSchema.safeParse(migratedInput).success && reconcileFieldSources(migratedInput) === migratedInput.dataSources) {
-    return { config: migratedInput, warnings: [] };
+    const kpis = migratedInput.kpis.map((kpi) => reconcileKpiScenarios(migratedInput, kpi));
+    return { config: kpis.every((kpi, index) => kpi === migratedInput.kpis[index]) ? migratedInput : { ...migratedInput, kpis }, warnings: [] };
   }
 
   const warnings: string[] = [];
@@ -2775,6 +2786,8 @@ export const repairConfig = (input: unknown): RepairResult => {
       : {};
 
     const kpi: KpiMetric = {
+      scenarioType: kpiScenarioTypes.includes(record.scenarioType as never) ? record.scenarioType as KpiMetric['scenarioType'] : 'Scenario',
+      scenarioNames: normalizeScenarioNames(record.scenarioNames),
       id: ensureUniqueId(record.id, 'kpi', usedKpiIds, warnings, `KPI "${name}"`),
       lastModified: (() => {
         const value = stringValue(record.lastModified ?? record.lastModifiedAt).trim();
@@ -2895,7 +2908,7 @@ export const repairConfig = (input: unknown): RepairResult => {
         return true;
       }
       if (source.type !== 'dataField') return true;
-      const key = `${source.dataSourceId}\u0000${source.fieldId}`;
+      const key = `${source.dataSourceId}\u0000${source.fieldId}\u0000${source.scenarioSlot ?? ""}`;
       if (seenDataFields.has(key)) return false;
       seenDataFields.add(key);
       return true;
@@ -2985,6 +2998,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     kpis: scopedKpis
   };
 
+  repaired.kpis = repaired.kpis.map((kpi) => reconcileKpiScenarios(repaired, kpi));
   repaired.dataSources = reconcileFieldSources(repaired, warnings);
   const parsed = kpiPoolConfigSchema.safeParse(repaired);
   if (!parsed.success) {

@@ -7210,3 +7210,7 @@ h1 {
 .table-source-category.is-category-drag-over > .table-source-category-heading {
   background: #d9eaf0;
 }
+
+.kpi-scenario-tag { display: block; margin-top: 5px; padding: 2px 5px; border: 1px solid #cbd5e1; border-radius: 5px; background: #f1f5f9; color: #475569; font-size: 11px; max-width: 140px; }
+.scenario-name-inputs { display: flex; gap: 12px; padding: 8px 12px; }
+.source-summary-dimension-badge { font-weight: 400; }

@@ -1,3 +1,5 @@
+import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex } from './scenarios';
+import { kpiScenarioTypes } from './types';
 import { tableSourceCategories, type TableSourceCategory } from './types';
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { BlockMath, InlineMath } from 'react-katex';
@@ -1234,6 +1236,8 @@ const duplicateKpiMetric = (kpi: KpiMetric, focusAssignment?: UseCaseAssignment)
     }));
 
   return {
+    scenarioType: kpi.scenarioType,
+    scenarioNames: [...kpi.scenarioNames],
     id: createBlankKpi().id,
     lastModified: new Date().toISOString(),
     name: `${kpi.name || 'Untitled KPI'} Copy`,
@@ -3460,16 +3464,16 @@ function RowKpiSelect({
 }
 
 const dimensionedSourceLabel = (name: string, dimensionLabel: string) =>
-  `${name}${dimensionLabel ? ` [by ${dimensionLabel}]` : ''}`;
+  `${name}${dimensionLabel ? ` by ${dimensionLabel}` : ''}`;
 
 const spatiallyScaledTableLabel = (name: string, spatialUnit: string) =>
-  `${name}${spatialUnit.trim() ? ` [by ${spatialUnit.trim()}]` : ''}`;
+  `${name}${spatialUnit.trim() ? ` by ${spatialUnit.trim()}` : ''}`;
 
 const dataSourceGroupName = (config: KpiPoolConfig, dataSourceId: string) =>
   config.dataSourceGroups.find((group) => group.itemIds.includes(dataSourceId))?.name.trim() || '';
 
 const groupedDataSourceLabel = (config: KpiPoolConfig, source: DataSource) => {
-  const tableLabel = spatiallyScaledTableLabel(source.name, source.spatialUnit);
+  const tableLabel = spatiallyScaledTableLabel(`${source.name}${isScenarioTable(config, source) ? ' scenario' : ''}`, source.spatialUnit);
   const groupName = dataSourceGroupName(config, source.id);
   return groupName ? `${groupName} ${tableLabel}` : tableLabel;
 };
@@ -3478,7 +3482,7 @@ const GroupedDataSourceDisplay = ({ config, source }: { config: KpiPoolConfig; s
   const groupName = dataSourceGroupName(config, source.id);
   return <span className="grouped-data-source-label">
     {groupName ? <span className="data-source-group-badge">{groupName}</span> : null}
-    <span className="data-source-table-label">{spatiallyScaledTableLabel(source.name, source.spatialUnit)}</span>
+    <span className="data-source-table-label">{source.name} {isScenarioTable(config, source) ? <span className="source-summary-dimension-badge">scenario</span> : null} {source.spatialUnit ? <span className="source-summary-dimension-badge">by {source.spatialUnit}</span> : null}</span>
   </span>;
 };
 
@@ -3737,7 +3741,7 @@ function DataSourceHeader({
   editRequest?: SourceLibraryEditRequest;
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
 }) {
-  const onConfigChange = (next: KpiPoolConfig) => commitConfig({ ...next, dataSources: reconcileFieldSources(next).map((source) => ({ ...source, category: next.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.category ?? source.category ?? 'Preprocessed Constants' })) });
+  const onConfigChange = (next: KpiPoolConfig) => commitConfig({ ...next, kpis: next.kpis.map((kpi) => reconcileKpiScenarios(next, kpi)), dataSources: reconcileFieldSources(next).map((source) => ({ ...source, category: next.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.category ?? source.category ?? 'Preprocessed Constants' })) });
   const [open, setOpen] = useState(false);
   const [sourceCategoryDragOver, setSourceCategoryDragOver] = useState<TableSourceCategory>();
   const [collapsedSourceCategories, setCollapsedSourceCategories] = useState<TableSourceCategory[]>([]);
@@ -4782,14 +4786,14 @@ function DataSourceHeader({
       const matchingSources = kpi.sources.filter((item) => item.type === 'dataField' && item.dataSourceId === source.id && item.fieldId === field.id);
       let updatedKpi = kpi;
       matchingSources.forEach((item) => {
-        const formulaUpdates = replaceKpiSourceLatex(updatedKpi, item, item.latex, nextLatex);
+        const formulaUpdates = replaceKpiSourceLatex(updatedKpi, item, item.latex, item.type === 'dataField' && item.scenarioSlot !== undefined && kpi.scenarioType === 'Inter-Scenario' ? scenarioLatex(nextLatex, kpi.scenarioNames[item.scenarioSlot]) : nextLatex);
         updatedKpi = { ...updatedKpi, ...formulaUpdates };
       });
       if (matchingSources.length) {
         const matchingIds = new Set(matchingSources.map((item) => item.id));
         updatedKpi = {
           ...updatedKpi,
-          sources: updatedKpi.sources.map((item) => matchingIds.has(item.id) ? { ...item, latex: nextLatex } : item)
+          sources: updatedKpi.sources.map((item) => matchingIds.has(item.id) ? { ...item, ...(item.type === 'dataField' && item.scenarioSlot !== undefined && kpi.scenarioType === 'Inter-Scenario' ? { scenarioBaseLatex: nextLatex, latex: scenarioLatex(nextLatex, kpi.scenarioNames[item.scenarioSlot]) } : { latex: nextLatex, scenarioBaseLatex: undefined }) } : item)
         };
         changedInstances += matchingSources.length;
       }
@@ -6668,10 +6672,10 @@ function KpiSourceGroupedSummary({
               {name ? <span className="source-summary-table-group-heading">{name}</span> : null}
               {tables.map(({ dataSource, items }) => (
                 <span className="source-summary-group" key={dataSource.id}>
-                  <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}{dataSource.spatialUnit.trim() ? <> <span className="source-summary-dimension-badge">[by {dataSource.spatialUnit.trim()}]</span></> : null}</span></span>
+                  <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}{isScenarioTable(config, dataSource) ? <> <span className="source-summary-dimension-badge">scenario</span></> : null}{dataSource.spatialUnit.trim() ? <> <span className="source-summary-dimension-badge">by {dataSource.spatialUnit.trim()}</span></> : null}</span></span>
                   <span className="source-summary-items">{items.map(({ source, field }) => {
                     const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-                    return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{field.name}{dimensionLabel ? <> <span className="source-summary-dimension-badge">[by {dimensionLabel}]</span></> : null}</span>;
+                    return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{field.name}{source.type === 'dataField' && source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
                   })}</span>
                 </span>
               ))}
@@ -6684,7 +6688,7 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{prerequisite?.name ?? 'Missing KPI'}{dimensionLabel ? <> <span className="source-summary-dimension-badge">[by {dimensionLabel}]</span></> : null}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{prerequisite?.name ?? 'Missing KPI'}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
           })}</span>
         </span>
       ) : null}
@@ -6747,7 +6751,7 @@ const replaceLatexOccurrences = (
   return cursor ? `${updated}${expression.slice(cursor)}` : expression;
 };
 
-type KpiSourceFormulaUpdates = Pick<KpiMetric, 'description' | 'spatialScales'>;
+type KpiSourceFormulaUpdates = Pick<KpiMetric, 'description' | 'spatialScales'> & Partial<Pick<KpiMetric, 'scenarioNames'>>;
 
 const replaceKpiSourceLatex = (
   kpi: KpiMetric,
@@ -6945,9 +6949,9 @@ function KpiSourceEditor({
   }, [compact, transientHighlightedSource?.requestId]);
   const transientHighlightedSourceId = transientHighlightedSource?.sourceId;
   const normalizedQuery = normalize(query);
-  const toggleDataField = (dataSourceId: string, fieldId: string) => {
+  const toggleDataField = (dataSourceId: string, fieldId: string, scenarioSlot?: 0 | 1) => {
     if (fieldOwner?.dataSourceId === dataSourceId && fieldOwner.fieldId === fieldId) return;
-    const sameField = (item: KpiSourceItem) => item.type === 'dataField' && item.dataSourceId === dataSourceId && item.fieldId === fieldId;
+    const sameField = (item: KpiSourceItem) => item.type === 'dataField' && item.dataSourceId === dataSourceId && item.fieldId === fieldId && item.scenarioSlot === scenarioSlot;
     const existing = kpi.sources.find(sameField);
     const dataSource = config.dataSources.find((source) => source.id === dataSourceId);
     const field = dataSource?.fields.find((entry) => entry.id === fieldId);
@@ -6956,12 +6960,15 @@ function KpiSourceEditor({
       onChange(kpi.sources.filter((item) => item.id !== existing.id));
       return;
     }
+    const baseLatex = field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, dataSource?.spatialUnit ?? '', group?.dimensions);
     onChange([...kpi.sources, {
           id: createLocalId('kpi-source'),
           type: 'dataField',
           dataSourceId,
           fieldId,
-          latex: field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, dataSource?.spatialUnit ?? '', group?.dimensions)
+          scenarioSlot,
+          latex: scenarioSlot === undefined ? baseLatex : scenarioLatex(baseLatex, kpi.scenarioNames[scenarioSlot]),
+          ...(scenarioSlot === undefined ? {} : { scenarioBaseLatex: baseLatex })
         }]);
   };
   const toggleKpi = (kpiId: string) => {
@@ -6991,6 +6998,9 @@ function KpiSourceEditor({
   };
   const updateItem = (id: string, partial: Partial<KpiSourceItem>) => {
     const currentItem = kpi.sources.find((item) => item.id === id);
+    if (currentItem?.type === 'dataField' && (currentItem.scenarioSlot !== undefined || currentItem.scenarioBaseLatex !== undefined) && partial.latex !== undefined) {
+      partial = { ...partial, scenarioBaseLatex: partial.latex, latex: currentItem.scenarioSlot === undefined ? partial.latex : scenarioLatex(partial.latex, kpi.scenarioNames[currentItem.scenarioSlot]) };
+    }
     const sources = kpi.sources.map((item) => item.id === id ? { ...item, ...partial } as KpiSourceItem : item);
     if (currentItem && partial.latex !== undefined && partial.latex !== currentItem.latex) {
       onChange(sources, replaceKpiSourceLatex(kpi, currentItem, currentItem.latex, partial.latex));
@@ -7129,7 +7139,7 @@ function KpiSourceEditor({
       {item.type === 'custom'
         ? <DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />
         : <div className="selected-source-term" title={sourceItemTooltip(config, item)}>
-          <strong>{label}</strong>
+          <strong>{label}</strong>{item.type === 'dataField' && item.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[item.scenarioSlot]}</span> : null}
           {fieldDomain ? <div className={`selected-source-domain ${fieldDomain.enumId ? 'is-global' : 'is-custom'}`}>
             <span>
               <b>{fieldDomain.name}</b>
@@ -7150,7 +7160,7 @@ function KpiSourceEditor({
             })}
           </div> : null}
         </div>}
-      <DebouncedInput className="latex-code-editor" value={item.latex} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
+      <DebouncedInput className="latex-code-editor" value={item.type === 'dataField' && item.scenarioSlot !== undefined ? item.scenarioBaseLatex ?? item.latex : item.latex} title={item.type === 'dataField' && item.scenarioSlot !== undefined ? 'Edit the base expression; the scenario suffix is added automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}${item.type === 'dataField' && item.scenarioSlot !== undefined ? ` � ${kpi.scenarioNames[item.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : '—'}</span>
       <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={() => editSelectedSource(item)}><Eye size={12} /></button>
       <button className="mini-icon-button danger" type="button" title="Remove source" aria-label={`Remove source ${label}`} onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
@@ -7253,6 +7263,11 @@ function KpiSourceEditor({
             onPointerUp={stopSourcePopoverPointerEvent}
           >
           <div className="popover-title">{fieldOwner ? 'Field sources' : 'KPI sources'}</div>
+          {!fieldOwner && kpi.scenarioType === 'Inter-Scenario' ? <div className="scenario-name-inputs">{kpi.scenarioNames.map((name, slot) => <label className="field" key={slot}><span>Scenario {slot + 1}</span><DebouncedInput value={name} aria-label={`Scenario ${slot + 1} name`} onValueChange={(value) => {
+            const names = normalizeScenarioNames(kpi.scenarioNames.map((entry, index) => index === slot ? value : entry));
+            const updated = reconcileKpiScenarios(config, { ...kpi, scenarioNames: names });
+            onChange(updated.sources, { description: updated.description, spatialScales: updated.spatialScales, scenarioNames: names });
+          }} /></label>)}</div> : null}
           <section className="selected-source-section">
             <div className="popover-title">Selected sources</div>
             {kpi.sources.length ? (
@@ -7385,18 +7400,18 @@ function KpiSourceEditor({
             <fieldset className="source-scope-panel" ref={selectedPickerDataSourceGroup ? undefined : sourceTablePickerPanelRef}>
               <legend>Fields in {selectedDataSource.name}{selectedDataSource.spatialUnit ? ` · ${selectedDataSource.spatialUnit}` : ''}</legend>
               {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
-              {visibleFields.map((field) => {
+              {visibleFields.flatMap((field) => (kpi.scenarioType === 'Inter-Scenario' && isScenarioTable(config, selectedDataSource) ? [0, 1] as const : [undefined]).map((scenarioSlot) => {
                 const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));
                 const dimensionLabel = fieldGroupDimensionLabel(group);
                 const fieldItem = { id: '', type: 'dataField' as const, dataSourceId: selectedDataSource.id, fieldId: field.id, latex: '' };
                 const fieldDomain = sourceItemFieldDomain(config, fieldItem);
                 return (
-                  <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
-                    <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(config, group.dimensions)}` : ''}</small></span>
+                  <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={`${field.id}:${scenarioSlot}`}>
+                    <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id && item.scenarioSlot === scenarioSlot)} onChange={() => toggleDataField(selectedDataSource.id, field.id, scenarioSlot)} />
+                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong>{scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[scenarioSlot]}</span> : null}<small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(config, group.dimensions)}` : ''}</small></span>
                   </label>
                 );
-              })}
+              }))}
             </fieldset>
             ) : null}
             {pickerScope === 'custom' ? (
@@ -9878,6 +9893,11 @@ function KpiRow({
                     </button>
                   ) : null}
                 </div>
+                <select className="kpi-scenario-tag" aria-label={`Scenario type for ${kpi.name}`} value={kpi.scenarioType} onClick={stopRowToggle} onChange={(event) => {
+                  const scenarioType = event.target.value as KpiMetric['scenarioType'];
+                  const updated = reconcileKpiScenarios(config, { ...kpi, scenarioType, scenarioNames: scenarioType === 'Inter-Scenario' ? ['Scenario', 'Scenario 2'] : kpi.scenarioNames });
+                  patch(updated);
+                }}>{kpiScenarioTypes.map((type) => <option key={type}>{type}</option>)}</select>
               </div>
               <button
                 className={`kpi-note-button ${kpi.note.trim() || kpi.noteLabels.length ? 'has-note' : ''}`}
