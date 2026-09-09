@@ -3256,6 +3256,9 @@ function MarkdownContent({
 
   return (
     <div
+      // Editing mutates the child DOM outside React. Replace the editor when
+      // committed Markdown changes instead of reconciling deleted child nodes.
+      key={value}
       className="markdown-content markdown-rich-editor"
       contentEditable
       data-placeholder={placeholder}
