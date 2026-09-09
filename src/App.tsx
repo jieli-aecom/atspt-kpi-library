@@ -1,3 +1,4 @@
+import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
 import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex } from './scenarios';
 import { kpiScenarioTypes } from './types';
 import { tableSourceCategories, type TableSourceCategory } from './types';
@@ -983,22 +984,6 @@ const updateKpi = (config: KpiPoolConfig, kpiId: string, updater: (kpi: KpiMetri
   kpis: config.kpis.map((kpi) => (kpi.id === kpiId ? updater(kpi) : kpi))
 });
 
-const sameStructuredValue = (left: unknown, right: unknown): boolean => {
-  if (Object.is(left, right)) return true;
-  if (typeof left !== 'object' || left === null || typeof right !== 'object' || right === null) return false;
-  if (Array.isArray(left) || Array.isArray(right)) {
-    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
-    return left.every((value, index) => sameStructuredValue(value, right[index]));
-  }
-
-  const leftRecord = left as Record<string, unknown>;
-  const rightRecord = right as Record<string, unknown>;
-  const leftKeys = Object.keys(leftRecord);
-  const rightKeys = Object.keys(rightRecord);
-  return leftKeys.length === rightKeys.length && leftKeys.every((key) =>
-    Object.prototype.hasOwnProperty.call(rightRecord, key) && sameStructuredValue(leftRecord[key], rightRecord[key])
-  );
-};
 
 const preserveUnchangedEntries = <T extends { id: string }>(previous: T[], next: T[]): T[] => {
   if (previous === next) return previous;
@@ -1012,22 +997,6 @@ const preserveUnchangedEntries = <T extends { id: string }>(previous: T[], next:
     : reconciled;
 };
 
-const sameKpiMaterial = (left: KpiMetric, right: KpiMetric) =>
-  left.id === right.id &&
-  left.name === right.name &&
-  left.note === right.note &&
-  sameStructuredValue(left.noteLabels, right.noteLabels) &&
-  sameStructuredValue(left.dimensions, right.dimensions) &&
-  sameStructuredValue(left.sources, right.sources) &&
-  sameStructuredValue(left.description, right.description) &&
-  sameStructuredValue(left.prerequisite, right.prerequisite) &&
-  sameStructuredValue(left.spatialScales, right.spatialScales) &&
-  sameStructuredValue(left.previousApplication, right.previousApplication) &&
-  sameStructuredValue(left.federalRequirement, right.federalRequirement) &&
-  sameStructuredValue(left.performanceArea, right.performanceArea) &&
-  sameStructuredValue(left.performanceAreasByUseCase, right.performanceAreasByUseCase) &&
-  sameStructuredValue(left.notesByUseCase, right.notesByUseCase) &&
-  sameStructuredValue(left.userGroupUseCases, right.userGroupUseCases);
 
 const nextEditTimestamp = (previousTimestamp?: string) => {
   const previousTime = previousTimestamp ? Date.parse(previousTimestamp) : Number.NaN;
