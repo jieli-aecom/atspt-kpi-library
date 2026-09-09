@@ -87,6 +87,8 @@ const kpiSourceItemSchema = z.discriminatedUnion('type', [
   z.object({
     id: z.string().min(1),
     type: z.literal('kpi'),
+    scenarioSlot: z.union([z.literal(0), z.literal(1)]).optional(),
+    scenarioBaseLatex: z.string().optional(),
     kpiId: z.string().min(1),
     latex: z.string()
   }),
@@ -2521,7 +2523,10 @@ const repairKpiSources = (rawValue: unknown, warnings: string[], kpiName: string
     }
     if (type === 'kpi') {
       const kpiId = stringValue(rawSource.kpiId ?? rawSource.kpi).trim();
-      return kpiId ? [{ id, type, kpiId, latex: stringValue(rawSource.latex ?? rawSource.symbol) }] : [];
+      return kpiId ? [{ id, type, kpiId,
+        ...(rawSource.scenarioSlot === 0 || rawSource.scenarioSlot === 1 ? { scenarioSlot: rawSource.scenarioSlot } : {}),
+        ...(typeof rawSource.scenarioBaseLatex === 'string' ? { scenarioBaseLatex: rawSource.scenarioBaseLatex } : {}),
+        latex: stringValue(rawSource.latex ?? rawSource.symbol) }] : [];
     }
     if (type === 'variable') {
       const variableId = stringValue(rawSource.variableId ?? rawSource.variable).trim();

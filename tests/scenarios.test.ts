@@ -3,7 +3,7 @@ import test from 'node:test';
 import katex from 'katex';
 import { createBlankConfig, createBlankKpi, repairConfig, prepareForExport, kpiPoolConfigSchema } from '../src/configSchema.ts';
 import { isScenarioTable, normalizeScenarioNames, scenarioLatex, reconcileKpiScenarios } from '../src/scenarios.ts';
-import type { KpiPoolConfig } from '../src/types.ts';
+import { CURRENT_SCHEMA_VERSION, type KpiPoolConfig } from '../src/types.ts';
 
 const fixture = (): KpiPoolConfig => ({ ...createBlankConfig(), dataSources: [{ id: 't', name: 'Traffic', category: 'Scenario Upstream', spatialUnit: 'Link', fieldGroups: [], fields: [{ id: 'f', name: 'Flow', meaning: '', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'number', valueUnit: '', options: [] }] }], kpis: [{ ...createBlankKpi(), id: 'k', sources: [{ id: 's', type: 'dataField', dataSourceId: 't', fieldId: 'f', latex: 'Flow_{Link}' }] }] });
 
@@ -11,7 +11,7 @@ test('version 41 migrates all existing KPIs to Scenario and preserves expression
   const old = fixture();
   const { scenarioType, scenarioNames, ...kpi } = old.kpis[0];
   const result = repairConfig({ ...old, schemaVersion: 41, kpis: [kpi] });
-  assert.equal(result.config.schemaVersion, 42);
+  assert.equal(result.config.schemaVersion, CURRENT_SCHEMA_VERSION);
   assert.equal(result.config.kpis[0].scenarioType, 'Scenario');
   assert.deepEqual(result.config.kpis[0].sources, old.kpis[0].sources);
   assert.equal(repairConfig(result.config).config, result.config);

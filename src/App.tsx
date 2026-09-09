@@ -4755,14 +4755,14 @@ function DataSourceHeader({
       const matchingSources = kpi.sources.filter((item) => item.type === 'dataField' && item.dataSourceId === source.id && item.fieldId === field.id);
       let updatedKpi = kpi;
       matchingSources.forEach((item) => {
-        const formulaUpdates = replaceKpiSourceLatex(updatedKpi, item, item.latex, item.type === 'dataField' && item.scenarioSlot !== undefined && kpi.scenarioType === 'Inter-Scenario' ? scenarioLatex(nextLatex, kpi.scenarioNames[item.scenarioSlot]) : nextLatex);
+        const formulaUpdates = replaceKpiSourceLatex(updatedKpi, item, item.latex, (item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined && kpi.scenarioType === 'Inter-Scenario' ? scenarioLatex(nextLatex, kpi.scenarioNames[item.scenarioSlot]) : nextLatex);
         updatedKpi = { ...updatedKpi, ...formulaUpdates };
       });
       if (matchingSources.length) {
         const matchingIds = new Set(matchingSources.map((item) => item.id));
         updatedKpi = {
           ...updatedKpi,
-          sources: updatedKpi.sources.map((item) => matchingIds.has(item.id) ? { ...item, ...(item.type === 'dataField' && item.scenarioSlot !== undefined && kpi.scenarioType === 'Inter-Scenario' ? { scenarioBaseLatex: nextLatex, latex: scenarioLatex(nextLatex, kpi.scenarioNames[item.scenarioSlot]) } : { latex: nextLatex, scenarioBaseLatex: undefined }) } : item)
+          sources: updatedKpi.sources.map((item) => matchingIds.has(item.id) ? { ...item, ...((item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined && kpi.scenarioType === 'Inter-Scenario' ? { scenarioBaseLatex: nextLatex, latex: scenarioLatex(nextLatex, kpi.scenarioNames[item.scenarioSlot]) } : { latex: nextLatex, scenarioBaseLatex: undefined }) } : item)
         };
         changedInstances += matchingSources.length;
       }
@@ -6657,7 +6657,7 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{prerequisite?.name ?? 'Missing KPI'}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{prerequisite?.name ?? 'Missing KPI'}{source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
           })}</span>
         </span>
       ) : null}
@@ -6940,14 +6940,17 @@ function KpiSourceEditor({
           ...(scenarioSlot === undefined ? {} : { scenarioBaseLatex: baseLatex })
         }]);
   };
-  const toggleKpi = (kpiId: string) => {
+  const toggleKpi = (kpiId: string, scenarioSlot?: 0 | 1) => {
     if (fieldOwner) return;
-    const existing = kpi.sources.find((item) => item.type === 'kpi' && item.kpiId === kpiId);
+    const existing = kpi.sources.find((item) => item.type === 'kpi' && item.kpiId === kpiId && item.scenarioSlot === scenarioSlot);
     const prerequisiteKpi = config.kpis.find((entry) => entry.id === kpiId);
     if (!existing && !prerequisiteKpi) return;
+    const baseLatex = prerequisiteKpi ? kpiDefaultLatex(prerequisiteKpi) || (scenarioSlot !== undefined ? latexIdentifier(prerequisiteKpi.name) : '') : '';
     onChange(existing
       ? kpi.sources.filter((item) => item.id !== existing.id)
-      : [...kpi.sources, { id: createLocalId('kpi-source'), type: 'kpi', kpiId, latex: kpiDefaultLatex(prerequisiteKpi!) }]);
+      : [...kpi.sources, { id: createLocalId('kpi-source'), type: 'kpi', kpiId, scenarioSlot,
+          latex: scenarioSlot === undefined ? baseLatex : scenarioLatex(baseLatex, kpi.scenarioNames[scenarioSlot]),
+          ...(scenarioSlot === undefined ? {} : { scenarioBaseLatex: baseLatex }) }]);
   };
   const toggleLookup = (lookupId: string) => {
     const existing = kpi.sources.find((item) => item.type === 'lookup' && item.lookupId === lookupId);
@@ -6967,7 +6970,7 @@ function KpiSourceEditor({
   };
   const updateItem = (id: string, partial: Partial<KpiSourceItem>) => {
     const currentItem = kpi.sources.find((item) => item.id === id);
-    if (currentItem?.type === 'dataField' && (currentItem.scenarioSlot !== undefined || currentItem.scenarioBaseLatex !== undefined) && partial.latex !== undefined) {
+    if ((currentItem?.type === 'dataField' || currentItem?.type === 'kpi') && (currentItem.scenarioSlot !== undefined || currentItem.scenarioBaseLatex !== undefined) && partial.latex !== undefined) {
       partial = { ...partial, scenarioBaseLatex: partial.latex, latex: currentItem.scenarioSlot === undefined ? partial.latex : scenarioLatex(partial.latex, kpi.scenarioNames[currentItem.scenarioSlot]) };
     }
     const sources = kpi.sources.map((item) => item.id === id ? { ...item, ...partial } as KpiSourceItem : item);
@@ -7108,7 +7111,7 @@ function KpiSourceEditor({
       {item.type === 'custom'
         ? <DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />
         : <div className="selected-source-term" title={sourceItemTooltip(config, item)}>
-          <strong>{label}</strong>{item.type === 'dataField' && item.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[item.scenarioSlot]}</span> : null}
+          <strong>{label}</strong>{(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[item.scenarioSlot]}</span> : null}
           {fieldDomain ? <div className={`selected-source-domain ${fieldDomain.enumId ? 'is-global' : 'is-custom'}`}>
             <span>
               <b>{fieldDomain.name}</b>
@@ -7129,7 +7132,7 @@ function KpiSourceEditor({
             })}
           </div> : null}
         </div>}
-      <DebouncedInput className="latex-code-editor" value={item.type === 'dataField' && item.scenarioSlot !== undefined ? item.scenarioBaseLatex ?? item.latex : item.latex} title={item.type === 'dataField' && item.scenarioSlot !== undefined ? 'Edit the base expression; the scenario suffix is added automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}${item.type === 'dataField' && item.scenarioSlot !== undefined ? ` — ${kpi.scenarioNames[item.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
+      <DebouncedInput className="latex-code-editor" value={(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? item.scenarioBaseLatex ?? item.latex : item.latex} title={(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? 'Edit the base expression; the scenario suffix is added automatically.' : undefined} placeholder="LaTeX symbol" aria-label={`LaTeX for ${sourceItemLabel(config, item)}${(item.type === 'dataField' || item.type === 'kpi') && item.scenarioSlot !== undefined ? ` — ${kpi.scenarioNames[item.scenarioSlot]}` : ''}`} onValueChange={(latex) => updateItem(item.id, { latex })} />
       <span className="source-latex-preview">{item.latex.trim() ? <InlineMath math={item.latex} errorColor="#b42318" /> : 'â€”'}</span>
       <button className="mini-icon-button edit-source-button" type="button" title="View or edit source" aria-label={`View or edit source ${label}`} onClick={() => editSelectedSource(item)}><Eye size={12} /></button>
       <button className="mini-icon-button danger" type="button" title="Remove source" aria-label={`Remove source ${label}`} onClick={() => onChange(kpi.sources.filter((entry) => entry.id !== item.id))}><Trash2 size={12} /></button>
@@ -7326,15 +7329,16 @@ function KpiSourceEditor({
             <fieldset className="source-scope-panel">
               <legend>Other KPIs</legend>
               {visibleKpis.length === 0 ? <span className="empty-option">No matching KPIs.</span> : null}
-              {visibleKpis.map((entry) => (
-                <label className="source-choice-row" key={entry.id}>
-                  <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'kpi' && item.kpiId === entry.id)} onChange={() => toggleKpi(entry.id)} />
+              {visibleKpis.flatMap((entry) => (kpi.scenarioType === 'Inter-Scenario' && entry.scenarioType === 'Scenario' ? [0, 1] as const : [undefined]).map((scenarioSlot) => (
+                <label className="source-choice-row" key={`${entry.id}:${scenarioSlot}`}>
+                  <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'kpi' && item.kpiId === entry.id && item.scenarioSlot === scenarioSlot)} onChange={() => toggleKpi(entry.id, scenarioSlot)} />
                   <span>
                     <strong>{dimensionedSourceLabel(entry.name, entry.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', '))}</strong>
+                    {scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[scenarioSlot]}</span> : null}
                     <small>{[entry.description.overview, sourceDimensionsSummary(config, entry.dimensions)].filter(Boolean).join(' Â· ')}</small>
                   </span>
                 </label>
-              ))}
+              )))}
             </fieldset>
             ) : null}
             {pickerScope === 'lookups' ? (
@@ -11440,7 +11444,10 @@ function EditorApp({
       setPinnedFilterIds((current) => [...new Set([...current, next.id])]);
     }
 
-    commitConfig((current) => updateKpi(current, next.id, () => next));
+    commitConfig((current) => {
+      const updated = updateKpi(current, next.id, () => next);
+      return { ...updated, kpis: updated.kpis.map((entry) => reconcileKpiScenarios(updated, entry)) };
+    });
   }, [commitConfig, filters.description, filters.name]);
 
   const replaceWithRemoteConfig = (result: RemoteConfigResult, notice: string) => {

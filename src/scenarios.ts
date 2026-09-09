@@ -28,22 +28,25 @@ export const scenarioLatex = (base: string, name: string) => {
   return `{${base}}_{${suffix}}`;
 };
 
-export const reconcileKpiScenarios = (config: Pick<KpiPoolConfig, 'dataSourceGroups' | 'dataSources'>, kpi: KpiMetric): KpiMetric => {
+export const reconcileKpiScenarios = (config: Pick<KpiPoolConfig, 'dataSourceGroups' | 'dataSources' | 'kpis'>, kpi: KpiMetric): KpiMetric => {
   const scenarioNames = normalizeScenarioNames(kpi.scenarioNames);
   const seen = new Set<string>();
   const sources = kpi.sources.flatMap((source): KpiSourceItem[] => {
-    if (source.type !== 'dataField') return [source];
-    const table = config.dataSources.find((table) => table.id === source.dataSourceId);
-    const dependent = table && isScenarioTable(config, table) && kpi.scenarioType === 'Inter-Scenario';
+    if (source.type !== 'dataField' && source.type !== 'kpi') return [source];
+    const table = source.type === 'dataField' ? config.dataSources.find((table) => table.id === source.dataSourceId) : undefined;
+    const referencedKpi = source.type === 'kpi' ? config.kpis.find((entry) => entry.id === source.kpiId) : undefined;
+    const dependent = kpi.scenarioType === 'Inter-Scenario' && (source.type === 'kpi'
+      ? referencedKpi?.scenarioType === 'Scenario'
+      : table && isScenarioTable(config, table));
     const slot = dependent ? source.scenarioSlot ?? 0 : undefined;
-    const key = JSON.stringify([source.dataSourceId, source.fieldId, slot]);
+    const key = JSON.stringify(source.type === 'kpi' ? ['kpi', source.kpiId, slot] : ['dataField', source.dataSourceId, source.fieldId, slot]);
     if (seen.has(key)) return [];
     seen.add(key);
     if (!dependent) {
       const { scenarioSlot, ...retained } = source;
       return [retained];
     }
-    const base = source.scenarioBaseLatex ?? source.latex;
+    const base = source.scenarioBaseLatex ?? (source.latex || (referencedKpi?.name.replace(/\s/g, '') ?? ''));
     const latex = scenarioLatex(base, scenarioNames[slot!]);
     return [{ ...source, scenarioSlot: slot, scenarioBaseLatex: base, latex }];
   });
