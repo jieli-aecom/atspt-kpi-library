@@ -7164,6 +7164,9 @@ h1 {
   .field-formula-main-row, .library-detail-properties, .library-detail-dimension { grid-template-columns: minmax(0, 1fr); }
 }
 .diagram-support-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 40px;
   height: 22px;
   border: 1px solid #b8c8cf;

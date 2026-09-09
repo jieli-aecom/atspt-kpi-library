@@ -1,6 +1,6 @@
 import { layoutTableRegions } from './tableDiagramLayout';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Download, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react';
+import { Download, Eye, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type {
   DataSource,
   DataSourceField,
@@ -197,7 +197,7 @@ const positionsFromDiagram = (diagram: ReturnType<typeof buildDiagram>) => Objec
 
 const supportButton = (x: number, y: number, target: SupportTarget, label: string, onViewSupport: (target: SupportTarget) => void) => (
   <foreignObject className="diagram-support-control" x={x} y={y} width="42" height="24" onPointerDown={(event) => event.stopPropagation()}>
-    <button className="diagram-support-button" type="button" title={`View KPIs supported by ${label}`} aria-label={`View KPIs supported by ${label}`} onClick={(event) => { event.stopPropagation(); onViewSupport(target); }}>View</button>
+    <button className="diagram-support-button" type="button" title={`View KPIs supported by ${label}`} aria-label={`View KPIs supported by ${label}`} onClick={(event) => { event.stopPropagation(); onViewSupport(target); }}><Eye size={13} aria-hidden="true" /></button>
   </foreignObject>
 );
 
