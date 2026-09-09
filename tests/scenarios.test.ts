@@ -36,7 +36,7 @@ test('both scenario field identities survive export, repair, and renaming', () =
   let kpi = reconcileKpiScenarios(config, { ...config.kpis[0], scenarioType: 'Inter-Scenario' });
   const source = kpi.sources[0];
   assert.equal(source.type, 'dataField');
-  kpi.sources.push({ ...source, id: 's2', scenarioSlot: 1, latex: scenarioLatex('Flow_{Link}', 'Scenario 2') });
+  kpi.sources = [source, { ...source, id: 's2', scenarioSlot: 1, latex: scenarioLatex('Flow_{Link}', 'Scenario 2') }];
   config.kpis = [kpi];
   const exported = prepareForExport(config);
   assert.equal(exported.kpis[0].sources.length, 2);

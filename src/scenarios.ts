@@ -94,10 +94,42 @@ export const scenarioBaseFromLatex = (expression: string, name: string) => {
   return expression;
 };
 
+export const sourceSelectionKey = (source: KpiSourceItem): string => source.type === 'dataField'
+  ? JSON.stringify(['dataField', source.dataSourceId, source.fieldId])
+  : source.type === 'kpi' ? JSON.stringify(['kpi', source.kpiId]) : JSON.stringify([source.type, source.id]);
+
+export const groupSourceSelections = (sources: KpiSourceItem[]): KpiSourceItem[][] => {
+  const groups = new Map<string, KpiSourceItem[]>();
+  for (const source of sources) {
+    const key = sourceSelectionKey(source);
+    const group = groups.get(key) ?? [];
+    group.push(source);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
+};
+
+const completeScenarioPairs = (sources: KpiSourceItem[], names: [string, string]): KpiSourceItem[] => {
+  const usedIds = new Set(sources.map((source) => source.id));
+  return groupSourceSelections(sources).flatMap((group) => {
+    const first = group[0];
+    if ((first.type !== 'dataField' && first.type !== 'kpi') || first.scenarioSlot === undefined) return group;
+    return ([0, 1] as const).map((slot) => {
+      const existing = group.find((source) => (source.type === 'dataField' || source.type === 'kpi') && source.scenarioSlot === slot);
+      if (existing) return existing;
+      let id = `${first.id}-scenario-${slot}`;
+      while (usedIds.has(id)) id += '-copy';
+      usedIds.add(id);
+      const base = first.scenarioBaseLatex ?? scenarioBaseFromLatex(first.latex, names[first.scenarioSlot!]);
+      return { ...first, id, scenarioSlot: slot, scenarioBaseLatex: base, latex: scenarioLatex(base, names[slot]) };
+    });
+  });
+};
+
 export const reconcileKpiScenarios = (config: Pick<KpiPoolConfig, 'dataSourceGroups' | 'dataSources' | 'kpis'>, kpi: KpiMetric): KpiMetric => {
   const scenarioNames = normalizeScenarioNames(kpi.scenarioNames);
   const seen = new Set<string>();
-  const sources = kpi.sources.flatMap((source): KpiSourceItem[] => {
+  const normalizedSources = kpi.sources.flatMap((source): KpiSourceItem[] => {
     if (source.type !== 'dataField' && source.type !== 'kpi') return [source];
     const table = source.type === 'dataField' ? config.dataSources.find((table) => table.id === source.dataSourceId) : undefined;
     const referencedKpi = source.type === 'kpi' ? config.kpis.find((entry) => entry.id === source.kpiId) : undefined;
@@ -116,6 +148,7 @@ export const reconcileKpiScenarios = (config: Pick<KpiPoolConfig, 'dataSourceGro
     const latex = scenarioLatex(base, scenarioNames[slot!]);
     return [{ ...source, scenarioSlot: slot, scenarioBaseLatex: base, latex }];
   });
+  const sources = completeScenarioPairs(normalizedSources, scenarioNames);
   if (JSON.stringify(sources) === JSON.stringify(kpi.sources) && JSON.stringify(scenarioNames) === JSON.stringify(kpi.scenarioNames)) return kpi;
   const replacements = new Map<string, string>();
   for (const source of kpi.sources) {

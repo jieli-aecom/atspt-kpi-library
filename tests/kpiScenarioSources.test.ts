@@ -35,7 +35,7 @@ test('renaming preserves separate source IDs and updates formula references', ()
   let kpi = reconcileKpiScenarios(config, config.kpis[1]);
   const first = kpi.sources[0] as KpiReferenceSource;
   const second = { ...first, id: 'ref-2', scenarioSlot: 1 as const, latex: scenarioLatex('T_{Link}', 'No Build') };
-  kpi.sources.push(second);
+  kpi.sources = [first, second];
   kpi.description.formulas = [{ name: '', items: [{ tag: '', formula: `${first.latex} - ${second.latex}`, leftExpression: '', rightExpression: `${first.latex} - ${second.latex}`, generalExplanation: '', terms: [] }] }];
   kpi = reconcileKpiScenarios(config, { ...kpi, scenarioNames: ['Alternative A', 'Alternative B'] });
   assert.deepEqual(kpi.sources.map((source) => source.id), ['ref', 'ref-2']);
