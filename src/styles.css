@@ -2763,6 +2763,11 @@ h1 {
   box-shadow: inset 3px 0 #347862;
 }
 
+.data-source-field-row.has-formula:not(.needs-preprocessing) {
+  border-radius: 5px;
+  background: #e5effb;
+}
+
 .data-source-field-row.needs-preprocessing {
   border-radius: 5px;
   background: #fae9e7;

@@ -5897,12 +5897,13 @@ function DataSourceHeader({
               const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => {
                 const isPrimaryKey = source.primaryKeyFieldId === field.id;
                 const preprocessingNeeded = field.preprocessingNeeded || Boolean(field.details.trim());
+                const hasFormula = field.formulas?.some((item) => item.formula.trim());
                 const primaryKeyRelations = isPrimaryKey ? sourceRelations : [];
                 const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
                 const relationIsDuplicate = relationDraftIsDuplicate;
                 return (
                 <div
-                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${preprocessingNeeded ? 'needs-preprocessing' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
+                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${hasFormula ? 'has-formula' : ''} ${preprocessingNeeded ? 'needs-preprocessing' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
                   data-library-target={`field:${field.id}`}
                   key={field.id}
                   onDragOver={(event) => {
