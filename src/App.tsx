@@ -6589,7 +6589,7 @@ function DataSourceHeader({
           <div className="library-detail-links">{source.fields.filter((field) => group.fieldIds.includes(field.id)).map((field) => <button type="button" className="secondary-action tiny" key={field.id} onClick={() => { setGroupDetailsEditor(undefined); setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id }); }}>{field.name || 'Untitled field'}</button>)}</div>
         </KpiSupportDialog>;
       })() : null}
-      {diagramOpen ? createPortal(<TableDiagram config={config} renderFieldSummary={(table, field) => <FieldFormulaSummary config={config} table={table} field={field} />} onViewSupport={(target) => { if (target.fieldId !== undefined) setFieldDetailsEditor({ dataSourceId: target.dataSourceId, fieldId: target.fieldId }); else setSupportTarget(target); }} onClose={() => setDiagramOpen(false)} />, document.body) : null}
+      {diagramOpen ? createPortal(<TableDiagram config={config} renderFieldSummary={(table, field) => <FieldFormulaSummary config={config} table={table} field={field} showFormulas={false} />} onViewSupport={(target) => { if (target.fieldId !== undefined) setFieldDetailsEditor({ dataSourceId: target.dataSourceId, fieldId: target.fieldId }); else setSupportTarget(target); }} onClose={() => setDiagramOpen(false)} />, document.body) : null}
     </div>
   );
 }
@@ -7433,7 +7433,7 @@ const fieldFormulaContext = (table: DataSource, field: DataSourceField): KpiMetr
   description: { overview: '', formulaComment: '', formulas: [{ name: '', items: field.formulas ?? [] }] }
 });
 
-function FieldFormulaSummary({ config, table, field }: { config: KpiPoolConfig; table: DataSource; field: DataSourceField }) {
+function FieldFormulaSummary({ config, table, field, showFormulas = true }: { config: KpiPoolConfig; table: DataSource; field: DataSourceField; showFormulas?: boolean }) {
   const context = useMemo(() => fieldFormulaContext(table, field), [table, field]);
   const [highlight, setHighlight] = useState<{ target: FormulaSemanticTarget; requestId: number }>();
   const summaryRef = useRef<HTMLDivElement | null>(null);
@@ -7453,12 +7453,12 @@ function FieldFormulaSummary({ config, table, field }: { config: KpiPoolConfig; 
   }, [highlight]);
   const highlightedFormulaIndex = highlight?.target.kind === 'formula' ? highlight.target.formulaIndex : undefined;
   return <div className="field-formula-summary" ref={summaryRef} aria-label={`Processing formulae for ${field.name}`}>
-    {fieldSourceRows(config, field).map((row) => <div className="field-source-summary-row" key={row.key} title={`${row.label}: ${row.fields.map((source) => source.name).join(', ')}`}>
-      <strong>{row.label}</strong><span>{row.fields.map((source, index) => <span key={source.id}>
+    {fieldSourceRows(config, field).map((row) => <div className="field-source-summary-row" key={row.key} title={`From ${row.label}: ${row.fields.map((source) => source.name).join(', ')}`}>
+      <strong>From {row.label}</strong><span>{row.fields.map((source, index) => <span key={source.id}>
         {index > 0 ? ' · ' : null}<span data-field-source-id={source.id} className={`field-source-summary-item${highlight?.target.kind === 'source' && highlight.target.sourceId === source.id ? ' is-kpi-source-highlighted' : ''}`}>{source.name}</span>
       </span>)}</span>
     </div>)}
-    {(field.formulas ?? []).map((item, index) => item.formula.trim() ?
+    {showFormulas && (field.formulas ?? []).map((item, index) => item.formula.trim() ?
       <InteractiveFormulaPreview key={index} config={config} kpi={context} item={item} inline onSemanticTarget={handleTarget} highlightedFormulaIndex={highlightedFormulaIndex} /> : null
     )}
   </div>;

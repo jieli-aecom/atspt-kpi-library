@@ -79,8 +79,7 @@ const wrapDimension = (label: string, width: number) => {
 };
 
 const fieldRowHeight = (config: KpiPoolConfig, field: DataSourceField) => FIELD_ROW_HEIGHT
-  + fieldSourceRows(config, field).length * 20
-  + (field.formulas ?? []).filter((item) => item.formula.trim()).length * 44;
+  + fieldSourceRows(config, field).length * 20;
 
 const buildRows = (source: DataSource, width: number, config: KpiPoolConfig): DiagramRow[] => {
   const groupedFieldIds = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
@@ -628,8 +627,7 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
                     {[0, 1, 2].flatMap((row) => [0, 1].map((column) => <circle key={`${row}:${column}`} cx={table.x + table.width - 17 + column * 5} cy={table.y + 34 + row * 5} r="1.25" fill="#d8e8ee" />))}
                   </g>
                   <rect x={table.x} y={table.y + CARD_HEADER_HEIGHT} width={table.width} height={CARD_META_HEIGHT} fill="#edf3f5" />
-                  <text x={table.x + 14} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">KEY</text>
-                  <text x={table.x + 54} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">FIELD</text>
+                  <text x={table.x + 12} y={table.y + CARD_HEADER_HEIGHT + 16} fill="#60747d" fontSize="9.5" fontWeight="700">FIELD</text>
                   <text x={table.x + table.width - 58} y={table.y + CARD_HEADER_HEIGHT + 16} textAnchor="end" fill="#60747d" fontSize="9.5" fontWeight="700">TYPE / UNIT</text>
                   {table.rows.map((row, rowIndex) => {
                     const y = rowTop;
@@ -667,15 +665,21 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
                     const isVirtual = Boolean(field.generatedRelationId);
                     const needsPreprocessing = field.preprocessingNeeded || Boolean(field.details.trim());
                     const rowFill = needsPreprocessing ? '#fff0ed' : isVirtual ? '#eaf6f2' : row.grouped ? '#fbf9fe' : '#ffffff';
-                    const nameX = table.x + 54 + (row.grouped ? 8 : 0);
+                    const nameX = table.x + 12;
+                    const markerWidth = (isPrimary ? 22 : 0) + (isVirtual ? 15 : 0) + (needsPreprocessing ? 15 : 0);
+                    const nameLimit = Math.max(4, Math.floor((table.width * 0.75 - 78 - markerWidth) / 6.2));
                     return <g key={`field:${field.id}`}>
                       <rect x={table.x + 1} y={y} width={table.width - 2} height={row.height} fill={rowFill} />
                       {row.grouped ? <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#b4a0cc" /> : null}
                       {isVirtual ? <rect x={table.x + 5} y={y + 3} width={table.width - 10} height={row.height - 6} rx="4" fill="none" stroke="#4c927f" strokeDasharray="4 3" /> : null}
-                      {needsPreprocessing ? <><rect x={table.x + 1} y={y} width="4" height={row.height} fill="#c85a50" /><circle cx={table.x + 43} cy={y + FIELD_ROW_HEIGHT / 2} r="3.5" fill="#c85a50" /></> : null}
-                      {isPrimary ? <g><rect x={table.x + 10} y={y + 6} width="26" height="16" rx="4" fill="#f5e9bd" stroke="#b88b13" /><text x={table.x + 23} y={y + 17.5} textAnchor="middle" fill="#76580b" fontSize="8.5" fontWeight="900">PK</text></g> : null}
-                      {!isPrimary && isVirtual ? <text x={table.x + 13} y={y + 18} fill="#397562" fontSize="8" fontWeight="900">V</text> : null}
-                      <text x={nameX} y={y + 18} fill="#223d47" fontSize="11" fontWeight={isPrimary ? 750 : 600}><title>{field.name || 'Untitled field'}</title>{shortened(field.name || 'Untitled field', Math.floor((table.width * 0.43) / 6.2))}</text>
+                      {needsPreprocessing ? <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#c85a50" /> : null}
+                      <text x={nameX} y={y + 18} fill="#223d47" fontSize="11" fontWeight={isPrimary ? 750 : 600}>
+                        <title>{field.name || 'Untitled field'}</title>
+                        <tspan>{shortened(field.name || 'Untitled field', nameLimit)}</tspan>
+                        {isPrimary ? <tspan dx="6" fill="#76580b" fontSize="8.5" fontWeight="900"><title>Primary key</title>PK</tspan> : null}
+                        {isVirtual ? <tspan dx="6" fill="#397562" fontSize="8" fontWeight="900"><title>Virtual field</title>V</tspan> : null}
+                        {needsPreprocessing ? <tspan dx="6" fill="#c85a50" fontSize="10"><title>Preprocessing needed</title>{'\u25cf'}</tspan> : null}
+                      </text>
                       <text x={table.x + table.width - 58} y={y + 18} textAnchor="end" fill={isVirtual ? '#397562' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.25) / 5.5))}</text>
                       {row.height > FIELD_ROW_HEIGHT ? <foreignObject x={table.x + 12} y={y + FIELD_ROW_HEIGHT} width={table.width - 24} height={row.height - FIELD_ROW_HEIGHT}
                         onPointerDown={(event) => event.stopPropagation()}>
