@@ -1,4 +1,5 @@
 import { fieldSourceRows } from './fieldSourceSummary';
+import { installPopupDragGuard } from './popupDragGuard';
 import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
 import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex, scenarioFormulaTokens, scenarioBaseFromLatex, sourceSelectionKey, groupSourceSelections } from './scenarios';
 import { kpiScenarioTypes } from './types';
@@ -6807,11 +6808,12 @@ function KpiSourceEditor({
   const stopSourceControlClick = (event: React.MouseEvent) => event.stopPropagation();
   const stopSourcePopoverPointerEvent = (event: React.PointerEvent) => event.stopPropagation();
   const stopSourcePopoverMouseEvent = (event: React.MouseEvent) => event.stopPropagation();
-  const preventSourcePopoverSelectionClick = (event: React.MouseEvent) => {
-    if (window.getSelection()?.isCollapsed !== false) return;
-    event.preventDefault();
-    event.stopPropagation();
-  };
+  useEffect(() => {
+    if (!open) return undefined;
+    return installPopupDragGuard(document, (target) =>
+      target instanceof Node && Boolean(popoverRef.current?.contains(target))
+    );
+  }, [open]);
   const blockSourcePopoverShieldWheel = (event: React.WheelEvent) => {
     event.preventDefault();
     event.stopPropagation();
@@ -7249,7 +7251,6 @@ function KpiSourceEditor({
             aria-label={fieldOwner ? "Field sources" : "KPI sources"}
             style={{ ...popoverPosition, ...(fieldOwner ? { zIndex: 14000 } : {}) }}
             onClick={stopSourceControlClick}
-            onClickCapture={preventSourcePopoverSelectionClick}
             onMouseDown={stopSourcePopoverMouseEvent}
             onMouseUp={stopSourcePopoverMouseEvent}
             onPointerDown={stopSourcePopoverPointerEvent}
