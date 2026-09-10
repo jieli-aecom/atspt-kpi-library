@@ -1,5 +1,6 @@
+import { fieldSourceRows } from './fieldSourceSummary';
 import { layoutTableRegions } from './tableDiagramLayout';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Download, Eye, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react';
 import type {
   DataSource,
@@ -77,6 +78,10 @@ const wrapDimension = (label: string, width: number) => {
   return lines;
 };
 
+const fieldRowHeight = (config: KpiPoolConfig, field: DataSourceField) => FIELD_ROW_HEIGHT
+  + fieldSourceRows(config, field).length * 20
+  + (field.formulas ?? []).filter((item) => item.formula.trim()).length * 44;
+
 const buildRows = (source: DataSource, width: number, config: KpiPoolConfig): DiagramRow[] => {
   const groupedFieldIds = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
   const rows: DiagramRow[] = [];
@@ -104,12 +109,12 @@ const buildRows = (source: DataSource, width: number, config: KpiPoolConfig): Di
         });
         group.fieldIds.forEach((fieldId) => {
           const field = source.fields.find((entry) => entry.id === fieldId);
-          if (field) rows.push({ kind: 'field', field, grouped: true, height: FIELD_ROW_HEIGHT });
+          if (field) rows.push({ kind: 'field', field, grouped: true, height: fieldRowHeight(config, field) });
         });
       });
     const field = source.fields[position];
     if (field && !groupedFieldIds.has(field.id)) {
-      rows.push({ kind: 'field', field, grouped: false, height: FIELD_ROW_HEIGHT });
+      rows.push({ kind: 'field', field, grouped: false, height: fieldRowHeight(config, field) });
     }
   }
   return rows.length ? rows : [{ kind: 'empty', height: EMPTY_ROW_HEIGHT }];
@@ -150,7 +155,7 @@ const buildDiagram = (config: KpiPoolConfig) => {
     table.y = position.y;
     let rowYPosition = table.y + CARD_HEADER_HEIGHT + CARD_META_HEIGHT;
     table.rows.forEach((diagramRow) => {
-      if (diagramRow.kind === 'field') table.fieldY.set(diagramRow.field.id, rowYPosition + diagramRow.height / 2);
+      if (diagramRow.kind === 'field') table.fieldY.set(diagramRow.field.id, rowYPosition + FIELD_ROW_HEIGHT / 2);
       rowYPosition += diagramRow.height;
     });
   });
@@ -184,6 +189,33 @@ const downloadBlob = (blob: Blob, name: string) => {
 
 const serializedSvg = (svg: SVGSVGElement) => {
   const clone = svg.cloneNode(true) as SVGSVGElement;
+  // HTML inside an SVG taints the PNG canvas. Use portable SVG text for exports.
+  clone.querySelectorAll<SVGForeignObjectElement>('foreignObject').forEach((object) => {
+    const summary = object.querySelector('.diagram-field-summary');
+    if (!summary) return;
+    const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const x = object.x.baseVal.value;
+    const width = object.width.baseVal.value;
+    let y = object.y.baseVal.value + 13;
+    summary.querySelectorAll('.field-source-summary-row, .interactive-inline-formula').forEach((entry) => {
+      const isSource = entry.classList.contains('field-source-summary-row');
+      const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      const content = isSource
+        ? entry.getAttribute('title') ?? entry.textContent ?? ''
+        : entry.querySelector('.katex-html')?.textContent ?? entry.getAttribute('title') ?? '';
+      text.setAttribute('x', String(x));
+      text.setAttribute('y', String(y));
+      text.setAttribute('font-size', '10');
+      text.setAttribute('fill', isSource ? '#315f70' : '#223d47');
+      text.textContent = shortened(content, Math.floor(width / 6));
+      const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      title.textContent = content;
+      text.appendChild(title);
+      group.appendChild(text);
+      y += isSource ? 20 : 44;
+    });
+    object.replaceWith(group);
+  });
   clone.querySelectorAll('.diagram-support-control').forEach((control) => control.remove());
   clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
   clone.setAttribute('width', svg.viewBox.baseVal.width.toString());
@@ -201,7 +233,7 @@ const supportButton = (x: number, y: number, target: SupportTarget, label: strin
   </foreignObject>
 );
 
-export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPoolConfig; onClose: () => void; onViewSupport: (target: SupportTarget) => void }) {
+export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummary }: { renderFieldSummary: (table: DataSource, field: DataSourceField) => ReactNode; config: KpiPoolConfig; onClose: () => void; onViewSupport: (target: SupportTarget) => void }) {
   const diagram = useMemo(() => buildDiagram(config), [config.dataSourceGroups, config.dataSources, config.tableRelations, config.valueEnums]);
   const [viewedDimension, setViewedDimension] = useState<DataSourceFieldDimension>();
   const domainDialogRef = useRef<HTMLDialogElement>(null);
@@ -640,11 +672,15 @@ export function TableDiagram({ config, onClose, onViewSupport }: { config: KpiPo
                       <rect x={table.x + 1} y={y} width={table.width - 2} height={row.height} fill={rowFill} />
                       {row.grouped ? <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#b4a0cc" /> : null}
                       {isVirtual ? <rect x={table.x + 5} y={y + 3} width={table.width - 10} height={row.height - 6} rx="4" fill="none" stroke="#4c927f" strokeDasharray="4 3" /> : null}
-                      {needsPreprocessing ? <><rect x={table.x + 1} y={y} width="4" height={row.height} fill="#c85a50" /><circle cx={table.x + 43} cy={y + row.height / 2} r="3.5" fill="#c85a50" /></> : null}
+                      {needsPreprocessing ? <><rect x={table.x + 1} y={y} width="4" height={row.height} fill="#c85a50" /><circle cx={table.x + 43} cy={y + FIELD_ROW_HEIGHT / 2} r="3.5" fill="#c85a50" /></> : null}
                       {isPrimary ? <g><rect x={table.x + 10} y={y + 6} width="26" height="16" rx="4" fill="#f5e9bd" stroke="#b88b13" /><text x={table.x + 23} y={y + 17.5} textAnchor="middle" fill="#76580b" fontSize="8.5" fontWeight="900">PK</text></g> : null}
                       {!isPrimary && isVirtual ? <text x={table.x + 13} y={y + 18} fill="#397562" fontSize="8" fontWeight="900">V</text> : null}
                       <text x={nameX} y={y + 18} fill="#223d47" fontSize="11" fontWeight={isPrimary ? 750 : 600}><title>{field.name || 'Untitled field'}</title>{shortened(field.name || 'Untitled field', Math.floor((table.width * 0.43) / 6.2))}</text>
                       <text x={table.x + table.width - 58} y={y + 18} textAnchor="end" fill={isVirtual ? '#397562' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.25) / 5.5))}</text>
+                      {row.height > FIELD_ROW_HEIGHT ? <foreignObject x={table.x + 12} y={y + FIELD_ROW_HEIGHT} width={table.width - 24} height={row.height - FIELD_ROW_HEIGHT}
+                        onPointerDown={(event) => event.stopPropagation()}>
+                        <div className="diagram-field-summary">{renderFieldSummary(table.source, field)}</div>
+                      </foreignObject> : null}
                       {supportButton(table.x + table.width - 48, y + 2, { dataSourceId: table.source.id, fieldId: field.id }, `${table.source.name} — ${field.name}`, onViewSupport)}
                       <line x1={table.x + 1} y1={y + row.height} x2={table.x + table.width - 1} y2={y + row.height} stroke="#e2e9ec" />
                     </g>;

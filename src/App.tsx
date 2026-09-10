@@ -1,3 +1,4 @@
+import { fieldSourceRows } from './fieldSourceSummary';
 import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
 import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex, scenarioFormulaTokens, scenarioBaseFromLatex, sourceSelectionKey, groupSourceSelections } from './scenarios';
 import { kpiScenarioTypes } from './types';
@@ -6034,7 +6035,7 @@ function DataSourceHeader({
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
                     ><Trash2 size={12} /></button>}
                   </div>
-                  {field.formulas?.some((item) => item.formula.trim()) ? <FieldFormulaSummary config={config} table={source} field={field} /> : null}
+                  {(field.sources?.length || field.formulas?.some((item) => item.formula.trim())) ? <FieldFormulaSummary config={config} table={source} field={field} /> : null}
                   {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="data-source-field-enum-options">
                     {renderLookupEnumOptions(
                       field.options,
@@ -6588,7 +6589,7 @@ function DataSourceHeader({
           <div className="library-detail-links">{source.fields.filter((field) => group.fieldIds.includes(field.id)).map((field) => <button type="button" className="secondary-action tiny" key={field.id} onClick={() => { setGroupDetailsEditor(undefined); setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id }); }}>{field.name || 'Untitled field'}</button>)}</div>
         </KpiSupportDialog>;
       })() : null}
-      {diagramOpen ? createPortal(<TableDiagram config={config} onViewSupport={(target) => { if (target.fieldId !== undefined) setFieldDetailsEditor({ dataSourceId: target.dataSourceId, fieldId: target.fieldId }); else setSupportTarget(target); }} onClose={() => setDiagramOpen(false)} />, document.body) : null}
+      {diagramOpen ? createPortal(<TableDiagram config={config} renderFieldSummary={(table, field) => <FieldFormulaSummary config={config} table={table} field={field} />} onViewSupport={(target) => { if (target.fieldId !== undefined) setFieldDetailsEditor({ dataSourceId: target.dataSourceId, fieldId: target.fieldId }); else setSupportTarget(target); }} onClose={() => setDiagramOpen(false)} />, document.body) : null}
     </div>
   );
 }
@@ -6790,7 +6791,7 @@ function KpiSourceEditor({
   fieldOwner?: { dataSourceId: string; fieldId: string };
 }) {
   const [open, setOpen] = useState(false);
-  const [pickerScope, setPickerScope] = useState('');
+  const [pickerScope, setPickerScope] = useState(fieldOwner ? `data:${fieldOwner.dataSourceId}` : '');
   const [collapsedPickerCategories, setCollapsedPickerCategories] = useState<TableSourceCategory[]>([]);
   const [query, setQuery] = useState('');
   const [customName, setCustomName] = useState('');
@@ -6998,7 +6999,7 @@ function KpiSourceEditor({
       });
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [selectedDataSource?.id]);
+  }, [selectedDataSource?.id, open, Boolean(popoverPosition)]);
   const groupedPickerDataSourceIds = new Set(config.dataSourceGroups.flatMap((group) => group.itemIds));
   const ungroupedPickerDataSources = config.dataSources.filter((source) => !groupedPickerDataSourceIds.has(source.id));
   const pickerDataSourceGroups = config.dataSourceGroups
@@ -7214,7 +7215,14 @@ function KpiSourceEditor({
   };
   return (
     <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef} onClick={stopSourceControlClick}>
-      <button className="cell-enum-trigger" type="button" onClick={() => setOpen((value) => !value)}>
+      <button className="cell-enum-trigger" type="button" onClick={() => {
+        if (!open && fieldOwner) {
+          setPickerScope(`data:${fieldOwner.dataSourceId}`);
+          setQuery('');
+          setCollapsedPickerCategories([]);
+        }
+        setOpen((value) => !value);
+      }}>
         {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={viewSelectedSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
@@ -7223,7 +7231,7 @@ function KpiSourceEditor({
           <div
             data-preserve-source-library-state={fieldOwner ? true : undefined}
             className="kpi-source-popover-shield"
-            style={fieldOwner ? { zIndex: 11999 } : undefined}
+            style={fieldOwner ? { zIndex: 13999 } : undefined}
             aria-hidden="true"
             onClick={stopSourceControlClick}
             onMouseDown={stopSourcePopoverMouseEvent}
@@ -7238,7 +7246,7 @@ function KpiSourceEditor({
             ref={popoverRef}
             role="dialog"
             aria-label={fieldOwner ? "Field sources" : "KPI sources"}
-            style={{ ...popoverPosition, ...(fieldOwner ? { zIndex: 12000 } : {}) }}
+            style={{ ...popoverPosition, ...(fieldOwner ? { zIndex: 14000 } : {}) }}
             onClick={stopSourceControlClick}
             onClickCapture={preventSourcePopoverSelectionClick}
             onMouseDown={stopSourcePopoverMouseEvent}
@@ -7427,9 +7435,31 @@ const fieldFormulaContext = (table: DataSource, field: DataSourceField): KpiMetr
 
 function FieldFormulaSummary({ config, table, field }: { config: KpiPoolConfig; table: DataSource; field: DataSourceField }) {
   const context = useMemo(() => fieldFormulaContext(table, field), [table, field]);
-  return <div className="field-formula-summary" aria-label={`Processing formulae for ${field.name}`}>
-    {(field.formulas ?? []).filter((item) => item.formula.trim()).map((item, index) =>
-      <InteractiveFormulaPreview key={index} config={config} kpi={context} item={item} inline />
+  const [highlight, setHighlight] = useState<{ target: FormulaSemanticTarget; requestId: number }>();
+  const summaryRef = useRef<HTMLDivElement | null>(null);
+  const handleTarget = useCallback((target: FormulaSemanticTarget) => {
+    setHighlight((current) => ({ target, requestId: (current?.requestId ?? 0) + 1 }));
+  }, []);
+  useEffect(() => {
+    if (!highlight) return;
+    const target = highlight.target;
+    if (target.kind === 'source') {
+      const source = [...(summaryRef.current?.querySelectorAll<HTMLElement>('[data-field-source-id]') ?? [])]
+        .find((element) => element.dataset.fieldSourceId === target.sourceId);
+      source?.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'smooth' });
+    }
+    const timer = window.setTimeout(() => setHighlight(undefined), transientSourceHighlightDurationMs);
+    return () => window.clearTimeout(timer);
+  }, [highlight]);
+  const highlightedFormulaIndex = highlight?.target.kind === 'formula' ? highlight.target.formulaIndex : undefined;
+  return <div className="field-formula-summary" ref={summaryRef} aria-label={`Processing formulae for ${field.name}`}>
+    {fieldSourceRows(config, field).map((row) => <div className="field-source-summary-row" key={row.key} title={`${row.label}: ${row.fields.map((source) => source.name).join(', ')}`}>
+      <strong>{row.label}</strong><span>{row.fields.map((source, index) => <span key={source.id}>
+        {index > 0 ? ' · ' : null}<span data-field-source-id={source.id} className={`field-source-summary-item${highlight?.target.kind === 'source' && highlight.target.sourceId === source.id ? ' is-kpi-source-highlighted' : ''}`}>{source.name}</span>
+      </span>)}</span>
+    </div>)}
+    {(field.formulas ?? []).map((item, index) => item.formula.trim() ?
+      <InteractiveFormulaPreview key={index} config={config} kpi={context} item={item} inline onSemanticTarget={handleTarget} highlightedFormulaIndex={highlightedFormulaIndex} /> : null
     )}
   </div>;
 }
