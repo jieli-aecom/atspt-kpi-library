@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import JSZip from 'jszip';
+import { createBlankConfig, createBlankKpi } from '../src/configSchema.ts';
+import type { DataSourceField } from '../src/types.ts';
 import {
   createKpiExcelWorkbook,
   createTableSchemaExcelWorkbook,
@@ -102,5 +104,39 @@ test('includes the source-table group in schema workbook metadata', async () => 
   const worksheet = await zip.file('xl/worksheets/sheet1.xml')?.async('string');
 
   assert.ok(worksheet);
-  assert.match(worksheet, />Group: Operations\. Spatial unit: Not specified\. 0 fields\.</);
+  assert.match(worksheet, />Category: Preprocessed Constants\. Group: Operations\. Spatial unit: Not specified\. 0 fields\.</);
+});
+
+test('table sheets include category, units, descriptions, sources and direct/indirect KPI names', async () => {
+  const config = createBlankConfig();
+  const raw: DataSourceField = { id: 'raw', name: 'Raw speed', meaning: '**Observed** speed', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'number', valueUnit: 'mph', options: [] };
+  const processed: DataSourceField = { ...raw, id: 'processed', name: 'Speed samples', dataType: 'collection', collectionItemType: 'number', details: 'Clean missing values', sources: [{ id: 'input', type: 'dataField', dataSourceId: 'traffic', fieldId: 'raw', latex: 'x' }] };
+  config.dataSources = [
+    { id: 'traffic', name: 'Traffic', category: 'Preprocessed Constants', spatialUnit: 'Link', fields: [raw, processed], fieldGroups: [] },
+    { id: 'other', name: 'Other', category: 'KPI Preparation', spatialUnit: '', fields: [{ ...raw, id: 'unused', valueUnit: '', meaning: '' }], fieldGroups: [] }
+  ];
+  config.dataSourceGroups = [{ id: 'group', name: 'Operations', category: 'Scenario Upstream', itemIds: ['traffic'], position: 0 }];
+  const direct = { ...createBlankKpi(), id: 'direct', name: 'Travel speed', sources: [{ id: 'source', type: 'dataField' as const, dataSourceId: 'traffic', fieldId: 'processed', latex: 'v' }] };
+  const downstream = { ...createBlankKpi(), id: 'downstream', name: 'Accessibility', sources: [{ id: 'dependency', type: 'kpi' as const, kpiId: 'direct', latex: 'k' }] };
+  config.kpis = [direct, downstream];
+  const zip = await JSZip.loadAsync(await createTableSchemaExcelWorkbook(config));
+  const sheet = (await zip.file('xl/worksheets/sheet1.xml')!.async('string'));
+  const other = (await zip.file('xl/worksheets/sheet2.xml')!.async('string'));
+  const cell = (xml: string, address: string) => xml.match(new RegExp(`<c r="${address}"[^>]*>(.*?)</c>`))?.[1] ?? '';
+  assert.match(cell(sheet, 'A2'), /Category: Scenario Upstream\. Group: Operations\./);
+  assert.match(cell(other, 'A2'), /Category: KPI Preparation\./);
+  assert.doesNotMatch(cell(other, 'A2'), /Group:/);
+  assert.match(cell(sheet, 'D4'), />mph</);
+  assert.doesNotMatch(cell(sheet, 'E4'), /mph/);
+  assert.doesNotMatch(cell(sheet, 'D5'), /mph/);
+  assert.match(cell(sheet, 'E5'), />mph</);
+  assert.match(cell(sheet, 'F4'), />Observed speed</);
+  assert.match(cell(sheet, 'H4'), />No</);
+  assert.match(cell(sheet, 'H5'), />Yes</);
+  assert.match(cell(sheet, 'J5'), /From: Operations · Traffic Raw speed/);
+  assert.match(cell(sheet, 'K4'), />Travel speed, Accessibility</);
+  assert.match(cell(sheet, 'K5'), />Travel speed, Accessibility</);
+  assert.doesNotMatch(cell(other, 'K4'), /Travel speed|Accessibility/);
+  assert.match(sheet, /dimension ref="A1:K5"/);
+  assert.match(cell(sheet, 'K3'), />Supported KPIs</);
 });

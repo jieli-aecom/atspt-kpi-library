@@ -1,4 +1,6 @@
 import JSZip from 'jszip';
+import { fieldSourceRows } from './fieldSourceSummary';
+import { traceKpiSupport } from './kpiSupport';
 import type { DataSource, DataSourceField, KpiMetric, KpiPoolConfig } from './types';
 
 const EXCEL_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -495,9 +497,13 @@ const tableSchemaColumns = [
   { label: 'Field name', width: 32 },
   { label: 'Type', width: 20 },
   { label: 'Unit', width: 18 },
+  { label: 'Item unit', width: 18 },
+  { label: 'Description', width: 58 },
   { label: 'By', width: 48 },
   { label: 'Preprocessing needed', width: 22 },
-  { label: 'Preprocessing note', width: 58 }
+  { label: 'Preprocessing note', width: 58 },
+  { label: 'Sources', width: 64 },
+  { label: 'Supported KPIs', width: 64 }
 ] as const;
 
 const tableSchemaFieldType = (field: DataSourceField) => {
@@ -541,12 +547,18 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
       field.id === source.primaryKeyFieldId ? 'PK' : '',
       field.name,
       tableSchemaFieldType(field),
-      field.valueUnit.trim(),
+      field.dataType === 'collection' ? '' : field.valueUnit.trim(),
+      field.dataType === 'collection' ? field.valueUnit.trim() : '',
+      markdownToExcelText(field.meaning),
       tableSchemaFieldDimensions(config, source, field.id),
       needsPreprocessing ? 'Yes' : 'No',
-      markdownToExcelText(field.details)
+      markdownToExcelText(field.details),
+      fieldSourceRows(config, field).map((row, index) => `${index ? 'and' : 'From:'} ${row.label} ${row.fields.map((entry) => entry.name).join(', ')}`).join(' '),
+      traceKpiSupport(config, { dataSourceId: source.id, fieldId: field.id }).map((kpi) => kpi.name).join(', ')
     ];
-    return `<row r="${rowNumber}" ht="32" customHeight="1">${values.map((value, index) => stringCell(`${columnName(index + 1)}${rowNumber}`, value, style)).join('')}</row>`;
+    const lines = Math.max(...values.map((value, index) => value.split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / (tableSchemaColumns[index].width - 4))), 0)));
+    const height = Math.min(409, Math.max(32, lines * 16 + 8));
+    return `<row r="${rowNumber}" ht="${height}" customHeight="1">${values.map((value, index) => stringCell(`${columnName(index + 1)}${rowNumber}`, value, style)).join('')}</row>`;
   };
   const ordinaryRows = ordinaryFields.map((field, index) => fieldRow(field, firstDataRow + index, false)).join('');
   const joinsSection = joinRow
@@ -556,7 +568,9 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
   const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`, ...(joinRow ? [`A${joinRow}:${lastColumnName}${joinRow}`] : [])];
   const spatialUnit = source.spatialUnit || 'Not specified';
   const fieldCount = `${source.fields.length} field${source.fields.length === 1 ? '' : 's'}`;
-  const sourceGroupName = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.name.trim();
+  const sourceGroup = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id));
+  const sourceGroupName = sourceGroup?.name.trim();
+  const category = sourceGroup?.category ?? source.category ?? 'Preprocessed Constants';
   const sourceGroupText = sourceGroupName ? `Group: ${sourceGroupName}. ` : '';
 
   return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -566,7 +580,7 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
   <cols>${columns}</cols>
   <sheetData>
     <row r="1" ht="26" customHeight="1">${stringCell('A1', source.name.trim() || 'Untitled table', 1)}</row>
-    <row r="2" ht="20" customHeight="1">${stringCell('A2', `${sourceGroupText}Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
+    <row r="2" ht="20" customHeight="1">${stringCell('A2', `Category: ${category}. ${sourceGroupText}Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
     <row r="${headerRow}" ht="26" customHeight="1">${headerCells}</row>
     ${ordinaryRows}
     ${joinsSection}
