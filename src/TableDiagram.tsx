@@ -78,8 +78,34 @@ const wrapDimension = (label: string, width: number) => {
   return lines;
 };
 
-const fieldRowHeight = (config: KpiPoolConfig, field: DataSourceField) => FIELD_ROW_HEIGHT
-  + fieldSourceRows(config, field).length * 20;
+const sourceSummaryText = (config: KpiPoolConfig, field: DataSourceField) => {
+  const rows = fieldSourceRows(config, field);
+  return rows.length ? `From: ${rows.map((row) => `${row.label} ${row.fields.map((source) => source.name).join(' \u00b7 ')}`).join(' and ')}` : '';
+};
+
+// Reserve enough space for natural wrapping, including long unbroken field names.
+// Measuring all text in bold is conservative for the mixed-weight source line.
+let sourceTextContext: CanvasRenderingContext2D | null | undefined;
+const wrapSourceSummary = (value: string, width: number) => {
+  sourceTextContext ??= document.createElement('canvas').getContext('2d');
+  if (sourceTextContext) sourceTextContext.font = '700 10px Arial';
+  const fits = (text: string) => (sourceTextContext?.measureText(text).width ?? text.length * 10) <= width;
+  const lines: string[] = [];
+  let line = '';
+  for (const word of value.split(/\s+/).filter(Boolean)) {
+    if (line && !fits(`${line} ${word}`)) { lines.push(line); line = ''; }
+    if (fits(word)) { line = line ? `${line} ${word}` : word; continue; }
+    for (const character of word) {
+      if (line && !fits(line + character)) { lines.push(line); line = ''; }
+      line += character;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+};
+
+const fieldRowHeight = (config: KpiPoolConfig, field: DataSourceField, width: number) => FIELD_ROW_HEIGHT
+  + wrapSourceSummary(sourceSummaryText(config, field), width - 32).length * 20;
 
 const buildRows = (source: DataSource, width: number, config: KpiPoolConfig): DiagramRow[] => {
   const groupedFieldIds = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
@@ -108,12 +134,12 @@ const buildRows = (source: DataSource, width: number, config: KpiPoolConfig): Di
         });
         group.fieldIds.forEach((fieldId) => {
           const field = source.fields.find((entry) => entry.id === fieldId);
-          if (field) rows.push({ kind: 'field', field, grouped: true, height: fieldRowHeight(config, field) });
+          if (field) rows.push({ kind: 'field', field, grouped: true, height: fieldRowHeight(config, field, width) });
         });
       });
     const field = source.fields[position];
     if (field && !groupedFieldIds.has(field.id)) {
-      rows.push({ kind: 'field', field, grouped: false, height: fieldRowHeight(config, field) });
+      rows.push({ kind: 'field', field, grouped: false, height: fieldRowHeight(config, field, width) });
     }
   }
   return rows.length ? rows : [{ kind: 'empty', height: EMPTY_ROW_HEIGHT }];
@@ -206,12 +232,19 @@ const serializedSvg = (svg: SVGSVGElement) => {
       text.setAttribute('y', String(y));
       text.setAttribute('font-size', '10');
       text.setAttribute('fill', isSource ? '#315f70' : '#223d47');
-      text.textContent = shortened(content, Math.floor(width / 6));
+      const lines = isSource ? wrapSourceSummary(content, width) : [shortened(content, Math.floor(width / 6))];
+      lines.forEach((line, index) => {
+        const span = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+        span.setAttribute('x', String(x));
+        span.setAttribute('dy', index ? '20' : '0');
+        span.textContent = line;
+        text.appendChild(span);
+      });
       const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
       title.textContent = content;
       text.appendChild(title);
       group.appendChild(text);
-      y += isSource ? 20 : 44;
+      y += isSource ? lines.length * 20 : 44;
     });
     object.replaceWith(group);
   });
@@ -681,7 +714,7 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
                         {needsPreprocessing ? <tspan dx="6" fill="#c85a50" fontSize="10"><title>Preprocessing needed</title>{'\u25cf'}</tspan> : null}
                       </text>
                       <text x={table.x + table.width - 58} y={y + 18} textAnchor="end" fill={isVirtual ? '#397562' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.25) / 5.5))}</text>
-                      {row.height > FIELD_ROW_HEIGHT ? <foreignObject x={table.x + 12} y={y + FIELD_ROW_HEIGHT} width={table.width - 24} height={row.height - FIELD_ROW_HEIGHT}
+                      {row.height > FIELD_ROW_HEIGHT ? <foreignObject x={table.x + 20} y={y + FIELD_ROW_HEIGHT} width={table.width - 32} height={row.height - FIELD_ROW_HEIGHT}
                         onPointerDown={(event) => event.stopPropagation()}>
                         <div className="diagram-field-summary">{renderFieldSummary(table.source, field)}</div>
                       </foreignObject> : null}

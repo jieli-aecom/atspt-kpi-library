@@ -7452,12 +7452,15 @@ function FieldFormulaSummary({ config, table, field, showFormulas = true }: { co
     return () => window.clearTimeout(timer);
   }, [highlight]);
   const highlightedFormulaIndex = highlight?.target.kind === 'formula' ? highlight.target.formulaIndex : undefined;
+  const sourceRows = fieldSourceRows(config, field);
   return <div className="field-formula-summary" ref={summaryRef} aria-label={`Processing formulae for ${field.name}`}>
-    {fieldSourceRows(config, field).map((row) => <div className="field-source-summary-row" key={row.key} title={`From ${row.label}: ${row.fields.map((source) => source.name).join(', ')}`}>
-      <strong>From {row.label}</strong><span>{row.fields.map((source, index) => <span key={source.id}>
+    {sourceRows.length > 0 ? <div className="field-source-summary-row">
+      From: {sourceRows.map((row, rowIndex) => <span key={row.key}>
+      {rowIndex > 0 ? ' and ' : null}<strong>{row.label}</strong>{' '}<span>{row.fields.map((source, index) => <span key={source.id}>
         {index > 0 ? ' · ' : null}<span data-field-source-id={source.id} className={`field-source-summary-item${highlight?.target.kind === 'source' && highlight.target.sourceId === source.id ? ' is-kpi-source-highlighted' : ''}`}>{source.name}</span>
       </span>)}</span>
-    </div>)}
+      </span>)}
+    </div> : null}
     {showFormulas && (field.formulas ?? []).map((item, index) => item.formula.trim() ?
       <InteractiveFormulaPreview key={index} config={config} kpi={context} item={item} inline onSemanticTarget={handleTarget} highlightedFormulaIndex={highlightedFormulaIndex} /> : null
     )}
