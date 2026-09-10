@@ -493,18 +493,15 @@ function richMarkdownCell(reference: string, markdown: string, style: number) {
 }
 
 const tableSchemaColumns = [
-  { label: 'Key', width: 10 },
-  { label: 'Field name', width: 32 },
-  { label: 'Type', width: 20 },
-  { label: 'Unit', width: 18 },
-  { label: 'Item unit', width: 18 },
-  { label: 'Description', width: 58 },
-  { label: 'By', width: 48 },
-  { label: 'Preprocessing needed', width: 22 },
-  { label: 'Preprocessing note', width: 58 },
-  { label: 'Sources', width: 64 },
-  { label: 'Supported KPIs', width: 64 }
+  'Key', 'Field name', 'Type', 'Unit', 'Item unit', 'Description', 'By',
+  'Preprocessing needed', 'Preprocessing note', 'Sources', 'Supported KPIs'
 ] as const;
+
+const tableSchemaTabColors = {
+  'Preprocessed Constants': 'FF70AD47',
+  'Scenario Upstream': 'FFED7D31',
+  'KPI Preparation': 'FFFFC000'
+} as const;
 
 const tableSchemaFieldType = (field: DataSourceField) => {
   const labels = { id: 'ID', number: 'Number', boolean: 'Boolean', text: 'Text', enum: 'Domain', collection: 'Collection' } as const;
@@ -534,14 +531,12 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
   const joinRow = virtualFields.length ? firstDataRow + ordinaryFields.length : undefined;
   const lastRow = headerRow + source.fields.length + (joinRow ? 1 : 0);
   const lastColumnName = columnName(tableSchemaColumns.length);
-  const columns = tableSchemaColumns
-    .map(({ width }, index) => `<col min="${index + 1}" max="${index + 1}" width="${width}" customWidth="1"/>`)
-    .join('');
+  // Size columns from headers and field values, excluding merged title/section rows.
+  const widths = tableSchemaColumns.map((label) => label.length + 2);
   const headerCells = tableSchemaColumns
-    .map(({ label }, index) => stringCell(`${columnName(index + 1)}${headerRow}`, label, 3))
+    .map((label, index) => stringCell(`${columnName(index + 1)}${headerRow}`, label, 3))
     .join('');
   const fieldRow = (field: DataSourceField, rowNumber: number, virtual: boolean) => {
-    const style = virtual ? 6 : 4;
     const needsPreprocessing = field.preprocessingNeeded || Boolean(field.details.trim());
     const values = [
       field.id === source.primaryKeyFieldId ? 'PK' : '',
@@ -556,15 +551,24 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
       fieldSourceRows(config, field).map((row, index) => `${index ? 'and' : 'From:'} ${row.label} ${row.fields.map((entry) => entry.name).join(', ')}`).join(' '),
       traceKpiSupport(config, { dataSourceId: source.id, fieldId: field.id }).map((kpi) => kpi.name).join(', ')
     ];
-    const lines = Math.max(...values.map((value, index) => value.split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / (tableSchemaColumns[index].width - 4))), 0)));
-    const height = Math.min(409, Math.max(32, lines * 16 + 8));
-    return `<row r="${rowNumber}" ht="${height}" customHeight="1">${values.map((value, index) => stringCell(`${columnName(index + 1)}${rowNumber}`, value, style)).join('')}</row>`;
+    const hasFormula = field.formulas?.some((item) => item.formula.trim());
+    const style = needsPreprocessing ? 7 : hasFormula ? 8 : field.dataType === 'collection' ? 9 : virtual ? 6 : 4;
+    return `<row r="${rowNumber}">${values.map((value, index) => {
+      for (const line of value.split('\n')) {
+        widths[index] = Math.min(64, Math.max(widths[index], Array.from(line).length + 2));
+      }
+      const cellStyle = index === 6 && value ? 10 : style;
+      return stringCell(`${columnName(index + 1)}${rowNumber}`, value, cellStyle);
+    }).join('')}</row>`;
   };
   const ordinaryRows = ordinaryFields.map((field, index) => fieldRow(field, firstDataRow + index, false)).join('');
   const joinsSection = joinRow
-    ? `<row r="${joinRow}" ht="24" customHeight="1">${stringCell(`A${joinRow}`, 'Joins', 5)}</row>`
+    ? `<row r="${joinRow}">${stringCell(`A${joinRow}`, 'Joins', 5)}</row>`
     : '';
   const virtualRows = virtualFields.map((field, index) => fieldRow(field, (joinRow ?? firstDataRow) + 1 + index, true)).join('');
+  const columns = widths
+    .map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${Math.max(8, width)}" customWidth="1"/>`)
+    .join('');
   const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`, ...(joinRow ? [`A${joinRow}:${lastColumnName}${joinRow}`] : [])];
   const spatialUnit = source.spatialUnit || 'Not specified';
   const fieldCount = `${source.fields.length} field${source.fields.length === 1 ? '' : 's'}`;
@@ -574,14 +578,15 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
   const sourceGroupText = sourceGroupName ? `Group: ${sourceGroupName}. ` : '';
 
   return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <sheetPr><tabColor rgb="${tableSchemaTabColors[category]}"/></sheetPr>
   <dimension ref="A1:${lastColumnName}${Math.max(headerRow, lastRow)}"/>
   <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
-  <sheetFormatPr defaultRowHeight="18"/>
+  <sheetFormatPr defaultRowHeight="15"/>
   <cols>${columns}</cols>
   <sheetData>
-    <row r="1" ht="26" customHeight="1">${stringCell('A1', source.name.trim() || 'Untitled table', 1)}</row>
-    <row r="2" ht="20" customHeight="1">${stringCell('A2', `Category: ${category}. ${sourceGroupText}Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
-    <row r="${headerRow}" ht="26" customHeight="1">${headerCells}</row>
+    <row r="1">${stringCell('A1', source.name.trim() || 'Untitled table', 1)}</row>
+    <row r="2">${stringCell('A2', `Category: ${category}. ${sourceGroupText}Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
+    <row r="${headerRow}">${headerCells}</row>
     ${ordinaryRows}
     ${joinsSection}
     ${virtualRows}
@@ -667,29 +672,37 @@ const stylesXml = xmlDocument(`<styleSheet xmlns="http://schemas.openxmlformats.
 const tableSchemaStylesXml = xmlDocument(`<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <fonts count="6">
     <font><sz val="11"/><name val="Aptos"/><family val="2"/><scheme val="minor"/></font>
-    <font><b/><sz val="16"/><color rgb="FF0F172A"/><name val="Aptos Display"/><family val="2"/></font>
+    <font><b/><sz val="11"/><color rgb="FF0F172A"/><name val="Aptos Display"/><family val="2"/></font>
     <font><i/><sz val="10"/><color rgb="FF64748B"/><name val="Aptos"/><family val="2"/></font>
     <font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Aptos"/><family val="2"/></font>
     <font><sz val="11"/><color rgb="FF6B7280"/><name val="Aptos"/><family val="2"/></font>
     <font><b/><sz val="11"/><color rgb="FF4B5563"/><name val="Aptos"/><family val="2"/></font>
   </fonts>
-  <fills count="5">
+  <fills count="9">
     <fill><patternFill patternType="none"/></fill>
     <fill><patternFill patternType="gray125"/></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FF174A5B"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFD1D5DB"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFBDD7EE"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFE2EFDA"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFB2DFDB"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD7DEE3"/></left><right style="thin"><color rgb="FFD7DEE3"/></right><top style="thin"><color rgb="FFD7DEE3"/></top><bottom style="thin"><color rgb="FFD7DEE3"/></bottom><diagonal/></border></borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="7">
+  <cellXfs count="11">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
     <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
-    <xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
-    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="3" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="0"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="0"/></xf>
     <xf numFmtId="0" fontId="5" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
-    <xf numFmtId="0" fontId="4" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="4" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="top" wrapText="0"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="0"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="6" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="0"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="7" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="0"/></xf>
+    <xf numFmtId="0" fontId="0" fillId="8" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="0"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles><dxfs count="0"/><tableStyles count="0" defaultTableStyle="TableStyleMedium2" defaultPivotStyle="PivotStyleLight16"/>
 </styleSheet>`);

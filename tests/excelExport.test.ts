@@ -140,3 +140,42 @@ test('table sheets include category, units, descriptions, sources and direct/ind
   assert.match(sheet, /dimension ref="A1:K5"/);
   assert.match(cell(sheet, 'K3'), />Supported KPIs</);
 });
+
+test('schema formatting uses category tabs, compact sizing and semantic cell fills', async () => {
+  const config = createBlankConfig();
+  const base: DataSourceField = { id: 'plain', name: 'Value', meaning: '', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'number', valueUnit: '', options: [] };
+  const formula = { tag: '', formula: 'x + 1', leftExpression: '', rightExpression: '', generalExplanation: '', terms: [] };
+  config.dataSources = [{
+    id: 'table', name: 'Table', spatialUnit: '', category: 'KPI Preparation',
+    fields: [base,
+      { ...base, id: 'red', details: 'Needs cleaning', formulas: [formula], dataType: 'collection' },
+      { ...base, id: 'blue', formulas: [formula], dataType: 'collection' },
+      { ...base, id: 'green', dataType: 'collection', generatedRelationId: 'join' },
+      { ...base, id: 'long', meaning: 'x'.repeat(200) }
+    ],
+    fieldGroups: [{ id: 'dimensions', position: 0, fieldIds: ['red'], dimensions: [{ id: 'dim', name: 'Period', options: ['AM', 'PM'] }] }]
+  },
+  { id: 'upstream', name: 'Upstream', spatialUnit: '', category: 'Scenario Upstream', fields: [], fieldGroups: [] },
+  { id: 'prep', name: 'Prep', spatialUnit: '', category: 'KPI Preparation', fields: [], fieldGroups: [] }];
+  config.dataSourceGroups = [{ id: 'group', name: 'Constants', category: 'Preprocessed Constants', itemIds: ['table'], position: 0 }];
+  const zip = await JSZip.loadAsync(await createTableSchemaExcelWorkbook(config));
+  const styles = await zip.file('xl/styles.xml')!.async('string');
+  const fills = [...styles.matchAll(/<fill>(.*?)<\/fill>/g)].map((match) => match[1]);
+  const xfs = [...styles.match(/<cellXfs[^>]*>(.*?)<\/cellXfs>/s)![1].matchAll(/<xf\b[^>]*fillId="(\d+)"/g)].map((match) => Number(match[1]));
+  const sheet = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+  const colorAt = (address: string) => fills[xfs[Number(sheet.match(new RegExp(`<c r="${address}" s="(\\d+)"`))![1])]];
+  assert.match(colorAt('B5'), /FFFFC7CE/);
+  assert.match(colorAt('B6'), /FFBDD7EE/);
+  assert.match(colorAt('B9'), /FFE2EFDA/);
+  assert.match(colorAt('G5'), /FFB2DFDB/);
+  assert.doesNotMatch(styles, /wrapText="1"/);
+  assert.doesNotMatch(sheet, /customHeight=|\bht=/);
+  assert.match(sheet, /defaultRowHeight="15"/);
+  const widths = [...sheet.matchAll(/<col [^>]*width="([\d.]+)"/g)].map((match) => Number(match[1]));
+  assert.equal(widths[5], 64);
+  assert.ok(widths[0] < widths[1]);
+  assert.ok(widths.every((width) => width >= 8 && width <= 64));
+  for (const [index, color] of ['FF70AD47', 'FFED7D31', 'FFFFC000'].entries()) {
+    assert.match(await zip.file(`xl/worksheets/sheet${index + 1}.xml`)!.async('string'), new RegExp(`<tabColor rgb="${color}"`));
+  }
+});
