@@ -1,3 +1,4 @@
+import { sourceTableUnit } from './types.js';
 import JSZip from 'jszip';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { traceKpiSupport } from './kpiSupport';
@@ -570,7 +571,7 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
     .map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${Math.max(8, width)}" customWidth="1"/>`)
     .join('');
   const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`, ...(joinRow ? [`A${joinRow}:${lastColumnName}${joinRow}`] : [])];
-  const spatialUnit = source.spatialUnit || 'Not specified';
+  const spatialUnit = sourceTableUnit(source) || 'Not specified';
   const fieldCount = `${source.fields.length} field${source.fields.length === 1 ? '' : 's'}`;
   const sourceGroup = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id));
   const sourceGroupName = sourceGroup?.name.trim();

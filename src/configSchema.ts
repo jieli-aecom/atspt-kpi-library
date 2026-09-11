@@ -1,3 +1,4 @@
+import { sourceTableUnit } from './types.js';
 import { normalizeScenarioNames, reconcileKpiScenarios, migrateScenarioDecoration } from './scenarios.js';
 import { z } from 'zod';
 import {
@@ -152,6 +153,7 @@ const dataSourceSchema = z.object({
   spatialUnit: z.custom<SpatialUnit>(isSpatialUnit, {
     message: `Spatial unit must be blank or one of: ${spatialUnitOptions.join(', ')}`
   }),
+  customUnit: z.string().optional(),
   primaryKeyFieldId: z.string().min(1).optional(),
   fields: z.array(dataSourceFieldSchema),
   fieldGroups: z.array(z.object({
@@ -461,6 +463,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
         typeof source.id === 'string' &&
         typeof source.name === 'string' &&
         isSpatialUnit(source.spatialUnit) &&
+        (source.customUnit === undefined || typeof source.customUnit === 'string') &&
         (source.primaryKeyFieldId === undefined || typeof source.primaryKeyFieldId === 'string') &&
         Array.isArray(source.fields) &&
         Array.isArray(source.fieldGroups) &&
@@ -2169,6 +2172,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
       description: stringValue(rawSource.description),
       category: tableSourceCategories.includes(rawSource.category as TableSourceCategory) ? rawSource.category as TableSourceCategory : 'Preprocessed Constants',
       spatialUnit,
+      ...(typeof rawSource.customUnit === 'string' ? { customUnit: rawSource.customUnit } : {}),
       primaryKeyFieldId: (() => {
         const candidate = stringValue(rawSource.primaryKeyFieldId).trim();
         const candidateField = fields.find((field) => field.id === candidate && field.dataType === 'id');
@@ -2869,8 +2873,8 @@ export const repairConfig = (input: unknown): RepairResult => {
       if (legacySource.version !== undefined) {
         const { version: legacyOption, ...withoutLegacyOption } = legacySource;
         const firstDimension = group?.dimensions[0];
-        const latex = firstDimension && source.latex === legacyDataFieldLatex(field.name, dataSource.spatialUnit, firstDimension.name, legacyOption)
-          ? defaultDataFieldLatex(field.name, dataSource.spatialUnit, dimensionNames)
+        const latex = firstDimension && source.latex === legacyDataFieldLatex(field.name, sourceTableUnit(dataSource), firstDimension.name, legacyOption)
+          ? defaultDataFieldLatex(field.name, sourceTableUnit(dataSource), dimensionNames)
           : source.latex;
         normalizedSource = { ...withoutLegacyOption, latex };
       }
@@ -2885,7 +2889,7 @@ export const repairConfig = (input: unknown): RepairResult => {
           `\\{${legacyIdentifier}\\}`
         ]);
         if (oldDefaults.has(normalizedSource.latex)) {
-          const nextLatex = defaultCollectionDataFieldLatex(field.name, dataSource.spatialUnit, dimensionNames);
+          const nextLatex = defaultCollectionDataFieldLatex(field.name, sourceTableUnit(dataSource), dimensionNames);
           if (nextLatex !== normalizedSource.latex) {
             const previousReplacement = sourceLatexReplacements.get(normalizedSource.latex);
             if (!sourceLatexReplacements.has(normalizedSource.latex)) {

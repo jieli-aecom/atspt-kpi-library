@@ -1,3 +1,4 @@
+import { sourceTableUnit } from './types.js';
 import type { KpiPoolConfig } from './types.js';
 
 export type TableFieldMoveResult = {
@@ -28,7 +29,7 @@ export const moveTableField = (
     !target ||
     !field ||
     source.id === target.id ||
-    source.spatialUnit !== target.spatialUnit ||
+    sourceTableUnit(source) !== sourceTableUnit(target) ||
     field.generatedRelationId ||
     target.fields.some((targetField) => targetField.id === field.id) ||
     (source.primaryKeyFieldId === field.id && sourceHasRelations)

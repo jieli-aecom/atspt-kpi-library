@@ -106,10 +106,14 @@ export type DataSource = {
   name: string;
   description?: string;
   spatialUnit: SpatialUnit;
+  customUnit?: string;
   primaryKeyFieldId?: string;
   fields: DataSourceField[];
   fieldGroups: DataSourceFieldGroup[];
 };
+
+export const sourceTableUnit = (source?: Pick<DataSource, 'spatialUnit' | 'customUnit'>): string =>
+  (source?.spatialUnit || source?.customUnit || '').trim();
 
 export type TableRelation = {
   id: string;

@@ -1,3 +1,4 @@
+import { sourceTableUnit } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { installPopupDragGuard } from './popupDragGuard';
 import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
@@ -3444,7 +3445,7 @@ const dataSourceGroupName = (config: KpiPoolConfig, dataSourceId: string) =>
   config.dataSourceGroups.find((group) => group.itemIds.includes(dataSourceId))?.name.trim() || '';
 
 const groupedDataSourceLabel = (config: KpiPoolConfig, source: DataSource) => {
-  const tableLabel = spatiallyScaledTableLabel(`${source.name}${isScenarioTable(config, source) ? ' scenario' : ''}`, source.spatialUnit);
+  const tableLabel = spatiallyScaledTableLabel(`${source.name}${isScenarioTable(config, source) ? ' scenario' : ''}`, sourceTableUnit(source));
   const groupName = dataSourceGroupName(config, source.id);
   return groupName ? `${groupName} ${tableLabel}` : tableLabel;
 };
@@ -3453,7 +3454,7 @@ const GroupedDataSourceDisplay = ({ config, source }: { config: KpiPoolConfig; s
   const groupName = dataSourceGroupName(config, source.id);
   return <span className="grouped-data-source-label">
     {groupName ? <span className="data-source-group-badge">{groupName}</span> : null}
-    <span className="data-source-table-label">{source.name} {isScenarioTable(config, source) ? <span className="source-summary-dimension-badge">scenario</span> : null} {source.spatialUnit ? <span className="source-summary-dimension-badge">by {source.spatialUnit}</span> : null}</span>
+    <span className="data-source-table-label">{source.name} {isScenarioTable(config, source) ? <span className="source-summary-dimension-badge">scenario</span> : null} {sourceTableUnit(source) ? <span className="source-summary-dimension-badge">by {sourceTableUnit(source)}</span> : null}</span>
   </span>;
 };
 
@@ -6251,6 +6252,7 @@ function DataSourceHeader({
                       />
                       <textarea className="library-description-input" rows={1} aria-label="Table description" placeholder="Add description (optional)" value={source.description ?? ''} onChange={(event) => updateDataSource(sourceIndex, { description: event.target.value })} />
                     </div>
+                    <div className="data-source-unit-editor">
                     <select
                       className="data-source-header-spatial-unit"
                       value={source.spatialUnit}
@@ -6260,6 +6262,8 @@ function DataSourceHeader({
                       <option value="">No spatial unit</option>
                       {spatialUnitOptions.map((unit) => <option value={unit} key={unit}>{unit}</option>)}
                     </select>
+                    {!source.spatialUnit ? <input className="data-source-custom-unit" aria-label="Custom table unit" placeholder="Specify unit" value={source.customUnit ?? ''} onChange={(event) => updateDataSource(sourceIndex, { customUnit: event.target.value })} /> : null}
+                    </div>
                     <span className="data-source-header-details">
                       <small>{source.fields.length} {source.fields.length === 1 ? 'field' : 'fields'}</small>
                       {primaryKeyField ? <span className="data-source-primary-key-summary" title={`Primary key: ${primaryKeyField.name || 'Unnamed field'}`}><KeyRound size={9} aria-hidden="true" /><b>PK</b><span>{primaryKeyField.name || 'Unnamed field'}</span></span> : null}
@@ -6515,7 +6519,7 @@ function DataSourceHeader({
         enumEditor={renderLookupEnumOptions(fieldDetailsField.options, fieldDetailsField.name || 'Field',
           (options) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { options }), fieldDetailsField.enumId,
           (enumId) => { const definition = config.valueEnums.find((entry) => entry.id === enumId); updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { enumId, ...(definition ? { options: [...definition.options] } : {}) }); })}
-        defaultLatex={fieldDetailsField.preferredLatex || sourceFieldDefaultLatex(fieldDetailsField, fieldDetailsSource?.spatialUnit ?? '', fieldDetailsGroup?.dimensions)}
+        defaultLatex={fieldDetailsField.preferredLatex || sourceFieldDefaultLatex(fieldDetailsField, sourceTableUnit(fieldDetailsSource), fieldDetailsGroup?.dimensions)}
         onChange={(partial) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, partial)}
         onChangeGlobally={(latex, reportProgress) => changeFieldLatexGlobally(fieldDetailsSourceIndex, fieldDetailsFieldIndex, latex, reportProgress)}
         onClose={closeFieldDetails}
@@ -6529,7 +6533,7 @@ function DataSourceHeader({
         );
         const primaryKeyIsLocked = moveSource.primaryKeyFieldId === moveField.id && sourceHasRelations;
         const targets = config.dataSources.filter(
-          (entry) => entry.id !== moveSource.id && entry.spatialUnit === moveSource.spatialUnit && !entry.fields.some((field) => field.id === moveField.id)
+          (entry) => entry.id !== moveSource.id && sourceTableUnit(entry) === sourceTableUnit(moveSource) && !entry.fields.some((field) => field.id === moveField.id)
         );
         const citedCount = config.kpis.reduce((count, kpi) => count + kpi.sources.filter(
           (item) => item.type === 'dataField' && item.dataSourceId === moveSource.id && item.fieldId === moveField.id
@@ -6543,7 +6547,7 @@ function DataSourceHeader({
           >
             <div className="data-source-field-move-heading">
               <strong>Move field to table</strong>
-              <span>{moveField.name || 'Untitled field'} · {moveSource.spatialUnit || 'No spatial unit'}</span>
+              <span>{moveField.name || 'Untitled field'} · {sourceTableUnit(moveSource) || 'No spatial unit'}</span>
             </div>
             {primaryKeyIsLocked
               ? <span className="data-source-field-move-empty">Remove this primary key’s relationships before moving it.</span>
@@ -6570,6 +6574,7 @@ function DataSourceHeader({
           <div className="library-detail-properties">
             <label className="field"><span>Name</span><input aria-label="Table name" value={source.name} onChange={(event) => updateDataSource(index, { name: event.target.value })} /></label>
             <label className="field"><span>Spatial unit</span><select aria-label="Spatial unit" value={source.spatialUnit} onChange={(event) => updateDataSource(index, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}><option value="">No spatial unit</option>{spatialUnitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
+            {!source.spatialUnit ? <label className="field"><span>Unit (LaTeX subscript)</span><input aria-label="Custom table unit" placeholder="Specify unit" value={source.customUnit ?? ''} onChange={(event) => updateDataSource(index, { customUnit: event.target.value })} /></label> : null}
             <label className="field full-width"><span>Description</span><textarea rows={2} aria-label="Table description" value={source.description ?? ''} onChange={(event) => updateDataSource(index, { description: event.target.value })} /></label>
           </div>
           <div className="library-detail-links">{source.fields.map((field) => <button type="button" className="secondary-action tiny" key={field.id} onClick={() => { setSupportTarget(undefined); setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id }); }}>{field.name || 'Untitled field'}</button>)}</div>
@@ -6644,7 +6649,7 @@ function KpiSourceGroupedSummary({
               {name ? <span className="source-summary-table-group-heading">{name}</span> : null}
               {tables.map(({ dataSource, items }) => (
                 <span className="source-summary-group" key={dataSource.id}>
-                  <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}{isScenarioTable(config, dataSource) ? <> <span className="source-summary-dimension-badge">scenario</span></> : null}{dataSource.spatialUnit.trim() ? <> <span className="source-summary-dimension-badge">by {dataSource.spatialUnit.trim()}</span></> : null}</span></span>
+                  <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}{isScenarioTable(config, dataSource) ? <> <span className="source-summary-dimension-badge">scenario</span></> : null}{sourceTableUnit(dataSource).trim() ? <> <span className="source-summary-dimension-badge">by {sourceTableUnit(dataSource).trim()}</span></> : null}</span></span>
                   <span className="source-summary-items">{items.map(({ source, field }) => {
                     const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
                     return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{field.name}{source.type === 'dataField' && source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
@@ -6933,7 +6938,7 @@ function KpiSourceEditor({
       onChange(kpi.sources.filter((item) => !sameField(item)));
       return;
     }
-    const baseLatex = field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, dataSource?.spatialUnit ?? '', group?.dimensions);
+    const baseLatex = field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, sourceTableUnit(dataSource), group?.dimensions);
     onChange(reconcileKpiScenarios(config, { ...kpi, sources: [...kpi.sources, {
           id: createLocalId('kpi-source'),
           type: 'dataField',
@@ -7330,7 +7335,7 @@ function KpiSourceEditor({
                   ><Database size={13} aria-hidden="true" /><span><strong>{group.name}</strong><small>{group.dataSources.length} {group.dataSources.length === 1 ? 'table' : 'tables'}</small></span><ChevronDown size={11} className={isActive ? 'rotate' : ''} /></button>;
                 })}
                 {ungroupedPickerDataSources.filter((source) => (source.category ?? 'Preprocessed Constants') === category).map((source) => (
-                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={`table:${source.id}`} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={13} aria-hidden="true" /><span><strong>{spatiallyScaledTableLabel(source.name, source.spatialUnit)}</strong></span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={`table:${source.id}`} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={13} aria-hidden="true" /><span><strong>{spatiallyScaledTableLabel(source.name, sourceTableUnit(source))}</strong></span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
                 ))}
               </div> : null}
               </section>)}
@@ -7340,7 +7345,7 @@ function KpiSourceEditor({
               {selectedPickerDataSourceGroup.dataSources.length === 0 ? <span className="empty-option">No tables in this group.</span> : null}
               <div className="source-table-buttons" aria-label={`Tables in ${selectedPickerDataSourceGroup.name}`}>
                 {selectedPickerDataSourceGroup.dataSources.map((source) => (
-                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? `data-group:${selectedPickerDataSourceGroup.id}` : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(source.name, source.spatialUnit)}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? `data-group:${selectedPickerDataSourceGroup.id}` : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(source.name, sourceTableUnit(source))}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
                 ))}
               </div>
             </fieldset> : null}
@@ -7392,7 +7397,7 @@ function KpiSourceEditor({
             ) : null}
             {selectedDataSource ? (
             <fieldset className="source-scope-panel" ref={selectedPickerDataSourceGroup ? undefined : sourceTablePickerPanelRef}>
-              <legend>Fields in {selectedDataSource.name}{selectedDataSource.spatialUnit ? ` · ${selectedDataSource.spatialUnit}` : ''}</legend>
+              <legend>Fields in {selectedDataSource.name}{sourceTableUnit(selectedDataSource) ? ` · ${sourceTableUnit(selectedDataSource)}` : ''}</legend>
               {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
               {visibleFields.map((field) => {
                 const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));

@@ -1,3 +1,4 @@
+import { sourceTableUnit } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { layoutTableRegions } from './tableDiagramLayout';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -654,7 +655,7 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
                   <text x={table.x + 15} y={table.y + 14} fill="#d8e8ee" fontSize="10" fontWeight="700">{table.category}</text>
                   {table.groupName ? <g><title>{table.groupName}</title><rect x={table.x + 14} y={table.y + 22} width={groupBadgeWidth} height="13" rx="6.5" fill="#d9e9ee" /><text x={table.x + 21} y={table.y + 31.5} fill="#315f70" fontSize="8" fontWeight="800">{groupBadgeLabel}</text></g> : null}
                   <text x={table.x + 15} y={table.y + (table.groupName ? 47 : 41)} fill="#ffffff" fontSize={table.groupName ? 14 : 15} fontWeight="800">{shortened(table.source.name || 'Untitled table', Math.floor((table.width - 90) / 8))}</text>
-                  <text x={table.x + 15} y={table.y + (table.groupName ? 61 : 58)} fill="#d8e8ee" fontSize={table.groupName ? 9.5 : 10.5}>{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {table.source.spatialUnit || 'No spatial unit'}</text>
+                  <text x={table.x + 15} y={table.y + (table.groupName ? 61 : 58)} fill="#d8e8ee" fontSize={table.groupName ? 9.5 : 10.5}>{table.source.fields.length} {table.source.fields.length === 1 ? 'field' : 'fields'} · {sourceTableUnit(table.source) || 'No spatial unit'}</text>
                   {supportButton(table.x + table.width - 70, table.y + 32, { dataSourceId: table.source.id }, table.source.name || 'table', onViewSupport)}
                   <g className="table-diagram-drag-handle" aria-hidden="true">
                     {[0, 1, 2].flatMap((row) => [0, 1].map((column) => <circle key={`${row}:${column}`} cx={table.x + table.width - 17 + column * 5} cy={table.y + 34 + row * 5} r="1.25" fill="#d8e8ee" />))}

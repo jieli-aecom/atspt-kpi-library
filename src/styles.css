@@ -2568,6 +2568,22 @@ h1 {
   box-shadow: 0 0 0 2px rgba(49, 90, 108, 0.18);
 }
 
+.data-source-unit-editor {
+  z-index: 1;
+  grid-column: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 150px;
+}
+
+.data-source-custom-unit {
+  width: 100%;
+  min-width: 0;
+  padding: 3px 4px;
+  font-size: 11px;
+}
+
 .data-source-header-spatial-unit {
   z-index: 1;
   grid-column: 5;
