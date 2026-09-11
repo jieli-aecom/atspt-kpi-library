@@ -8036,7 +8036,7 @@ const hasFormulaTokenBoundaries = (formula: string, token: string, index: number
   const previous = index > 0 ? formula[index - 1] : undefined;
   const nextIndex = index + token.length;
   const next = nextIndex < formula.length ? formula[nextIndex] : undefined;
-  return !(isFormulaIdentifierCharacter(token[0]) && isFormulaIdentifierCharacter(previous)) &&
+  return !(isFormulaIdentifierCharacter(token[0]) && (isFormulaIdentifierCharacter(previous) || previous === '\\')) &&
     !(isFormulaIdentifierCharacter(token[token.length - 1]) && isFormulaIdentifierCharacter(next));
 };
 
@@ -8153,7 +8153,14 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
     token.prominent ? 'formula-final-result-token' : '',
     `formula-token-${token.index}`
   ].filter(Boolean).join(' ');
-  const uniqueTokens = [...new Map(tokens.filter((token) => tokenMatchLatex(token).trim()).map((token) => [tokenMatchLatex(token), token])).values()]
+  const tokensByLatex = new Map<string, FormulaSemanticToken>();
+  tokens.filter((token) => tokenMatchLatex(token).trim()).forEach((token) => {
+    const key = tokenMatchLatex(token);
+    // Generic unit/scale decoration must not erase a domain's source link.
+    if (token.kind === 'scale' && tokensByLatex.get(key)?.target) return;
+    tokensByLatex.set(key, token);
+  });
+  const uniqueTokens = [...tokensByLatex.values()]
     .map((token, index) => ({ ...token, index }))
     .sort((left, right) => tokenMatchLatex(right).length - tokenMatchLatex(left).length);
   const matchingTokens = uniqueTokens.filter((token) => formulaContainsToken(formula, token));
@@ -8191,10 +8198,8 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
       const nestedTokens = activeTokens.filter((token) =>
         token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale' || token.kind === 'scenario')
       );
-      const qualifiedPrefix = qualifiedFormulaTokenPrefix(parentToken);
-      const nestedSearchLatex = qualifiedPrefix && parentLatex[qualifiedPrefix.length] === '|'
-        ? parentLatex.slice(0, qualifiedPrefix.length)
-        : parentLatex;
+      // Filter qualifiers contain domain values too (e.g. Mode_{Link|Car}).
+      const nestedSearchLatex = parentLatex;
       let nestedCursor = 0;
       let decoratedParent = '';
       while (nestedCursor < nestedSearchLatex.length) {
@@ -8356,6 +8361,14 @@ function InteractiveFormulaPreview({
     [currentConfig, currentItem, currentKpi]
   );
   const { config, kpi, item } = useDeferredValue(previewInput);
+  const customUnitTokens = useMemo(() => config.dataSources.flatMap((source): FormulaSemanticToken[] => {
+    const unit = !source.spatialUnit ? source.customUnit?.trim() : '';
+    return unit ? [{
+      latex: latexIdentifier(unit),
+      kind: 'scale',
+      label: `Table unit: ${unit}`
+    }] : [];
+  }), [config.dataSources]);
   const dimensionTokens = useMemo(() => {
     const currentDimensionNames = new Set(kpi.dimensions.map((dimension) => dimension.name.trim().toLocaleLowerCase()).filter(Boolean));
     const sourceIdsByDimensionName = new Map<string, string[]>();
@@ -8394,13 +8407,15 @@ function InteractiveFormulaPreview({
   }, [config, kpi]);
   const fieldDomainTokens = useMemo(() => formulaFieldDomains(config, kpi).flatMap((domain): FormulaSemanticToken[] =>
     domain.options.flatMap((option) => {
-      const latex = latexIdentifier(option);
-      return latex ? [{
+      const variants = [...new Set([latexIdentifier(option), option.trim()])].filter(Boolean);
+      return variants.map((latex) => ({
         latex,
         kind: 'dimension' as const,
-        label: `${domain.name} option: ${option}`,
-        target: domain.sourceIds.length === 1 ? { kind: 'source' as const, sourceId: domain.sourceIds[0] } : undefined
-      }] : [];
+        label: `${domain.name} option: ${option}\nSources: ${domain.sourceIds.map((id) => sourceItemLabel(config, kpi.sources.find((source) => source.id === id)!)).join('; ')}`,
+        // Shared domains still have a traceable origin. Nested occurrences use
+        // their enclosing source below; standalone values use the first citation.
+        target: { kind: 'source' as const, sourceId: domain.sourceIds[0] }
+      }));
     })
   ), [config, kpi]);
   const referencedKpiNames = JSON.stringify(kpi.sources
@@ -8449,6 +8464,7 @@ function InteractiveFormulaPreview({
         kind: 'scale' as const,
         label: `Spatial scale: ${keyword}`
       })),
+      ...customUnitTokens,
       ...priorItemTokens,
       ...scenarioFormulaTokens(kpi),
       {
@@ -8459,7 +8475,7 @@ function InteractiveFormulaPreview({
         originFormulaIndex: currentFormulaIndex >= 0 ? currentFormulaIndex : undefined
       }
     ]),
-    [kpi.scenarioNames, currentFormulaIndex, dimensionTokens, fieldDomainTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
+    [kpi.scenarioNames, currentFormulaIndex, customUnitTokens, dimensionTokens, fieldDomainTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
   const renderedHtml = useMemo(
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),
