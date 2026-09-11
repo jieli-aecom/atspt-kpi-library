@@ -11,8 +11,8 @@ const renderer = app.slice(app.indexOf('const formulaDecorationCache ='), app.in
 const domainTokens = app.slice(app.indexOf('  const fieldDomainTokens = useMemo('), app.indexOf('  const referencedKpiNames = JSON.stringify'));
 const compiled = ts.transpileModule(`${renderer}
 function getDomainTokens(config, kpi) { ${domainTokens} return fieldDomainTokens; }
-({ decorateFormulaTokens, getDomainTokens });`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-const { decorateFormulaTokens, getDomainTokens } = runInNewContext(compiled, {
+({ decorateFormulaTokens, getDomainTokens, formulaTokenTarget });`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const { decorateFormulaTokens, getDomainTokens, formulaTokenTarget } = runInNewContext(compiled, {
   katex, spatialScaleKeys: [], spatialScaleLabels: {}, genericSpatialUnits: [],
   useMemo: (fn: () => unknown) => fn(),
   formulaFieldDomains: (config: { domains: unknown[] }) => config.domains,
@@ -56,4 +56,41 @@ test('generic scale keywords cannot erase a domain source link', () => {
   const result = decorateFormulaTokens('Car', [...tokens(), { latex: 'Car', kind: 'scale', label: 'Table unit' }]);
   assert.equal(result.tokens[0].kind, 'dimension');
   assert.equal(result.tokens[0].target.sourceId, 'before');
+});
+
+const namedDomainTokens = () => getDomainTokens({ domains: [
+  { enumId: 'mode-domain', name: 'Mode', options: ['Car'], sourceIds: ['mode-field'] },
+  { enumId: 'power-domain', name: 'Power Type', options: ['Electric', 'Non Electric'], sourceIds: ['power-field', 'power-field-after'] }
+] }, { sources: [{ id: 'mode-field' }, { id: 'power-field' }, { id: 'power-field-after' }] });
+
+test('cited domain names decorate lookup arguments and filtered source expressions', () => {
+  const semanticTokens = [...namedDomainTokens(), {
+    latex: 'DailyVMT_{ReportUnit}', kind: 'source', label: 'Daily VMT', target: { kind: 'source', sourceId: 'daily-vmt' }
+  }];
+  for (const [formula, name, sourceId] of [
+    ['MilesperGallonLookup(Mode,IsCurrent)', 'Mode', 'mode-field'],
+    ['DailyVMT_{ReportUnit|PowerType=NonElectric}', 'PowerType', 'power-field'],
+    [String.raw`\text{Power Type}`, 'Power Type', 'power-field']
+  ]) {
+    const result = decorateFormulaTokens(formula, semanticTokens);
+    const nameToken = result.tokens.find((token) => token.latex === name);
+    assert.ok(nameToken);
+    assert.match(nameToken.label, /^Domain: /);
+    assert.equal(nameToken.target.sourceId, sourceId);
+    assert.ok(render(formula, semanticTokens).includes(`formula-token-${nameToken.index}`));
+  }
+});
+
+test('nested domain references trace their own field, using the enclosing citation only when it shares the domain', () => {
+  for (const latex of ['PowerType', 'NonElectric']) {
+    const token = namedDomainTokens().find((token) => token.latex === latex);
+    assert.equal(formulaTokenTarget(token, { kind: 'source', sourceId: 'daily-vmt' }).sourceId, 'power-field');
+    assert.equal(formulaTokenTarget(token, { kind: 'source', sourceId: 'power-field-after' }).sourceId, 'power-field-after');
+    assert.equal(formulaTokenTarget(token).sourceId, 'power-field');
+  }
+});
+
+test('unnamed custom domains do not introduce a synthetic Custom domain keyword', () => {
+  const domainTokens = getDomainTokens({ domains: [{ name: 'Custom domain', options: ['Car'], sourceIds: ['field'] }] }, { sources: [{ id: 'field' }] });
+  assert.equal(domainTokens.some((token) => token.latex === 'Customdomain'), false);
 });

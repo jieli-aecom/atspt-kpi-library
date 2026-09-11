@@ -3666,6 +3666,7 @@ const formulaDimensions = (config: KpiPoolConfig, kpi: KpiMetric): DataSourceFie
 type FormulaFieldDomain = {
   key: string;
   name: string;
+  enumId?: string;
   options: string[];
   sourceIds: string[];
 };
@@ -3692,6 +3693,7 @@ const formulaFieldDomains = (config: KpiPoolConfig, kpi: KpiMetric): FormulaFiel
       domains.set(key, {
         key,
         name: globalDomain?.name.trim() || 'Custom domain',
+        enumId: globalDomain?.id,
         options: [...(globalDomain?.options ?? field.options)],
         sourceIds: [source.id]
       });
@@ -7998,6 +8000,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
 
 type FormulaSemanticToken = {
   latex: string;
+  sourceIds?: string[];
   matchLatex?: string;
   requiresFollowingParenthesis?: boolean;
   kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale' | 'scenario';
@@ -8016,6 +8019,12 @@ const formulaHtmlCache = new Map<string, string>();
 const formulaTokenValidityCache = new Map<string, boolean>();
 const formulaTokenMatchCache = new Map<string, Map<string, boolean>>();
 const formulaCacheLimit = 500;
+
+const formulaTokenTarget = (token: FormulaSemanticToken, parentTarget?: FormulaSemanticTarget) =>
+  token.kind === 'dimension' && parentTarget?.kind === 'source' &&
+  (!token.sourceIds || token.sourceIds.includes(parentTarget.sourceId))
+    ? parentTarget
+    : token.target;
 
 const cacheFormulaResult = <T,>(cache: Map<string, T>, key: string, value: T) => {
   if (cache.size >= formulaCacheLimit) {
@@ -8406,14 +8415,18 @@ function InteractiveFormulaPreview({
     });
   }, [config, kpi]);
   const fieldDomainTokens = useMemo(() => formulaFieldDomains(config, kpi).flatMap((domain): FormulaSemanticToken[] =>
-    domain.options.flatMap((option) => {
-      const variants = [...new Set([latexIdentifier(option), option.trim()])].filter(Boolean);
+    [
+      ...(domain.enumId ? [{ value: domain.name, label: `Domain: ${domain.name}` }] : []),
+      ...domain.options.map((option) => ({ value: option, label: `${domain.name} option: ${option}` }))
+    ].flatMap(({ value, label }) => {
+      const variants = [...new Set([latexIdentifier(value), value.trim()])].filter(Boolean);
       return variants.map((latex) => ({
         latex,
         kind: 'dimension' as const,
-        label: `${domain.name} option: ${option}\nSources: ${domain.sourceIds.map((id) => sourceItemLabel(config, kpi.sources.find((source) => source.id === id)!)).join('; ')}`,
+        label: `${label}\nSources: ${domain.sourceIds.map((id) => sourceItemLabel(config, kpi.sources.find((source) => source.id === id)!)).join('; ')}`,
+        sourceIds: domain.sourceIds,
         // Shared domains still have a traceable origin. Nested occurrences use
-        // their enclosing source below; standalone values use the first citation.
+        // their enclosing source when it cites this domain; otherwise use the first citation.
         target: { kind: 'source' as const, sourceId: domain.sourceIds[0] }
       }));
     })
@@ -8569,7 +8582,7 @@ function InteractiveFormulaPreview({
               : undefined;
             const parentIndex = parentIndexClass ? Number.parseInt(parentIndexClass.slice('formula-token-'.length), 10) : Number.NaN;
             const parentTarget = Number.isNaN(parentIndex) ? undefined : semantic.tokens.find((entry) => entry.index === parentIndex)?.target;
-            if (parentTarget?.kind === 'source') semanticTarget = parentTarget;
+            semanticTarget = formulaTokenTarget(token, parentTarget);
           }
           if (!semanticTarget) return;
           event.stopPropagation();
