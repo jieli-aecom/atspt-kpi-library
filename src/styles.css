@@ -860,7 +860,8 @@ h1 {
   max-height: min(720px, 72vh);
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   background: #f7fafb;
@@ -6851,6 +6852,11 @@ h1 {
 
   .expanded-overview {
     order: 1;
+  }
+
+  .formulae-tab-panel > .formula-items-heading,
+  .sources-tab-panel > span:first-child {
+    display: none;
   }
 
   .expanded-tab-panel {

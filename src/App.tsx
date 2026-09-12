@@ -9106,8 +9106,8 @@ function ExpandedKpiEditor({
       </div>
       <section className="expanded-section wide formulae-expanded-column">
         <label className="field expanded-independent expanded-overview">
-          <span>Full overview</span>
           <DebouncedTextarea
+            aria-label="Full overview"
             rows={2}
             value={kpi.description.overview}
             onValueChange={(overview) =>
