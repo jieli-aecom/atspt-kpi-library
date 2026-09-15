@@ -57,6 +57,7 @@ import {
 } from './configSchema';
 import { mergeImportedConfig } from './configMerge';
 import { buildSystematicJsonExport } from './systematicJsonExport';
+import { buildTableSchemaJsonExport } from './tableSchemaJsonExport';
 import { TableDiagram } from './TableDiagram';
 import { KpiSupportDialog, KpiSupportSummary } from './KpiSupportView';
 import type { SupportTarget } from './kpiSupport';
@@ -64,6 +65,7 @@ import { moveTableField } from './tableFieldMove';
 import {
   buildKpiExcelRows,
   downloadKpiExcelWorkbook,
+  downloadTableSchemaExcelWorkbook,
   KPI_EXCEL_COLUMNS,
   type KpiExcelColumnKey
 } from './excelExport';
@@ -5636,17 +5638,16 @@ function DataSourceHeader({
           style={popoverPosition}
         >
           <div className="data-source-popover-heading">
-            <div>
-              <strong>Shared definitions</strong>
-              <span>Define reusable constants, global domains, lookups, and source tables.</span>
-            </div>
             <div className="data-source-library-actions">
               {activeLibrarySection === 'variables' ? <button className="primary-action tiny" type="button" onClick={() => addVariable()}><Plus size={12} /> Add constant</button> : null}
               {activeLibrarySection === 'enums' ? <button className="primary-action tiny" type="button" onClick={() => addValueEnum()}><Plus size={12} /> Add domain</button> : null}
               {activeLibrarySection === 'lookups' ? <button className="primary-action tiny" type="button" onClick={() => addLookup()}><Plus size={12} /> Add lookup</button> : null}
               {activeLibrarySection === 'tables' ? <>
                 <button className="secondary-action tiny" type="button" onClick={() => setDiagramOpen(true)}><GitBranch size={12} /> View diagram</button>
-                <button className="primary-action tiny" type="button" onClick={() => addDataSource()}><Plus size={12} /> Add source table</button>
+                <div className="data-source-export-actions" role="group" aria-label="Export table schema">
+                  <button className="secondary-action tiny" type="button" disabled={!config.dataSources.length} onClick={() => downloadTableSchemaExcelWorkbook(`${configFileStem(config.title)}-table-schema.xlsx`, config)}><Download size={12} /> Export Excel</button>
+                  <button className="secondary-action tiny" type="button" disabled={!config.dataSources.length} onClick={() => downloadFile(`${configFileStem(config.title)}-table-schema.json`, JSON.stringify(buildTableSchemaJsonExport(config), null, 2), 'application/json;charset=utf-8')}><FileJson size={12} /> Export JSON</button>
+                </div>
               </> : null}
             </div>
           </div>

@@ -12,7 +12,6 @@ import type {
   TableSourceCategory
 } from './types';
 import type { SupportTarget } from './kpiSupport';
-import { downloadTableSchemaExcelWorkbook } from './excelExport';
 
 const CARD_HEADER_HEIGHT = 68;
 const CARD_META_HEIGHT = 24;
@@ -446,7 +445,6 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
     image.onerror = () => URL.revokeObjectURL(url);
     image.src = url;
   };
-  const exportExcel = () => downloadTableSchemaExcelWorkbook(`${safeName}-table-schema.xlsx`, config);
 
   return <div className="table-diagram-backdrop" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
@@ -473,7 +471,6 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
             <button type="button" title="Reset zoom" onClick={() => setZoom(DEFAULT_ZOOM)}>{Math.round(zoom * 100)}%</button>
             <button className="mini-icon-button" type="button" title="Zoom in" aria-label="Zoom in" disabled={zoom >= 1.5} onClick={() => setZoom((current) => Math.min(1.5, current + 0.1))}><Plus size={13} /></button>
           </div>
-          <button className="secondary-action small" type="button" disabled={!config.dataSources.length} onClick={exportExcel}><Download size={13} /> Export Excel</button>
           <button className="secondary-action small" type="button" disabled={!config.dataSources.length} onClick={exportSvg}><Download size={13} /> Export SVG</button>
           <button className="primary-action small" type="button" disabled={!config.dataSources.length} onClick={exportPng}><Download size={13} /> Export PNG</button>
           <button className="mini-icon-button table-diagram-close" type="button" aria-label="Close source table diagram" title="Close" onClick={onClose}><X size={16} /></button>

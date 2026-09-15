@@ -1,0 +1,28 @@
+# Table schema exports
+
+The Source Tables library toolbar provides **View diagram**, **Export Excel**, and **Export JSON**. Both exports use the current in-memory schema, including unsaved edits. Add tables within categories. The diagram retains its SVG and PNG exports.
+
+## JSON format
+
+Tables appear under their category keys: `PreprocessedConstants`, `ScenarioUpstream`, and `KPIPreparation`. Only populated categories are included. Library and field groups are omitted.
+
+Each table contains `PK`, `Fields`, and `Joins`. `PK` is the exported primary-key field name, or `null` when no primary key is configured. Field types use the schema values (`id`, `number`, `boolean`, `text`, `enum`, `collection`). Only collections include `ElementType`.
+
+Names retain ASCII letters, digits, and underscores; spaces, hyphens, and other characters are removed. Names starting with digits receive a leading underscore. Empty names fall back to `Table`, `Field`, or `Option`. Collisions receive `_2`, `_3`, etc. Table names are unique across all categories so `With` remains unambiguous; field names are unique within each table. References use these same allocated names.
+
+Dimensioned fields expand to one field per option combination, preserving field, dimension, and option order. For example, `Speed` with mode options `Car` and `Public Transit` becomes `Speed_Car` and `Speed_PublicTransit`. A second dimension with `AM` and `PM` produces `Speed_Car_AM`, `Speed_Car_PM`, `Speed_PublicTransit_AM`, and `Speed_PublicTransit_PM`. Each expanded field retains its type and collection element type. A dimension with no options produces no concrete fields.
+
+Each relationship appears from both tables' perspectives:
+
+- `1:1`: each table's primary key joins to the other's primary key.
+- `1:N`: the source primary key joins to the generated foreign key in the target. The reverse entry is `N:1`.
+- `N:N`: each table's generated collection of related IDs joins to the other table's primary key, using collection membership.
+
+Joins without existing endpoint fields are omitted. Export does not modify the library configuration.
+
+## Verification
+
+```powershell
+node --test --test-isolation=none tests/tableSchemaJsonExport.test.ts
+npm run build
+```
