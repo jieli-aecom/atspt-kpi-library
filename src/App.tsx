@@ -3737,7 +3737,8 @@ function DataSourceHeader({
     targetDataSourceId: string;
     cardinality: TableRelation['cardinality'];
     direction: 'one' | 'many';
-    anchor: 'primaryKey' | 'table';
+    anchor: 'primaryKey' | 'table' | 'linkedField';
+    relationId?: string;
   } | null>(null);
   const [fieldGroupDomainPickerId, setFieldGroupDomainPickerId] = useState<string>();
   const [fieldDetailsEditor, setFieldDetailsEditor] = useState<{ dataSourceId: string; fieldId: string }>();
@@ -4486,22 +4487,42 @@ function DataSourceHeader({
       }))
     });
   };
-  const deleteTableRelation = (relationId: string) => removeRelations(new Set([relationId]));
-  const addTableRelation = () => {
+  const deleteTableRelation = (relationId: string) => {
+    removeRelations(new Set([relationId]));
+    if (relationEditor?.relationId === relationId) setRelationEditor(null);
+  };
+  const editTableRelation = (relationId: string, dataSourceId: string, anchor: NonNullable<typeof relationEditor>['anchor']) => {
+    const relation = config.tableRelations.find((entry) => entry.id === relationId);
+    if (!relation) return;
+    const isSource = relation.sourceDataSourceId === dataSourceId;
+    setRelationEditor({
+      relationId,
+      sourceDataSourceId: dataSourceId,
+      targetDataSourceId: isSource ? relation.targetDataSourceId : relation.sourceDataSourceId,
+      cardinality: relation.cardinality,
+      direction: relation.cardinality === 'oneToMany' && !isSource ? 'many' : 'one',
+      anchor
+    });
+  };
+  const saveTableRelation = () => {
     if (!relationEditor) return;
     const anchorId = relationEditor.sourceDataSourceId;
     const relatedId = relationEditor.targetDataSourceId;
     const sourceId = relationEditor.direction === 'one' ? anchorId : relatedId;
     const targetId = relationEditor.direction === 'one' ? relatedId : anchorId;
     if (!sourceId || !targetId || sourceId === targetId) return;
-    const duplicate = config.tableRelations.some((relation) => relation.cardinality === relationEditor.cardinality && (
+    const duplicate = config.tableRelations.some((relation) => relation.id !== relationEditor.relationId && relation.cardinality === relationEditor.cardinality && (
       relationEditor.cardinality !== 'oneToMany'
         ? (relation.sourceDataSourceId === sourceId && relation.targetDataSourceId === targetId) ||
           (relation.sourceDataSourceId === targetId && relation.targetDataSourceId === sourceId)
         : relation.sourceDataSourceId === sourceId && relation.targetDataSourceId === targetId
     ));
     if (duplicate) return;
-    const workingSources = new Map(config.dataSources.map((source) => [source.id, source]));
+    if (relationEditor.relationId && !config.tableRelations.some((relation) => relation.id === relationEditor.relationId)) return;
+    const workingSources = new Map(config.dataSources.map((source) => [source.id, {
+      ...source,
+      fields: source.fields.filter((field) => !relationEditor.relationId || field.generatedRelationId !== relationEditor.relationId)
+    }]));
     const ensurePrimaryKey = (dataSourceId: string) => {
       const current = workingSources.get(dataSourceId);
       if (!current) return undefined;
@@ -4534,7 +4555,7 @@ function DataSourceHeader({
     const target = workingSources.get(targetId);
     if (!source || !target) return;
     const relation: TableRelation = {
-      id: createLocalId('relation'),
+      id: relationEditor.relationId ?? createLocalId('relation'),
       sourceDataSourceId: sourceId,
       targetDataSourceId: targetId,
       cardinality: relationEditor.cardinality
@@ -4603,8 +4624,46 @@ function DataSourceHeader({
         generatedRelationRole: 'targetCollection'
       }] });
     }
-    const dataSources = config.dataSources.map((entry) => workingSources.get(entry.id) ?? entry);
-    onConfigChange({ ...config, dataSources, tableRelations: [...config.tableRelations, relation] });
+    const removedFieldKeys = new Set<string>();
+    const dataSources = config.dataSources.map((entry) => {
+      const updated = workingSources.get(entry.id) ?? entry;
+      if (!relationEditor.relationId) return updated;
+      const replacement = updated.fields.find((field) => field.generatedRelationId === relation.id);
+      const previous = entry.fields.find((field) => field.generatedRelationId === relation.id);
+      if (!previous) return updated;
+      // Keep the field's identity, position and user-authored metadata when its role changes.
+      const fields = entry.fields.flatMap((field) => {
+        if (field.id !== previous.id) return [field];
+        if (!replacement) {
+          removedFieldKeys.add(`${entry.id}\u0000${field.id}`);
+          return [];
+        }
+        return [{ ...field, dataType: replacement.dataType, collectionItemType: replacement.collectionItemType, generatedRelationRole: replacement.generatedRelationRole }];
+      });
+      const originalIds = new Set(entry.fields.map((field) => field.id));
+      fields.push(...updated.fields.filter((field) => !originalIds.has(field.id) && field.id !== replacement?.id));
+      const fieldIds = new Set(fields.map((field) => field.id));
+      return {
+        ...updated,
+        fields,
+        fieldGroups: updated.fieldGroups.map((group) => ({
+          ...group,
+          position: group.position - entry.fields.slice(0, group.position).filter((field) => !fieldIds.has(field.id)).length,
+          fieldIds: group.fieldIds.filter((id) => fieldIds.has(id))
+        }))
+      };
+    });
+    onConfigChange({
+      ...config,
+      dataSources,
+      tableRelations: relationEditor.relationId
+        ? config.tableRelations.map((entry) => entry.id === relation.id ? relation : entry)
+        : [...config.tableRelations, relation],
+      kpis: config.kpis.map((kpi) => ({
+        ...kpi,
+        sources: kpi.sources.filter((source) => source.type !== 'dataField' || !removedFieldKeys.has(`${source.dataSourceId}\u0000${source.fieldId}`))
+      }))
+    });
     setRelationEditor(null);
   };
   const addDataSource = (insertionIndex = config.dataSources.length, groupId?: string, shiftGroupsAtInsertion = true, category: TableSourceCategory = 'Preprocessed Constants') => {
@@ -5845,12 +5904,35 @@ function DataSourceHeader({
               const sourceRelationEditorOpen = relationEditor?.sourceDataSourceId === source.id;
               const draftRelationSourceId = relationEditor?.direction === 'many' ? relationEditor.targetDataSourceId : relationEditor?.sourceDataSourceId;
               const draftRelationTargetId = relationEditor?.direction === 'many' ? relationEditor.sourceDataSourceId : relationEditor?.targetDataSourceId;
-              const relationDraftIsDuplicate = sourceRelationEditorOpen && relationEditor ? config.tableRelations.some((relation) => relation.cardinality === relationEditor.cardinality && (
+              const relationDraftIsDuplicate = sourceRelationEditorOpen && relationEditor ? config.tableRelations.some((relation) => relation.id !== relationEditor.relationId && relation.cardinality === relationEditor.cardinality && (
                 relationEditor.cardinality !== 'oneToMany'
                   ? (relation.sourceDataSourceId === draftRelationSourceId && relation.targetDataSourceId === draftRelationTargetId) ||
                     (relation.sourceDataSourceId === draftRelationTargetId && relation.targetDataSourceId === draftRelationSourceId)
                   : relation.sourceDataSourceId === draftRelationSourceId && relation.targetDataSourceId === draftRelationTargetId
               )) : false;
+              const renderRelationEditor = (className = '') => relationEditor ? <div className={`field-relation-popover ${className}`} role="dialog" aria-label={relationEditor.relationId ? 'Edit relationship' : 'Add relationship'}>
+                <div className="field-relation-popover-heading"><span><Link2 size={13} aria-hidden="true" /><strong>{relationEditor.relationId ? 'Edit relationship' : `Relate ${source.name || 'this table'}`}</strong></span><button className="mini-icon-button" type="button" title="Close" onClick={() => setRelationEditor(null)}><X size={12} /></button></div>
+                {!relationEditor.relationId && sourceRelations.length ? <div className="field-relation-existing">
+                  {sourceRelations.map((relation) => {
+                    const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
+                    const other = config.dataSources.find((entry) => entry.id === otherId);
+                    const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
+                    return <div key={relation.id}><button className="relation-edit-button" type="button" title="Edit relationship" onClick={() => editTableRelation(relation.id, source.id, relationEditor.anchor === 'linkedField' ? 'table' : relationEditor.anchor)}><b>{direction}</b>{other?.name ?? 'Missing table'}</button><button className="mini-icon-button danger" type="button" title="Delete relation" onClick={() => deleteTableRelation(relation.id)}><Trash2 size={11} /></button></div>;
+                  })}
+                </div> : null}
+                <label className="field"><span>Related table</span><select disabled={Boolean(relationEditor.relationId)} value={relationEditor.targetDataSourceId} onChange={(event) => setRelationEditor((current) => current ? { ...current, targetDataSourceId: event.target.value } : current)}>
+                  {config.dataSources.filter((entry) => entry.id !== source.id).map((entry) => <option value={entry.id} key={entry.id}>{entry.name || 'Untitled table'}</option>)}
+                </select></label>
+                <div className="field-relation-cardinality has-four" aria-label="Relationship cardinality and direction">
+                  <button className={relationEditor.cardinality === 'oneToOne' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToOne', direction: 'one' } : current)}><b>1:1</b><span>One to one</span></button>
+                  <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'one' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>This table is one</span></button>
+                  <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'many' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'many' } : current)}><b>N:1</b><span>This table is many</span></button>
+                  <button className={relationEditor.cardinality === 'manyToMany' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'manyToMany', direction: 'one' } : current)}><b>N:N</b><span>Many to many</span></button>
+                </div>
+                <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID. N:N adds a linked collection of the other table's IDs to both tables.</small>
+                {relationEditor.relationId && relationEditor.cardinality === 'oneToOne' ? <small className="field-relation-note">1:1 uses the tables' primary keys and removes this relationship's virtual fields and their KPI source references.</small> : null}
+                <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationDraftIsDuplicate} onClick={saveTableRelation}>{relationDraftIsDuplicate ? 'Relation already exists' : relationEditor.relationId ? 'Save relationship' : 'Add relationship'}</button>
+              </div> : null;
               const groupedFieldIds = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
               const fieldGroupPositions = new Set(source.fieldGroups.map((group) => group.position));
               const followsFieldGroup = (fieldIndex: number) => {
@@ -5905,7 +5987,6 @@ function DataSourceHeader({
                 const hasFormula = field.formulas?.some((item) => item.formula.trim());
                 const primaryKeyRelations = isPrimaryKey ? sourceRelations : [];
                 const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
-                const relationIsDuplicate = relationDraftIsDuplicate;
                 return (
                 <div
                   className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${hasFormula ? 'has-formula' : ''} ${preprocessingNeeded ? 'needs-preprocessing' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
@@ -5983,28 +6064,7 @@ function DataSourceHeader({
                         anchor: 'primaryKey'
                       })}
                     ><Link2 size={12} aria-hidden="true" />{primaryKeyRelations.length ? <span>{primaryKeyRelations.length}</span> : <Plus size={9} aria-hidden="true" />}</button> : null}
-                    {editorOpen && relationEditor ? <div className="field-relation-popover">
-                      <div className="field-relation-popover-heading"><span><Link2 size={13} aria-hidden="true" /><strong>Relate {field.name || 'primary key'}</strong></span><button className="mini-icon-button" type="button" title="Close" onClick={() => setRelationEditor(null)}><X size={12} /></button></div>
-                      {primaryKeyRelations.length ? <div className="field-relation-existing">
-                        {primaryKeyRelations.map((relation) => {
-                          const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
-                          const other = config.dataSources.find((entry) => entry.id === otherId);
-                          const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
-                          return <div key={relation.id}><span><b>{direction}</b>{other?.name ?? 'Missing table'}</span><button className="mini-icon-button danger" type="button" title="Delete relation" onClick={() => deleteTableRelation(relation.id)}><Trash2 size={11} /></button></div>;
-                        })}
-                      </div> : null}
-                      <label className="field"><span>Related table</span><select value={relationEditor.targetDataSourceId} onChange={(event) => setRelationEditor((current) => current ? { ...current, targetDataSourceId: event.target.value } : current)}>
-                        {config.dataSources.filter((entry) => entry.id !== source.id).map((entry) => <option value={entry.id} key={entry.id}>{entry.name || 'Untitled table'}</option>)}
-                      </select></label>
-                      <div className="field-relation-cardinality has-four" aria-label="Relationship cardinality and direction">
-                        <button className={relationEditor.cardinality === 'oneToOne' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToOne', direction: 'one' } : current)}><b>1:1</b><span>One to one</span></button>
-                        <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'one' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>This table is one</span></button>
-                        <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'many' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'many' } : current)}><b>N:1</b><span>This table is many</span></button>
-                        <button className={relationEditor.cardinality === 'manyToMany' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'manyToMany', direction: 'one' } : current)}><b>N:N</b><span>Many to many</span></button>
-                      </div>
-                      <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID. N:N adds a linked collection of the other table's IDs to both tables.</small>
-                      <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationIsDuplicate} onClick={addTableRelation}>{relationIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
-                    </div> : null}
+                    {editorOpen ? renderRelationEditor() : null}
                   </div>
                   <AutoGrowTextarea className="data-source-field-textarea" rows={1} value={field.name} aria-label="Field name" preventLineBreaks onValueChange={(name) => updateField(sourceIndex, fieldIndex, { name })} />
                   <select className="data-source-field-type" value={field.dataType} disabled={Boolean(field.generatedRelationId || source.primaryKeyFieldId === field.id)} aria-label="Field data type" onChange={(event) => updateField(sourceIndex, fieldIndex, { dataType: event.target.value as DataSourceFieldType })}>
@@ -6025,15 +6085,16 @@ function DataSourceHeader({
                     ? <DebouncedInput className="data-source-field-unit" value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onValueChange={(valueUnit) => updateField(sourceIndex, fieldIndex, { valueUnit })} />
                     : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
-                    <button
+                    {!field.generatedRelationId || isPrimaryKey ? <button
                       className={`mini-icon-button field-details-button ${preprocessingNeeded ? 'needs-preprocessing' : ''}`}
                       type="button"
                       title={preprocessingNeeded ? 'View field details — preprocessing required' : 'View field details and supported KPIs'}
                       aria-label={`View field details and supported KPIs for ${field.name || 'field'}`}
                       aria-haspopup="dialog"
                       onClick={() => setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id })}
-                    ><Eye size={12} aria-hidden="true" /></button>
-                    {field.generatedRelationId ? <><span className="relation-field-badge">Linked</span><button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <button
+                    ><Eye size={12} aria-hidden="true" /></button> : null}
+                    {field.generatedRelationId ? <><button className="relation-field-badge" type="button" title="Change relationship type" aria-label={`Change relationship type for ${field.name || 'linked field'}`} aria-haspopup="dialog" aria-expanded={sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId} onClick={() => editTableRelation(field.generatedRelationId!, source.id, 'linkedField')}>Linked</button>
+                    <button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <button
                       className="mini-icon-button danger"
                       type="button"
                       disabled={isPrimaryKey && primaryKeyRelations.length > 0}
@@ -6041,6 +6102,7 @@ function DataSourceHeader({
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
                     ><Trash2 size={12} /></button>}
                   </div>
+                  {sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId ? renderRelationEditor('linked-field-relation-popover') : null}
                   {(field.sources?.length || field.formulas?.some((item) => item.formula.trim())) ? <FieldFormulaSummary config={config} table={source} field={field} /> : null}
                   {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="data-source-field-enum-options">
                     {renderLookupEnumOptions(
@@ -6347,28 +6409,7 @@ function DataSourceHeader({
                                 anchor: 'table'
                               })}
                             ><Link2 size={11} /> Add relationship</button>
-                            {sourceRelationEditorOpen && relationEditor?.anchor === 'table' ? <div className="field-relation-popover table-relation-popover">
-                              <div className="field-relation-popover-heading"><span><Link2 size={13} aria-hidden="true" /><strong>Relate {source.name || 'this table'}</strong></span><button className="mini-icon-button" type="button" title="Close" onClick={() => setRelationEditor(null)}><X size={12} /></button></div>
-                              {sourceRelations.length ? <div className="field-relation-existing">
-                                {sourceRelations.map((relation) => {
-                                  const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
-                                  const other = config.dataSources.find((entry) => entry.id === otherId);
-                                  const direction = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : relation.sourceDataSourceId === source.id ? '1:N' : 'N:1';
-                                  return <div key={relation.id}><span><b>{direction}</b>{other?.name ?? 'Missing table'}</span><button className="mini-icon-button danger" type="button" title="Delete relation" onClick={() => deleteTableRelation(relation.id)}><Trash2 size={11} /></button></div>;
-                                })}
-                              </div> : null}
-                              <label className="field"><span>Related table</span><select value={relationEditor.targetDataSourceId} onChange={(event) => setRelationEditor((current) => current ? { ...current, targetDataSourceId: event.target.value } : current)}>
-                                {config.dataSources.filter((entry) => entry.id !== source.id).map((entry) => <option value={entry.id} key={entry.id}>{entry.name || 'Untitled table'}</option>)}
-                              </select></label>
-                              <div className="field-relation-cardinality has-four" aria-label="Relationship cardinality and direction">
-                                <button className={relationEditor.cardinality === 'oneToOne' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToOne', direction: 'one' } : current)}><b>1:1</b><span>One to one</span></button>
-                                <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'one' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'one' } : current)}><b>1:N</b><span>This table is one</span></button>
-                                <button className={relationEditor.cardinality === 'oneToMany' && relationEditor.direction === 'many' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'oneToMany', direction: 'many' } : current)}><b>N:1</b><span>This table is many</span></button>
-                                <button className={relationEditor.cardinality === 'manyToMany' ? 'is-active' : ''} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, cardinality: 'manyToMany', direction: 'one' } : current)}><b>N:N</b><span>Many to many</span></button>
-                              </div>
-                              <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID. N:N adds a linked collection of the other table's IDs to both tables.</small>
-                              <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationDraftIsDuplicate} onClick={addTableRelation}>{relationDraftIsDuplicate ? 'Relation already exists' : 'Add relationship'}</button>
-                            </div> : null}
+                            {sourceRelationEditorOpen && relationEditor?.anchor === 'table' ? renderRelationEditor('table-relation-popover') : null}
                           </div>
                         </div>
                       </div>

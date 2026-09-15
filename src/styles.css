@@ -3141,13 +3141,27 @@ h1 {
   padding: 3px 4px 3px 7px;
 }
 
-.field-relation-existing span {
+.field-relation-existing span,
+.relation-edit-button {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   color: #425e55;
   font-size: 10px;
+}
+
+.relation-edit-button {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.relation-edit-button:hover {
+  text-decoration: underline;
 }
 
 .field-relation-existing b {
@@ -3226,6 +3240,7 @@ h1 {
 }
 
 .relation-field-badge {
+  border: 1px solid transparent;
   border-radius: 999px;
   background: #d9ebe4;
   color: #2f6755;
@@ -3233,6 +3248,19 @@ h1 {
   font-size: 8px;
   font-weight: 900;
   text-transform: uppercase;
+  cursor: pointer;
+}
+
+.relation-field-badge:hover,
+.relation-field-badge[aria-expanded="true"] {
+  border-color: #4e8b74;
+  background: #c6e1d6;
+}
+
+.linked-field-relation-popover {
+  left: auto;
+  width: min(360px, calc(100% - 16px));
+  max-width: none;
 }
 
 .data-source-field-drag {
