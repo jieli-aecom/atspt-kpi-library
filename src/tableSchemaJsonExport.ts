@@ -9,7 +9,7 @@ type SchemaJoin = {
 
 type SchemaTable = {
   PK: string | null;
-  Fields: { Name: string; Type: string; ElementType?: string }[];
+  Fields: { Name: string; Type: string; ElementType?: string; Virtual?: true }[];
   Joins: SchemaJoin[];
 };
 
@@ -57,6 +57,7 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
       return expandedNames.map((name) => ({
         Name: name,
         Type: field.dataType,
+        ...(field.generatedRelationId ? { Virtual: true as const } : {}),
         ...(field.dataType === 'collection' ? { ElementType: field.collectionItemType ?? (field.enumId ? 'enum' : field.generatedRelationId ? 'id' : 'number') } : {})
       }));
     });

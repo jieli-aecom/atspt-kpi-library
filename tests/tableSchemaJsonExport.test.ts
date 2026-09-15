@@ -68,6 +68,14 @@ test('exports 1:N using the primary and foreign key with reversed N:1 on the oth
   const result = exportJson([source, target], [{ id: 'r', sourceDataSourceId: 'a', targetDataSourceId: 'b', cardinality: 'oneToMany' }]).PreprocessedConstants;
   assert.deepEqual(result.Parent.Joins, [{ With: 'Child', Type: '1:N', LeftOn: 'ParentID', RightOn: 'ParentID' }]);
   assert.deepEqual(result.Child.Joins, [{ With: 'Parent', Type: 'N:1', LeftOn: 'ParentID', RightOn: 'ParentID' }]);
+  assert.deepEqual(result.Parent.Fields, [
+    { Name: 'ParentID', Type: 'id' },
+    { Name: 'ChildIDs', Type: 'collection', ElementType: 'id', Virtual: true }
+  ]);
+  assert.deepEqual(result.Child.Fields, [
+    { Name: 'ChildID', Type: 'id' },
+    { Name: 'ParentID', Type: 'id', Virtual: true }
+  ]);
 });
 
 test('exports N:N using each local collection of IDs and the other table primary key', () => {
@@ -79,6 +87,8 @@ test('exports N:N using each local collection of IDs and the other table primary
   assert.deepEqual(result.Road.Joins, [{ With: 'Route', Type: 'N:N', LeftOn: 'RouteIDs', RightOn: 'RouteID' }]);
   assert.deepEqual(result.Route.Joins, [{ With: 'Road', Type: 'N:N', LeftOn: 'RoadIDs', RightOn: 'RoadID' }]);
   for (const own of Object.values(result) as any[]) {
+    assert.equal(own.Fields[1].Virtual, true);
+    assert.equal(Object.hasOwn(own.Fields[0], 'Virtual'), false);
     for (const join of own.Joins) {
       assert.ok(own.Fields.some((entry: any) => entry.Name === join.LeftOn));
       assert.ok(result[join.With].Fields.some((entry: any) => entry.Name === join.RightOn));
