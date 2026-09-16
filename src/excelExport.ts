@@ -277,9 +277,7 @@ export const buildKpiExcelRows = (
   const useCaseLabelById = new Map(config.enums.useCase.map((option) => [option.id, option.label]));
   const performanceAreaById = new Map(config.enums.performanceArea.map((option) => [option.id, option]));
   const noteLabelById = new Map(config.noteLabels.map((label) => [label.id, label.name]));
-  const selectedPerformanceAreaLabels = new Set(
-    filters.performanceAreas.map((id) => performanceAreaById.get(id)?.label ?? id)
-  );
+  const selectedPerformanceAreaIds = new Set(filters.performanceAreas);
 
   return kpis.flatMap((kpi) => {
     const assignments = unique(
@@ -291,8 +289,8 @@ export const buildKpiExcelRows = (
     const rowsForKpi = assignments.length > 0 ? assignments : [{ userGroup: '', useCase: '' }];
 
     const matchingAssignments = rowsForKpi.flatMap(({ userGroup, useCase }) => {
-      if (filters.userGroups.length > 0 && !filters.userGroups.includes(userGroup)) return [];
-      if (filters.useCases.length > 0 && !filters.useCases.includes(useCase)) return [];
+      if ((filters.userGroups.length || filters.useCases.length) &&
+          !filters.userGroups.includes(userGroup) && !filters.useCases.includes(useCase)) return [];
 
       const scopedPerformanceAreaIds = useCase
         ? kpi.performanceAreasByUseCase.find((entry) => entry.useCase === useCase)?.performanceAreas ?? kpi.performanceArea
@@ -304,8 +302,8 @@ export const buildKpiExcelRows = (
       );
 
       if (
-        selectedPerformanceAreaLabels.size > 0 &&
-        !performanceAreaLabels.some((label) => selectedPerformanceAreaLabels.has(label))
+        selectedPerformanceAreaIds.size > 0 &&
+        !scopedPerformanceAreaIds.some((id) => selectedPerformanceAreaIds.has(id))
       ) {
         return [];
       }

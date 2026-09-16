@@ -1,3 +1,4 @@
+import { filteredUseCaseIds, matchesUseCaseSelection, movePerformanceArea, compareFocusedPerformanceAreas } from './useCaseFilters';
 import { sourceTableUnit } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { installPopupDragGuard } from './popupDragGuard';
@@ -14,6 +15,7 @@ import {
   BookOpen,
   Check,
   ChevronDown,
+  ChevronUp,
   ChevronsUp,
   CircleHelp,
   Columns3,
@@ -307,8 +309,6 @@ type AppIndexes = {
   kpiNameById: Map<string, string>;
   useCaseIdsByUserGroup: Map<string, string[]>;
   allUseCaseIds: string[];
-  performanceAreaLabelById: Map<string, string>;
-  performanceAreaIdsByLabel: Map<string, string[]>;
   searchByKpiId: Map<string, KpiSearchEntry>;
 };
 
@@ -325,7 +325,6 @@ type CompiledFilters = {
   userGroups: Set<string>;
   useCases: Set<string>;
   enums: Record<KpiEnumCategoryKey, Set<string>>;
-  performanceAreaLabels: Set<string>;
   activeCount: number;
   nameOnly: boolean;
 };
@@ -360,18 +359,6 @@ const buildAppIndexes = (config: KpiPoolConfig, previousConfig?: KpiPoolConfig, 
       const current = useCaseIdsByUserGroup.get(option.userGroup) ?? [];
       current.push(option.id);
       useCaseIdsByUserGroup.set(option.userGroup, current);
-    }
-  }
-
-  const reusePerformanceAreaIndexes = previousConfig?.enums.performanceArea === config.enums.performanceArea && previousIndexes;
-  const performanceAreaIdsByLabel = reusePerformanceAreaIndexes
-    ? previousIndexes.performanceAreaIdsByLabel
-    : new Map<string, string[]>();
-  if (!reusePerformanceAreaIndexes) {
-    for (const option of config.enums.performanceArea) {
-      const current = performanceAreaIdsByLabel.get(option.label) ?? [];
-      current.push(option.id);
-      performanceAreaIdsByLabel.set(option.label, current);
     }
   }
 
@@ -415,13 +402,11 @@ const buildAppIndexes = (config: KpiPoolConfig, previousConfig?: KpiPoolConfig, 
     kpiNameById,
     useCaseIdsByUserGroup,
     allUseCaseIds: reuseUseCaseIndexes ? previousIndexes.allUseCaseIds : config.enums.useCase.map((option) => option.id),
-    performanceAreaLabelById: enumLabels.performanceArea,
-    performanceAreaIdsByLabel,
     searchByKpiId
   };
 };
 
-const compileFilters = (filters: ColumnFilters, indexes: AppIndexes): CompiledFilters => {
+const compileFilters = (filters: ColumnFilters): CompiledFilters => {
   const activeCount = activeFilterCount(filters);
   return {
     source: filters,
@@ -440,7 +425,6 @@ const compileFilters = (filters: ColumnFilters, indexes: AppIndexes): CompiledFi
       federalRequirement: new Set(filters.enums.federalRequirement),
       performanceArea: new Set(filters.enums.performanceArea)
     },
-    performanceAreaLabels: new Set(filters.enums.performanceArea.map((id) => indexes.performanceAreaLabelById.get(id) ?? id)),
     activeCount,
     nameOnly: activeCount === 1 && Boolean(filters.name)
   };
@@ -764,39 +748,13 @@ const aggregatePerformanceAreas = (entries: KpiUseCasePerformanceArea[]) => [
 const performanceAreaLabel = (config: KpiPoolConfig, id: string) =>
   config.enums.performanceArea.find((option) => option.id === id)?.label ?? id;
 
-const dedupePerformanceAreaIdsByLabel = (config: KpiPoolConfig, ids: string[]) => {
-  const seen = new Set<string>();
-  const deduped: string[] = [];
-  for (const id of ids) {
-    const label = performanceAreaLabel(config, id);
-    if (!seen.has(label)) {
-      seen.add(label);
-      deduped.push(id);
-    }
-  }
-
-  return deduped;
-};
-
-const dedupePerformanceAreaOptionsByLabel = (options: EnumOption[]) => {
-  const seen = new Set<string>();
-  const deduped: EnumOption[] = [];
-  for (const option of options) {
-    if (!seen.has(option.label)) {
-      seen.add(option.label);
-      deduped.push(option);
-    }
-  }
-
-  return deduped;
-};
-
-const performanceAreaOptionsForUseCases = (config: KpiPoolConfig, useCaseIds: string[]) => {
-  const scopedOptions = useCaseIds.length
-    ? config.enums.performanceArea.filter((option) => option.useCase && useCaseIds.includes(option.useCase))
-    : config.enums.performanceArea;
-  return useCaseIds.length === 1 ? scopedOptions : dedupePerformanceAreaOptionsByLabel(scopedOptions);
-};
+const performanceAreaOptionsForUseCases = (config: KpiPoolConfig, useCaseIds: string[]) =>
+  config.enums.useCase.filter((useCase) => useCaseIds.includes(useCase.id)).flatMap((useCase) =>
+    config.enums.performanceArea.filter((option) => option.useCase === useCase.id).map((option) => ({
+      ...option, groupId: useCase.id,
+      groupLabel: `${config.enums.userGroup.find((group) => group.id === useCase.userGroup)?.label ?? 'Unassigned'} / ${useCase.label}`
+    }))
+  );
 
 const scopedPerformanceAreas = (kpi: KpiMetric, useCaseIds: string[], fallbackToLegacy = true) => {
   if (useCaseIds.length === 0) {
@@ -832,33 +790,12 @@ const performanceAreaSortKey = (
   return order === 'asc' ? labels[0] ?? '' : labels[labels.length - 1] ?? '';
 };
 
-const expandPerformanceAreaSelection = (config: KpiPoolConfig, useCaseIds: string[], selectedIds: string[]) => {
-  const selectedLabels = new Set(selectedIds.map((id) => performanceAreaLabel(config, id)));
-  if (useCaseIds.length === 0) {
-    return config.enums.performanceArea.filter((option) => selectedLabels.has(option.label)).map((option) => option.id);
-  }
-
-  return config.enums.performanceArea
-    .filter((option) => option.useCase && useCaseIds.includes(option.useCase) && selectedLabels.has(option.label))
-    .map((option) => option.id);
-};
-
 const targetPerformanceAreaUseCases = (config: KpiPoolConfig, kpi: KpiMetric, filters: ColumnFilters, assignment?: UseCaseAssignment) => {
   if (assignment) {
     return [assignment.useCase];
   }
 
-  if (filters.useCases.length > 0) {
-    return filters.useCases;
-  }
-
-  if (filters.userGroups.length > 0) {
-    return config.enums.useCase
-      .filter((option) => option.userGroup && filters.userGroups.includes(option.userGroup))
-      .map((option) => option.id);
-  }
-
-  return config.enums.useCase.map((option) => option.id);
+  return filteredUseCaseIds(config.enums.useCase, filters.userGroups, filters.useCases);
 };
 
 const setPerformanceAreasForUseCases = (
@@ -867,19 +804,14 @@ const setPerformanceAreasForUseCases = (
   useCaseIds: string[],
   performanceAreas: string[]
 ): KpiMetric => {
-  const selectedLabels = new Set(performanceAreas.map((id) => performanceAreaLabel(config, id)));
-  if (useCaseIds.length === 0) {
-    return {
-      ...kpi,
-      performanceArea: expandPerformanceAreaSelection(config, [], performanceAreas)
-    };
-  }
+  const selectedIds = new Set(performanceAreas);
+  if (useCaseIds.length === 0) return kpi;
 
   const targets = new Set(useCaseIds);
   const existingUseCases = new Set(kpi.performanceAreasByUseCase.map((entry) => entry.useCase));
   const performanceAreasForUseCase = (useCase: string) =>
     config.enums.performanceArea
-      .filter((option) => option.useCase === useCase && selectedLabels.has(option.label))
+      .filter((option) => option.useCase === useCase && selectedIds.has(option.id))
       .map((option) => option.id);
   const updatedEntries = kpi.performanceAreasByUseCase
     .map((entry) =>
@@ -909,41 +841,8 @@ const setPerformanceAreasForUseCases = (
   };
 };
 
-const hasUseCaseFilters = (kpi: KpiMetric, filters: ColumnFilters) => {
-  if (filters.userGroups.length === 0 && filters.useCases.length === 0) {
-    return true;
-  }
-
-  if (filters.userGroups.length > 0 && filters.useCases.length > 0) {
-    return kpi.userGroupUseCases.some(
-      (entry) => filters.userGroups.includes(entry.userGroup) && entry.useCases.some((id) => filters.useCases.includes(id))
-    );
-  }
-
-  if (filters.userGroups.length > 0) {
-    return kpi.userGroupUseCases.some((entry) => filters.userGroups.includes(entry.userGroup));
-  }
-
-  return kpi.userGroupUseCases.some((entry) => entry.useCases.some((id) => filters.useCases.includes(id)));
-};
-
-const hasCompiledUseCaseFilters = (kpi: KpiMetric, filters: CompiledFilters) => {
-  if (filters.userGroups.size === 0 && filters.useCases.size === 0) {
-    return true;
-  }
-
-  if (filters.userGroups.size > 0 && filters.useCases.size > 0) {
-    return kpi.userGroupUseCases.some(
-      (entry) => filters.userGroups.has(entry.userGroup) && entry.useCases.some((id) => filters.useCases.has(id))
-    );
-  }
-
-  if (filters.userGroups.size > 0) {
-    return kpi.userGroupUseCases.some((entry) => filters.userGroups.has(entry.userGroup));
-  }
-
-  return kpi.userGroupUseCases.some((entry) => entry.useCases.some((id) => filters.useCases.has(id)));
-};
+const hasCompiledUseCaseFilters = (kpi: KpiMetric, filters: CompiledFilters) =>
+  matchesUseCaseSelection(kpi, filters.userGroups, filters.useCases);
 
 const targetPerformanceAreaUseCasesForCompiledFilters = (
   indexes: AppIndexes,
@@ -954,12 +853,11 @@ const targetPerformanceAreaUseCasesForCompiledFilters = (
     return [assignment.useCase];
   }
 
-  if (filters.useCases.size > 0) {
-    return [...filters.useCases];
-  }
-
-  if (filters.userGroups.size > 0) {
-    return [...filters.userGroups].flatMap((userGroup) => indexes.useCaseIdsByUserGroup.get(userGroup) ?? []);
+  if (filters.useCases.size > 0 || filters.userGroups.size > 0) {
+    return [...new Set([
+      ...filters.useCases,
+      ...[...filters.userGroups].flatMap((userGroup) => indexes.useCaseIdsByUserGroup.get(userGroup) ?? [])
+    ])];
   }
 
   return indexes.allUseCaseIds;
@@ -1086,7 +984,7 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
   if (
     filters.enums.performanceArea.size > 0 &&
     !scopedPerformanceAreas(kpi, targetPerformanceAreaUseCasesForCompiledFilters(indexes, filters, assignment), !assignment).some(
-      (performanceArea) => filters.performanceAreaLabels.has(indexes.performanceAreaLabelById.get(performanceArea) ?? performanceArea)
+      (performanceArea) => filters.enums.performanceArea.has(performanceArea)
     )
   ) {
     return false;
@@ -1120,14 +1018,9 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
             )
           ]
         : [];
-  const performanceTargetUseCases =
-    filters.useCases.length > 0
-      ? filters.useCases
-      : filters.enums.performanceArea.length > 0
-        ? config.enums.useCase
-            .filter((option) => filters.userGroups.length === 0 || (option.userGroup && filters.userGroups.includes(option.userGroup)))
-            .map((option) => option.id)
-        : [];
+  const performanceTargetUseCases = filters.useCases.length || filters.enums.performanceArea.length
+    ? filteredUseCaseIds(config.enums.useCase, filters.userGroups, filters.useCases)
+    : [];
   const userGroupsForUseCases = [
     ...new Set(
       performanceTargetUseCases
@@ -1136,10 +1029,10 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
     )
   ];
   const nextUserGroups = [...new Set([...userGroups, ...userGroupsForUseCases])];
-  const performanceAreaFilterLabels = new Set(filters.enums.performanceArea.map((id) => performanceAreaLabel(config, id)));
+  const performanceAreaFilterIds = new Set(filters.enums.performanceArea);
   const performanceAreasForUseCase = (useCase: string) =>
     config.enums.performanceArea
-      .filter((option) => option.useCase === useCase && performanceAreaFilterLabels.has(option.label))
+      .filter((option) => option.useCase === useCase && performanceAreaFilterIds.has(option.id))
       .map((option) => option.id);
   const performanceAreasByUseCase = performanceTargetUseCases.map((useCase) => ({
     useCase,
@@ -1393,6 +1286,8 @@ function NoteLabelHeaderFilter({
   );
 }
 
+type HeaderFilterOption = { id: string; label: string; groupId?: string; groupLabel?: string; isGroup?: boolean; covered?: boolean };
+
 function HeaderMultiSelect({
   label,
   options,
@@ -1400,7 +1295,7 @@ function HeaderMultiSelect({
   onChange
 }: {
   label: string;
-  options: { id: string; label: string }[];
+  options: HeaderFilterOption[];
   value: string[];
   onChange: (next: string[]) => void;
 }) {
@@ -1414,20 +1309,27 @@ function HeaderMultiSelect({
 
   return (
     <div className="header-popover-control" ref={controlRef}>
-      <button className="header-filter-button" type="button" onClick={() => setOpen((next) => !next)}>
+      <button className="header-filter-button" type="button" aria-label={label} aria-expanded={open} onClick={() => setOpen((next) => !next)}>
         <ListFilter size={13} aria-hidden="true" />
         <span>{selectedLabels.length ? selectedLabels.join(', ') : 'Any'}</span>
         <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
       </button>
       {open ? (
-        <div className="header-popover">
+        <div className="header-popover" role="dialog" aria-label={label}>
           <div className="popover-title">{label}</div>
+          <button className="text-action" type="button" disabled={!value.length} onClick={() => onChange([])}>Clear</button>
           {options.length === 0 ? <span className="empty-option">No options</span> : null}
-          {options.map((option) => (
-            <label className="check-row" key={option.id}>
-              <input type="checkbox" checked={value.includes(option.id)} onChange={() => toggleOption(option.id)} />
-              <span>{option.label}</span>
-            </label>
+          {options.map((option, index) => (
+            <div key={option.id}>
+              {option.groupLabel && (index === 0 || options[index - 1].groupId !== option.groupId) ? (
+                <div className="filter-option-group">{option.groupLabel}</div>
+              ) : null}
+              <label className={`check-row ${option.isGroup ? 'filter-group-choice' : option.groupId ? 'filter-child-choice' : ''}`}>
+                <input type="checkbox" checked={value.includes(option.id) || Boolean(option.covered)} disabled={option.covered}
+                  onChange={() => toggleOption(option.id)} />
+                <span>{option.label}</span>
+              </label>
+            </div>
           ))}
         </div>
       ) : null}
@@ -1510,14 +1412,16 @@ function EnumHeader({
   manageOptions,
   useCaseUserGroupOptions,
   performanceAreaUseCaseOptions,
-  onCascadeUseCaseDelete
+  onCascadeUseCaseDelete,
+  hideFilter = false
 }: {
   config: KpiPoolConfig;
   category: EnumCategoryKey;
   filter: string[];
   onFilterChange: (next: string[]) => void;
   onConfigChange: (next: KpiPoolConfig) => void;
-  filterOptions?: { id: string; label: string }[];
+  filterOptions?: HeaderFilterOption[];
+  hideFilter?: boolean;
   manageOptions?: EnumOption[];
   useCaseUserGroupOptions?: EnumOption[];
   performanceAreaUseCaseOptions?: EnumOption[];
@@ -1937,8 +1841,23 @@ function EnumHeader({
                         : 'No options in this category.'}
                   </span>
                 ) : null}
-                {managerOptions.map((option) => (
-                  <div className={`enum-edit-row ${category === 'useCase' ? 'use-case-enum-row' : ''}`} key={`${option.id}-${option.useCase ?? option.userGroup ?? ''}`}>
+                {managerOptions.map((option, optionIndex) => (
+                  <div className={`enum-edit-row ${category === 'performanceArea' ? 'performance-area-enum-row' : category === 'useCase' ? 'use-case-enum-row' : ''}`} key={`${option.id}-${option.useCase ?? option.userGroup ?? ''}`}>
+                    {category === 'performanceArea' ? (
+                      <div className="enum-order-controls">
+                        {([-1, 1] as const).map((direction) => (
+                          <button className="mini-icon-button" type="button" key={direction}
+                            aria-label={`Move ${option.label} ${direction === -1 ? 'up' : 'down'}`}
+                            title={`Move ${direction === -1 ? 'up' : 'down'}`}
+                            disabled={direction === -1 ? optionIndex === 0 : optionIndex === managerOptions.length - 1}
+                            onClick={() => onConfigChange({ ...config, enums: { ...config.enums,
+                              performanceArea: movePerformanceArea(config.enums.performanceArea, option.id, newPerformanceAreaUseCase, direction)
+                            } })}>
+                            {direction === -1 ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
                     <input value={option.label} onChange={(event) => updateOption(option, 'label', event.target.value)} />
                     <input
                       value={option.description ?? ''}
@@ -1961,90 +1880,57 @@ function EnumHeader({
           ) : null}
         </div>
       </div>
-      <HeaderMultiSelect
+      {!hideFilter ? <HeaderMultiSelect
         label={`Filter ${enumCategoryLabels[category]}`}
         options={filterOptions ?? config.enums[category]}
         value={filter}
         onChange={onFilterChange}
-      />
+      /> : null}
     </div>
   );
 }
 
 function UseCaseHeader({
-  config,
-  userGroupFilter,
-  useCaseFilter,
-  onUserGroupFilterChange,
-  onUseCaseFilterChange,
-  onConfigChange
+  config, userGroupFilter, useCaseFilter, onSelectionChange, onConfigChange
 }: {
   config: KpiPoolConfig;
   userGroupFilter: string[];
   useCaseFilter: string[];
-  onUserGroupFilterChange: (next: string[]) => void;
-  onUseCaseFilterChange: (next: string[]) => void;
+  onSelectionChange: (userGroups: string[], useCases: string[]) => void;
   onConfigChange: (next: KpiPoolConfig) => void;
 }) {
-  const userGroupLabels = new Map(config.enums.userGroup.map((option) => [option.id, option.label]));
-  const visibleUserGroups = useMemo(
-    () =>
-      userGroupFilter.length > 0
-        ? config.enums.userGroup.filter((option) => userGroupFilter.includes(option.id))
-        : config.enums.userGroup,
-    [config.enums.userGroup, userGroupFilter]
-  );
-  const visibleUseCases = useMemo(
-    () =>
-      userGroupFilter.length > 0
-        ? config.enums.useCase.filter((option) => option.userGroup && userGroupFilter.includes(option.userGroup))
-        : config.enums.useCase,
-    [config.enums.useCase, userGroupFilter]
-  );
-  const visibleUseCaseIds = useMemo(() => new Set(visibleUseCases.map((option) => option.id)), [visibleUseCases]);
-  const useCaseFilterOptions = visibleUseCases.map((option) => ({
-    id: option.id,
-    label: `${userGroupLabels.get(option.userGroup ?? '') ?? 'Unassigned'} / ${option.label}`
-  }));
+  const options: HeaderFilterOption[] = config.enums.userGroup.flatMap((group) => [
+    { id: `group:${group.id}`, label: group.label, isGroup: true },
+    ...config.enums.useCase.filter((option) => option.userGroup === group.id).map((option) => ({
+      id: `case:${option.id}`, label: option.label, groupId: group.id, covered: userGroupFilter.includes(group.id)
+    }))
+  ]);
+  options.push(...config.enums.useCase.filter((option) => !config.enums.userGroup.some((group) => group.id === option.userGroup))
+    .map((option) => ({ id: `case:${option.id}`, label: option.label, groupId: 'unassigned', groupLabel: 'Unassigned' })));
 
-  useEffect(() => {
-    const nextUseCaseFilter = useCaseFilter.filter((id) => visibleUseCaseIds.has(id));
-    if (nextUseCaseFilter.length !== useCaseFilter.length) {
-      onUseCaseFilterChange(nextUseCaseFilter);
-    }
-  }, [onUseCaseFilterChange, useCaseFilter, visibleUseCaseIds]);
+  const changeConfig = (next: KpiPoolConfig) => {
+    onConfigChange(next);
+    onSelectionChange(
+      userGroupFilter.filter((id) => next.enums.userGroup.some((option) => option.id === id)),
+      useCaseFilter.filter((id) => next.enums.useCase.some((option) => option.id === id))
+    );
+  };
 
   return (
     <div className="use-case-header-control">
       <div className="use-case-compact-title">User Group / Use Case</div>
-      <div className="use-case-filter-row">
-        <div className="use-case-filter-line">
-          <span>UG</span>
-          <EnumHeader
-            config={config}
-            category="userGroup"
-            filter={userGroupFilter}
-            onFilterChange={onUserGroupFilterChange}
-            onCascadeUseCaseDelete={(deletedUseCaseIds) =>
-              onUseCaseFilterChange(useCaseFilter.filter((id) => !deletedUseCaseIds.includes(id)))
-            }
-            onConfigChange={onConfigChange}
-          />
-        </div>
-        <div className="use-case-filter-line">
-          <span>UC</span>
-          <EnumHeader
-            config={config}
-            category="useCase"
-            filter={useCaseFilter}
-            onFilterChange={onUseCaseFilterChange}
-            filterOptions={useCaseFilterOptions}
-            manageOptions={visibleUseCases}
-            useCaseUserGroupOptions={visibleUserGroups}
-            onConfigChange={onConfigChange}
-          />
-        </div>
+      <div className="use-case-definition-controls">
+        {(['userGroup', 'useCase'] as const).map((category) => (
+          <EnumHeader key={category} config={config} category={category} filter={[]}
+            onFilterChange={() => {}} onConfigChange={changeConfig} hideFilter />
+        ))}
       </div>
+      <HeaderMultiSelect label="Filter User Group / Use Case" options={options}
+        value={[...userGroupFilter.map((id) => `group:${id}`), ...useCaseFilter.map((id) => `case:${id}`)]}
+        onChange={(next) => onSelectionChange(
+          next.filter((id) => id.startsWith('group:')).map((id) => id.slice(6)),
+          next.filter((id) => id.startsWith('case:')).map((id) => id.slice(5))
+        )} />
     </div>
   );
 }
@@ -2238,7 +2124,7 @@ function SpatialScaleBadges({
             >
               {spatialScaleLabels[scale]}
             </span>
-            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} onSemanticTarget={onSemanticTarget} inline />
+            <InteractiveFormulaPreview config={config} kpi={kpi} item={item} onSemanticTarget={onSemanticTarget} />
           </div>
         );
       })}
@@ -3284,35 +3170,15 @@ function RowEnumSelect({
   category: EnumCategoryKey;
   selected: string[];
   onChange: (next: string[]) => void;
-  options?: { id: string; label: string; description?: string; userGroup?: string }[];
+  options?: (EnumOption & HeaderFilterOption)[];
   highlightedOptionId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
-  const availableOptions = options ?? config.enums[category];
-  const selectedOptionDetails = options
-    ? category === 'performanceArea'
-      ? dedupePerformanceAreaOptionsByLabel(
-          selected
-            .map((id) => config.enums.performanceArea.find((option) => option.id === id) ?? availableOptions.find((option) => option.id === id))
-            .filter(Boolean) as EnumOption[]
-        )
-      : selected
-          .map((id) => availableOptions.find((option) => option.id === id))
-          .filter(Boolean) as { id: string; label: string; description?: string }[]
-    : selectedOptions(config, category, selected);
-  const selectedLabels =
-    category === 'performanceArea' ? new Set(selected.map((id) => performanceAreaLabel(config, id))) : new Set<string>();
-  const optionSelected = (option: { id: string; label: string }) =>
-    category === 'performanceArea' ? selectedLabels.has(option.label) : selected.includes(option.id);
+  const availableOptions: (EnumOption & HeaderFilterOption)[] = options ?? config.enums[category];
+  const selectedOptionDetails = availableOptions.filter((option) => selected.includes(option.id));
   const toggle = (id: string) => {
-    if (category !== 'performanceArea') {
-      onChange(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id]);
-      return;
-    }
-
-    const label = performanceAreaLabel(config, id);
-    onChange(selectedLabels.has(label) ? selected.filter((value) => performanceAreaLabel(config, value) !== label) : [...selected, id]);
+    onChange(selected.includes(id) ? selected.filter((value) => value !== id) : [...selected, id]);
   };
 
   return (
@@ -3329,7 +3195,7 @@ function RowEnumSelect({
               <span
                 className={`option-pill ${highlightedOptionId === option.id ? 'is-highlighted' : ''}`}
                 key={option.id}
-                title={option.description || option.label}
+                title={[option.groupLabel, option.description || option.label].filter(Boolean).join(" / ")}
               >
                 {option.label}
               </span>
@@ -3344,11 +3210,16 @@ function RowEnumSelect({
         <div className="cell-enum-popover">
           <div className="popover-title">{enumCategoryLabels[category]}</div>
           {availableOptions.length === 0 ? <span className="empty-option">No options defined.</span> : null}
-          {availableOptions.map((option) => (
-            <label className={`check-row ${highlightedOptionId === option.id ? 'is-highlighted' : ''}`} key={option.id}>
-              <input type="checkbox" checked={optionSelected(option)} onChange={() => toggle(option.id)} />
-              <span>{option.label}</span>
-            </label>
+          {availableOptions.map((option, index) => (
+            <div key={option.id}>
+              {option.groupLabel && (index === 0 || availableOptions[index - 1].groupId !== option.groupId) ? (
+                <div className="filter-option-group">{option.groupLabel}</div>
+              ) : null}
+              <label className={`check-row ${highlightedOptionId === option.id ? 'is-highlighted' : ''}`}>
+                <input type="checkbox" checked={selected.includes(option.id)} onChange={() => toggle(option.id)} />
+                <span>{option.label}</span>
+              </label>
+            </div>
           ))}
         </div>
       ) : null}
@@ -8805,8 +8676,9 @@ function RowPerformanceAreaSelect({
   onChange: (next: KpiMetric) => void;
 }) {
   const targetUseCases = targetPerformanceAreaUseCases(config, kpi, filters, assignment);
-  const options = performanceAreaOptionsForUseCases(config, targetUseCases);
-  const selected = dedupePerformanceAreaIdsByLabel(config, scopedPerformanceAreas(kpi, targetUseCases, !assignment));
+  const options = performanceAreaOptionsForUseCases(config, targetUseCases)
+    .map((option) => ({ ...option, groupLabel: assignment ? undefined : option.groupLabel }));
+  const selected = scopedPerformanceAreas(kpi, targetUseCases, false);
   return (
     <RowEnumSelect
       config={config}
@@ -10713,49 +10585,23 @@ function KpiTable({
   const togglePerformanceAreaSort = () => {
     onPerformanceAreaSortChange(performanceAreaSort === undefined ? 'asc' : performanceAreaSort === 'asc' ? 'desc' : undefined);
   };
-  const performanceAreaScopeUseCases = useMemo(() => {
-    if (focusedAssignment) {
-      return [focusedAssignment.useCase];
-    }
-
-    if (filters.useCases.length > 0) {
-      return filters.useCases;
-    }
-
-    if (filters.userGroups.length > 0) {
-      return config.enums.useCase
-        .filter((option) => option.userGroup && filters.userGroups.includes(option.userGroup))
-        .map((option) => option.id);
-    }
-
-    return [];
-  }, [config.enums.useCase, filters.userGroups, filters.useCases, focusedAssignment]);
-  const performanceAreaUseCaseOptions = useMemo(
-    () => {
-      const userGroupLabels = new Map(config.enums.userGroup.map((option) => [option.id, option.label]));
-      const useCases = performanceAreaScopeUseCases.length
-        ? config.enums.useCase.filter((option) => performanceAreaScopeUseCases.includes(option.id))
-        : config.enums.useCase;
-      return useCases.map((option) => ({
-        ...option,
-        label: `${userGroupLabels.get(option.userGroup ?? '') ?? 'Unassigned'} / ${option.label}`
-      }));
-    },
-    [config.enums.useCase, config.enums.userGroup, performanceAreaScopeUseCases]
+  const performanceAreaScopeUseCases = useMemo(
+    () => focusedAssignment ? [focusedAssignment.useCase]
+      : filteredUseCaseIds(config.enums.useCase, filters.userGroups, filters.useCases),
+    [config.enums.useCase, filters.userGroups, filters.useCases, focusedAssignment]
   );
-  const performanceAreaHeaderOptions = useMemo(
-    () => performanceAreaOptionsForUseCases(config, performanceAreaScopeUseCases),
-    [config, performanceAreaScopeUseCases]
-  );
-  const performanceAreaManagerOptions = useMemo(
-    () =>
-      performanceAreaScopeUseCases.length
-        ? config.enums.performanceArea.filter(
-            (option) => option.useCase && performanceAreaScopeUseCases.includes(option.useCase)
-          )
-        : config.enums.performanceArea,
-    [config.enums.performanceArea, performanceAreaScopeUseCases]
-  );
+  const performanceAreaUseCaseOptions = useMemo(() => {
+    const userGroupLabels = new Map(config.enums.userGroup.map((option) => [option.id, option.label]));
+    return config.enums.useCase.filter((option) => performanceAreaScopeUseCases.includes(option.id)).map((option) => ({
+      ...option, label: `${userGroupLabels.get(option.userGroup ?? '') ?? 'Unassigned'} / ${option.label}`
+    }));
+  }, [config.enums.useCase, config.enums.userGroup, performanceAreaScopeUseCases]);
+  const performanceAreaHeaderOptions = useMemo(() => performanceAreaUseCaseOptions.flatMap((useCase) =>
+    config.enums.performanceArea.filter((option) => option.useCase === useCase.id).map((option) => ({
+      ...option, groupId: useCase.id, groupLabel: focusedAssignment ? undefined : useCase.label
+    }))
+  ), [config.enums.performanceArea, performanceAreaUseCaseOptions, focusedAssignment]);
+  const performanceAreaManagerOptions = performanceAreaHeaderOptions;
   const performanceAreaFilterIds = useMemo(
     () => new Set(performanceAreaHeaderOptions.map((option) => option.id)),
     [performanceAreaHeaderOptions]
@@ -10939,9 +10785,9 @@ function KpiTable({
                     }
                     title={
                       performanceAreaSort === 'asc'
-                        ? 'Performance Area: A-Z using smallest label'
+                        ? focusedAssignment ? 'Performance Area: definition order (first assigned area)' : 'Performance Area: A-Z using smallest label'
                         : performanceAreaSort === 'desc'
-                          ? 'Performance Area: Z-A using largest label'
+                          ? focusedAssignment ? 'Performance Area: reverse definition order (last assigned area)' : 'Performance Area: Z-A using largest label'
                           : 'Sort Performance Area'
                     }
                     onClick={togglePerformanceAreaSort}
@@ -10956,8 +10802,7 @@ function KpiTable({
                   config={config}
                   userGroupFilter={filters.userGroups}
                   useCaseFilter={filters.useCases}
-                  onUserGroupFilterChange={(userGroups) => onFiltersChange({ ...filters, userGroups })}
-                  onUseCaseFilterChange={(useCases) => onFiltersChange({ ...filters, useCases })}
+                  onSelectionChange={(userGroups, useCases) => onFiltersChange({ ...filters, userGroups, useCases })}
                   onConfigChange={onConfigChange}
                 />
                 {resizeHandle(8, 'User Group / Use Case')}
@@ -11387,7 +11232,7 @@ function EditorApp({
     if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment) {
       filterMatchIds = cached.ids;
     } else {
-      const compiledFilters = compileFilters(deferredFilters, indexes);
+      const compiledFilters = compileFilters(deferredFilters);
       filterMatchIds = new Set(
         config.kpis
           .filter((kpi) => matchesFilters(indexes, kpi, compiledFilters, pinnedFilterIdSet, focusedAssignment))
@@ -11411,6 +11256,9 @@ function EditorApp({
     }
 
     return [...filteredKpis].sort((left, right) => {
+      if (focusedAssignment) {
+        return compareFocusedPerformanceAreas(config.enums.performanceArea, left, right, focusedAssignment.useCase, performanceAreaSort);
+      }
       const leftKey = performanceAreaSortKey(config, left, deferredFilters, focusedAssignment, performanceAreaSort);
       const rightKey = performanceAreaSortKey(config, right, deferredFilters, focusedAssignment, performanceAreaSort);
       const result = leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base', numeric: true });
@@ -11784,7 +11632,7 @@ function EditorApp({
 
   const exportExcel = async (selectedColumns: readonly KpiExcelColumnKey[]) => {
     const rows = buildKpiExcelRows(config, visibleKpis, {
-      userGroups: focusedAssignment ? [focusedAssignment.userGroup] : filters.userGroups,
+      userGroups: focusedAssignment ? [] : filters.userGroups,
       useCases: focusedAssignment ? [focusedAssignment.useCase] : filters.useCases,
       performanceAreas: filters.enums.performanceArea
     });
@@ -11833,7 +11681,7 @@ function EditorApp({
             <span className="result-count">
               {visibleKpis.length} of {config.kpis.length} KPIs
               {filterCount ? ` | ${filterCount} filters` : ''}
-              {performanceAreaSort ? ` | performance area ${performanceAreaSort === 'asc' ? 'A-Z' : 'Z-A'}` : ''}
+              {performanceAreaSort ? ` | performance area ${focusedAssignment ? performanceAreaSort === 'asc' ? 'definition order' : 'reverse definition order' : performanceAreaSort === 'asc' ? 'A-Z' : 'Z-A'}` : ''}
             </span>
             <button
               className="secondary-action small"

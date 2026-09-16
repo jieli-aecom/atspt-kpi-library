@@ -4885,11 +4885,13 @@ h1 {
   min-width: 0;
 }
 
-.formula-display .katex {
+.formula-display .katex,
+.scale-aggregation-summary .katex {
   font-size: 1em;
 }
 
-.formula-display .formula-preview {
+.formula-display .formula-preview,
+.scale-aggregation-summary .formula-preview {
   background: transparent;
 }
 
@@ -4972,6 +4974,7 @@ h1 {
 
 .scale-badges {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
   gap: 5px;
 }
@@ -4985,18 +4988,10 @@ h1 {
 .scale-aggregation-summary {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   min-width: 0;
-}
-
-.scale-aggregation-summary .interactive-inline-formula {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-.scale-aggregation-summary .katex {
-  font-size: 0.95em;
+  color: #1f2931;
 }
 
 .option-pill {
@@ -7357,3 +7352,35 @@ h1 {
   font-weight: 800;
 }
 .field-formula-summary .formula-semantic-token.is-actionable { cursor: pointer; }
+
+.enum-edit-row.performance-area-enum-row {
+  grid-template-columns: 48px minmax(90px, 0.9fr) minmax(110px, 1.1fr) 24px;
+}
+
+.enum-order-controls,
+.use-case-definition-controls {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.use-case-definition-controls {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.use-case-definition-controls .header-title {
+  font-size: 10px;
+}
+
+.filter-option-group {
+  margin-top: 7px;
+  border-top: 1px solid #dce3e8;
+  padding: 7px 4px 3px;
+  color: #4d5964;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.check-row.filter-group-choice { font-weight: 800; }
+.check-row.filter-child-choice { padding-left: 24px; }
