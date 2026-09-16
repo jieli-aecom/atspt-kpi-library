@@ -3241,7 +3241,21 @@ h1 {
   color: #55766b;
 }
 
+.relation-field-summary {
+  grid-column: 3 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 0;
+  color: #55766b;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
 .relation-field-badge {
+  flex-shrink: 0;
   border: 1px solid transparent;
   border-radius: 999px;
   background: #d9ebe4;
@@ -3365,10 +3379,6 @@ h1 {
   width: 29px;
   height: 29px;
   min-height: 29px;
-}
-
-.data-source-field-row.is-relation-field .data-source-field-actions .mini-icon-button {
-  width: 24px;
 }
 
 .field-details-button.needs-preprocessing {
@@ -7221,6 +7231,7 @@ h1 {
 }
 .field-formula-summary .interactive-inline-formula { font-size: 10px; max-width: 100%; overflow-x: auto; }
 .field-formula-summary .formula-semantic-token { cursor: default; }
+.relation-field-summary ~ .field-formula-summary { grid-row: 3; }
 .field-processing-editor { min-width: 0; border-top: 1px solid #d5dfe3; padding-top: 12px; }
 .field-processing-editor > summary { cursor: pointer; font-size: 12px; font-weight: 700; margin-bottom: 12px; }
 .field-processing-editor > .kpi-source-control { margin-bottom: 12px; }
@@ -7230,7 +7241,9 @@ h1 {
 .field-processing-editor .formula-expression-workbench { width: 100%; min-width: 0; }
 
 @media (max-width: 1100px) {
-  .field-formula-summary { grid-column: 1 / -1; grid-row: auto; }
+  .relation-field-summary,
+  .field-formula-summary,
+  .relation-field-summary ~ .field-formula-summary { grid-column: 1 / -1; grid-row: auto; }
 }
 .kpi-note-dialog-backdrop.kpi-support-backdrop {
   z-index: 13000;

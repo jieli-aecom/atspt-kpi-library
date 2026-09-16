@@ -5895,6 +5895,13 @@ function DataSourceHeader({
                 const preprocessingNeeded = field.preprocessingNeeded || Boolean(field.details.trim());
                 const hasFormula = field.formulas?.some((item) => item.formula.trim());
                 const primaryKeyRelations = isPrimaryKey ? sourceRelations : [];
+                const linkedRelation = sourceRelations.find((relation) => relation.id === field.generatedRelationId);
+                const linkedTable = linkedRelation ? config.dataSources.find((entry) => entry.id === (
+                  linkedRelation.sourceDataSourceId === source.id ? linkedRelation.targetDataSourceId : linkedRelation.sourceDataSourceId
+                )) : undefined;
+                const linkedDirection = linkedRelation?.cardinality === 'oneToOne' ? '1:1 (one to one)'
+                  : linkedRelation?.cardinality === 'manyToMany' ? 'N:N (many to many)'
+                    : linkedRelation?.sourceDataSourceId === source.id ? '1:N (one to many)' : 'N:1 (many to one)';
                 const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
                 return (
                 <div
@@ -5994,16 +6001,15 @@ function DataSourceHeader({
                     ? <DebouncedInput className="data-source-field-unit" value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onValueChange={(valueUnit) => updateField(sourceIndex, fieldIndex, { valueUnit })} />
                     : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
-                    {!field.generatedRelationId || isPrimaryKey ? <button
+                    <button
                       className={`mini-icon-button field-details-button ${preprocessingNeeded ? 'needs-preprocessing' : ''}`}
                       type="button"
                       title={preprocessingNeeded ? 'View field details — preprocessing required' : 'View field details and supported KPIs'}
                       aria-label={`View field details and supported KPIs for ${field.name || 'field'}`}
                       aria-haspopup="dialog"
                       onClick={() => setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id })}
-                    ><Eye size={12} aria-hidden="true" /></button> : null}
-                    {field.generatedRelationId ? <><button className="relation-field-badge" type="button" title="Change relationship type" aria-label={`Change relationship type for ${field.name || 'linked field'}`} aria-haspopup="dialog" aria-expanded={sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId} onClick={() => editTableRelation(field.generatedRelationId!, source.id, 'linkedField')}>Linked</button>
-                    <button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button></> : <button
+                    ><Eye size={12} aria-hidden="true" /></button>
+                    {field.generatedRelationId ? <button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button> : <button
                       className="mini-icon-button danger"
                       type="button"
                       disabled={isPrimaryKey && primaryKeyRelations.length > 0}
@@ -6011,6 +6017,10 @@ function DataSourceHeader({
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
                     ><Trash2 size={12} /></button>}
                   </div>
+                  {field.generatedRelationId ? <small className="relation-field-summary">
+                    <button className="relation-field-badge" type="button" title="Edit link" aria-label={`Edit link for ${field.name || 'linked field'}`} aria-haspopup="dialog" aria-expanded={sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId} onClick={() => editTableRelation(field.generatedRelationId!, source.id, 'linkedField')}>Edit Link</button>
+                    <span>to <strong>{linkedTable ? linkedTable.name || 'Untitled table' : 'Missing table'}</strong> · {linkedRelation ? linkedDirection : 'Missing relationship'}</span>
+                  </small> : null}
                   {sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId ? renderRelationEditor('linked-field-relation-popover') : null}
                   {(field.sources?.length || field.formulas?.some((item) => item.formula.trim())) ? <FieldFormulaSummary config={config} table={source} field={field} /> : null}
                   {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="data-source-field-enum-options">
