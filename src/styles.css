@@ -7353,24 +7353,25 @@ h1 {
 }
 .field-formula-summary .formula-semantic-token.is-actionable { cursor: pointer; }
 
-.enum-edit-row.performance-area-enum-row {
+.enum-edit-row.reorderable-enum-row {
   grid-template-columns: 48px minmax(90px, 0.9fr) minmax(110px, 1.1fr) 24px;
 }
 
-.enum-order-controls,
-.use-case-definition-controls {
+.enum-order-controls {
   display: flex;
   align-items: center;
   gap: 3px;
 }
 
-.use-case-definition-controls {
-  flex-wrap: wrap;
-  gap: 8px;
+.use-case-definition-popover {
+  max-height: min(650px, 75vh);
+  overflow-y: auto;
 }
 
-.use-case-definition-controls .header-title {
-  font-size: 10px;
+.use-case-definition-popover .enum-definition-section + .enum-definition-section {
+  margin-top: 12px;
+  border-top: 1px solid #dce3e8;
+  padding-top: 12px;
 }
 
 .filter-option-group {

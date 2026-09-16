@@ -1,4 +1,4 @@
-import { filteredUseCaseIds, matchesUseCaseSelection, movePerformanceArea, compareFocusedPerformanceAreas } from './useCaseFilters';
+import { filteredUseCaseIds, matchesUseCaseSelection, moveEnumOption, compareFocusedPerformanceAreas, compareUseCaseAssignments } from './useCaseFilters';
 import { sourceTableUnit } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { installPopupDragGuard } from './popupDragGuard';
@@ -142,7 +142,7 @@ type ColumnFilters = {
 
 type DropPosition = 'before' | 'after';
 type LibraryKind = 'lookup' | 'variable' | 'enum' | 'source';
-type PerformanceAreaSortOrder = 'asc' | 'desc' | undefined;
+type ColumnSortOrder = 'asc' | 'desc' | undefined;
 
 type SourceLibraryEditTarget =
   | { kind: 'dataField'; dataSourceId: string; fieldId: string }
@@ -777,7 +777,7 @@ const performanceAreaSortKey = (
   kpi: KpiMetric,
   filters: ColumnFilters,
   assignment: UseCaseAssignment | undefined,
-  order: Exclude<PerformanceAreaSortOrder, undefined>
+  order: Exclude<ColumnSortOrder, undefined>
 ) => {
   const labels = [
     ...new Set(
@@ -1402,35 +1402,49 @@ function ColumnVisibilityControl({
   );
 }
 
-function EnumHeader({
-  config,
-  category,
-  filter,
-  onFilterChange,
-  onConfigChange,
-  filterOptions,
-  manageOptions,
-  useCaseUserGroupOptions,
-  performanceAreaUseCaseOptions,
-  onCascadeUseCaseDelete,
-  hideFilter = false
-}: {
+type EnumHeaderProps = {
   config: KpiPoolConfig;
   category: EnumCategoryKey;
   filter: string[];
   onFilterChange: (next: string[]) => void;
   onConfigChange: (next: KpiPoolConfig) => void;
   filterOptions?: HeaderFilterOption[];
-  hideFilter?: boolean;
   manageOptions?: EnumOption[];
   useCaseUserGroupOptions?: EnumOption[];
   performanceAreaUseCaseOptions?: EnumOption[];
   onCascadeUseCaseDelete?: (ids: string[]) => void;
-}) {
+};
+
+function EnumHeader(props: EnumHeaderProps) {
+  const { config, category, filter, onFilterChange, filterOptions } = props;
   const [manageOpen, setManageOpen] = useState(false);
+  const managerRef = useCloseOnOutsideClick<HTMLDivElement>(manageOpen, () => setManageOpen(false));
+  return (
+    <div className="header-control">
+      <div className="header-title">
+        <span>{enumCategoryLabels[category]}</span>
+        {filter.length ? <strong>{filter.length}</strong> : null}
+        <div className="enum-manager-control" ref={managerRef}>
+          <button className="mini-icon-button" type="button"
+            aria-label={`Manage ${enumCategoryLabels[category]}`} title={`Manage ${enumCategoryLabels[category]}`}
+            aria-expanded={manageOpen} onClick={() => setManageOpen((next) => !next)}>
+            <Settings2 size={13} aria-hidden="true" />
+          </button>
+          {manageOpen ? <div className="enum-popover"><EnumDefinitionEditor {...props} /></div> : null}
+        </div>
+      </div>
+      <HeaderMultiSelect label={`Filter ${enumCategoryLabels[category]}`}
+        options={filterOptions ?? config.enums[category]} value={filter} onChange={onFilterChange} />
+    </div>
+  );
+}
+
+function EnumDefinitionEditor({
+  config, category, filter, onFilterChange, onConfigChange, manageOptions,
+  useCaseUserGroupOptions, performanceAreaUseCaseOptions, onCascadeUseCaseDelete
+}: EnumHeaderProps) {
   const [newUseCaseUserGroup, setNewUseCaseUserGroup] = useState('');
   const [newPerformanceAreaUseCase, setNewPerformanceAreaUseCase] = useState('');
-  const managerRef = useCloseOnOutsideClick<HTMLDivElement>(manageOpen, () => setManageOpen(false));
   const allManagerOptions = manageOptions ?? config.enums[category];
   const addUseCaseUserGroupOptions = useCaseUserGroupOptions ?? config.enums.userGroup;
   const addPerformanceAreaUseCaseOptions = performanceAreaUseCaseOptions ?? config.enums.useCase;
@@ -1769,23 +1783,10 @@ function EnumHeader({
     onFilterChange(filter.filter((id) => id !== optionId));
   };
 
+  const reorderable = category === 'performanceArea' || category === 'userGroup' || category === 'useCase';
+
   return (
-    <div className="header-control">
-      <div className="header-title">
-        <span>{enumCategoryLabels[category]}</span>
-        {filter.length ? <strong>{filter.length}</strong> : null}
-        <div className="enum-manager-control" ref={managerRef}>
-          <button
-            className="mini-icon-button"
-            type="button"
-            aria-label={`Manage ${enumCategoryLabels[category]}`}
-            title={`Manage ${enumCategoryLabels[category]}`}
-            onClick={() => setManageOpen((next) => !next)}
-          >
-            <Settings2 size={13} aria-hidden="true" />
-          </button>
-          {manageOpen ? (
-            <div className="enum-popover">
+    <section className="enum-definition-section" aria-label={`${enumCategoryLabels[category]} definitions`}>
               <div className="popover-heading">
                 <strong>{enumCategoryLabels[category]}</strong>
                 {category === 'useCase' ? (
@@ -1842,8 +1843,8 @@ function EnumHeader({
                   </span>
                 ) : null}
                 {managerOptions.map((option, optionIndex) => (
-                  <div className={`enum-edit-row ${category === 'performanceArea' ? 'performance-area-enum-row' : category === 'useCase' ? 'use-case-enum-row' : ''}`} key={`${option.id}-${option.useCase ?? option.userGroup ?? ''}`}>
-                    {category === 'performanceArea' ? (
+                  <div className={`enum-edit-row ${reorderable ? 'reorderable-enum-row' : ''}`} key={`${option.id}-${option.useCase ?? option.userGroup ?? ''}`}>
+                    {reorderable ? (
                       <div className="enum-order-controls">
                         {([-1, 1] as const).map((direction) => (
                           <button className="mini-icon-button" type="button" key={direction}
@@ -1851,7 +1852,7 @@ function EnumHeader({
                             title={`Move ${direction === -1 ? 'up' : 'down'}`}
                             disabled={direction === -1 ? optionIndex === 0 : optionIndex === managerOptions.length - 1}
                             onClick={() => onConfigChange({ ...config, enums: { ...config.enums,
-                              performanceArea: movePerformanceArea(config.enums.performanceArea, option.id, newPerformanceAreaUseCase, direction)
+                              [category]: moveEnumOption(config.enums[category], option.id, direction, managerOptions.map((entry) => entry.id))
                             } })}>
                             {direction === -1 ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
                           </button>
@@ -1876,29 +1877,23 @@ function EnumHeader({
                   </div>
                 ))}
               </div>
-            </div>
-          ) : null}
-        </div>
-      </div>
-      {!hideFilter ? <HeaderMultiSelect
-        label={`Filter ${enumCategoryLabels[category]}`}
-        options={filterOptions ?? config.enums[category]}
-        value={filter}
-        onChange={onFilterChange}
-      /> : null}
-    </div>
+    </section>
   );
 }
 
 function UseCaseHeader({
-  config, userGroupFilter, useCaseFilter, onSelectionChange, onConfigChange
+  config, userGroupFilter, useCaseFilter, onSelectionChange, onConfigChange, sortOrder, onSortChange
 }: {
+  sortOrder: ColumnSortOrder;
+  onSortChange: (next: ColumnSortOrder) => void;
   config: KpiPoolConfig;
   userGroupFilter: string[];
   useCaseFilter: string[];
   onSelectionChange: (userGroups: string[], useCases: string[]) => void;
   onConfigChange: (next: KpiPoolConfig) => void;
 }) {
+  const [manageOpen, setManageOpen] = useState(false);
+  const managerRef = useCloseOnOutsideClick<HTMLDivElement>(manageOpen, () => setManageOpen(false));
   const options: HeaderFilterOption[] = config.enums.userGroup.flatMap((group) => [
     { id: `group:${group.id}`, label: group.label, isGroup: true },
     ...config.enums.useCase.filter((option) => option.userGroup === group.id).map((option) => ({
@@ -1918,12 +1913,29 @@ function UseCaseHeader({
 
   return (
     <div className="use-case-header-control">
-      <div className="use-case-compact-title">User Group / Use Case</div>
-      <div className="use-case-definition-controls">
-        {(['userGroup', 'useCase'] as const).map((category) => (
-          <EnumHeader key={category} config={config} category={category} filter={[]}
-            onFilterChange={() => {}} onConfigChange={changeConfig} hideFilter />
-        ))}
+      <div className="header-title">
+        <span className="use-case-compact-title">User Group / Use Case</span>
+        <div className="enum-manager-control" ref={managerRef}>
+          <button className="mini-icon-button" type="button"
+            aria-label="Manage User Group / Use Case" title="Manage User Group / Use Case"
+            aria-expanded={manageOpen} onClick={() => setManageOpen((next) => !next)}>
+            <Settings2 size={13} aria-hidden="true" />
+          </button>
+          {manageOpen ? (
+            <div className="enum-popover use-case-definition-popover" role="dialog" aria-label="User Group / Use Case definitions">
+              {(['userGroup', 'useCase'] as const).map((category) => (
+                <EnumDefinitionEditor key={category} config={config} category={category} filter={[]}
+                  onFilterChange={() => {}} onConfigChange={changeConfig} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <button className={`mini-icon-button sort-toggle ${sortOrder ? 'is-active' : ''}`} type="button"
+          aria-label={sortOrder === 'asc' ? 'Sort use cases in reverse definition order' : sortOrder === 'desc' ? 'Clear use case sort' : 'Sort use cases in definition order'}
+          title={sortOrder === 'asc' ? 'User Group / Use Case: definition order' : sortOrder === 'desc' ? 'User Group / Use Case: reverse definition order' : 'Sort by user group and use case order'}
+          onClick={() => onSortChange(sortOrder === undefined ? 'asc' : sortOrder === 'asc' ? 'desc' : undefined)}>
+          {sortOrder === 'desc' ? <SortDesc size={13} aria-hidden="true" /> : <SortAsc size={13} aria-hidden="true" />}
+        </button>
       </div>
       <HeaderMultiSelect label="Filter User Group / Use Case" options={options}
         value={[...userGroupFilter.map((id) => `group:${id}`), ...useCaseFilter.map((id) => `case:${id}`)]}
@@ -10334,7 +10346,9 @@ function KpiTable({
   onViewKpi,
   focusedAssignment,
   performanceAreaSort,
-  onPerformanceAreaSortChange
+  onPerformanceAreaSortChange,
+  useCaseSort,
+  onUseCaseSortChange
 }: {
   config: KpiPoolConfig;
   kpis: KpiMetric[];
@@ -10351,8 +10365,10 @@ function KpiTable({
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
   onViewKpi: (kpiId: string) => void;
   focusedAssignment?: UseCaseAssignment;
-  performanceAreaSort: PerformanceAreaSortOrder;
-  onPerformanceAreaSortChange: (next: PerformanceAreaSortOrder) => void;
+  performanceAreaSort: ColumnSortOrder;
+  onPerformanceAreaSortChange: (next: ColumnSortOrder) => void;
+  useCaseSort: ColumnSortOrder;
+  onUseCaseSortChange: (next: ColumnSortOrder) => void;
 }) {
   const [columnWidths, setColumnWidths] = useState(initialColumnWidths);
   const [hiddenEnumColumns, setHiddenEnumColumns] = useState<KpiEnumCategoryKey[]>(defaultHiddenEnumColumns);
@@ -10799,6 +10815,8 @@ function KpiTable({
               </th>
               <th className={headerClass(8)}>
                 <UseCaseHeader
+                  sortOrder={useCaseSort}
+                  onSortChange={onUseCaseSortChange}
                   config={config}
                   userGroupFilter={filters.userGroups}
                   useCaseFilter={filters.useCases}
@@ -10840,7 +10858,7 @@ function KpiTable({
                 tableColumnCount={tableColumnCount}
                 tableViewportWidth={scrollFrame.width}
                 useCaseAssignment={focusedAssignment}
-                sortingActive={Boolean(performanceAreaSort)}
+                sortingActive={Boolean(performanceAreaSort || useCaseSort)}
                 onExpand={stableOnToggleExpanded}
                 onChange={stableOnKpiChange}
                 onConfigChange={onConfigChange}
@@ -11105,7 +11123,8 @@ function EditorApp({
   const [examineAssignment, setExamineAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
   const [focusedAssignment, setFocusedAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
   const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(true);
-  const [performanceAreaSort, setPerformanceAreaSort] = useState<PerformanceAreaSortOrder>();
+  const [performanceAreaSort, setPerformanceAreaSort] = useState<ColumnSortOrder>();
+  const [useCaseSort, setUseCaseSort] = useState<ColumnSortOrder>();
   const [sourceLibraryEditRequest, setSourceLibraryEditRequest] = useState<SourceLibraryEditRequest>();
   const [viewedPrerequisiteKpiIds, setViewedPrerequisiteKpiIds] = useState<string[]>([]);
   const [highlightedPrerequisiteKpi, setHighlightedPrerequisiteKpi] = useState<{ kpiId: string; requestId: number }>();
@@ -11251,6 +11270,11 @@ function EditorApp({
     [config.kpis, filterMatchIds, focusedAssignment, hideOutsideFocusedGroup, pinnedFilterIdSet]
   );
   const visibleKpis = useMemo(() => {
+    if (useCaseSort) {
+      return [...filteredKpis].sort((left, right) =>
+        compareUseCaseAssignments(config.enums.userGroup, config.enums.useCase, left, right, useCaseSort)
+      );
+    }
     if (!performanceAreaSort) {
       return filteredKpis;
     }
@@ -11264,7 +11288,7 @@ function EditorApp({
       const result = leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base', numeric: true });
       return performanceAreaSort === 'asc' ? result : -result;
     });
-  }, [config, deferredFilters, filteredKpis, focusedAssignment, performanceAreaSort]);
+  }, [config, deferredFilters, filteredKpis, focusedAssignment, performanceAreaSort, useCaseSort]);
   const filterCount = activeFilterCount(filters);
   const viewedPrerequisiteKpis = useMemo(() => viewedPrerequisiteKpiIds.flatMap((kpiId) => {
     const kpi = config.kpis.find((entry) => entry.id === kpiId);
@@ -11682,6 +11706,7 @@ function EditorApp({
               {visibleKpis.length} of {config.kpis.length} KPIs
               {filterCount ? ` | ${filterCount} filters` : ''}
               {performanceAreaSort ? ` | performance area ${focusedAssignment ? performanceAreaSort === 'asc' ? 'definition order' : 'reverse definition order' : performanceAreaSort === 'asc' ? 'A-Z' : 'Z-A'}` : ''}
+              {useCaseSort ? ` | user group / use case ${useCaseSort === 'asc' ? 'definition order' : 'reverse definition order'}` : ''}
             </span>
             <button
               className="secondary-action small"
@@ -11771,7 +11796,9 @@ function EditorApp({
           onViewKpi={viewPrerequisiteKpi}
           focusedAssignment={focusedAssignment}
           performanceAreaSort={performanceAreaSort}
-          onPerformanceAreaSortChange={setPerformanceAreaSort}
+          onPerformanceAreaSortChange={(next) => { setPerformanceAreaSort(next); setUseCaseSort(undefined); }}
+          useCaseSort={useCaseSort}
+          onUseCaseSortChange={(next) => { setUseCaseSort(next); setPerformanceAreaSort(undefined); }}
         />
       </section>
       {viewedPrerequisiteKpis.length ? (

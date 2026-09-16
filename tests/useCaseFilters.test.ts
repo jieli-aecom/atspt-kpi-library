@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filteredUseCaseIds, matchesUseCaseSelection, movePerformanceArea, compareFocusedPerformanceAreas } from '../src/useCaseFilters.ts';
+import { filteredUseCaseIds, matchesUseCaseSelection, moveEnumOption, movePerformanceArea, compareFocusedPerformanceAreas, compareUseCaseAssignments } from '../src/useCaseFilters.ts';
 import { createBlankConfig, createBlankKpi, prepareForExport, repairConfig } from '../src/configSchema.ts';
 import { buildKpiExcelRows } from '../src/excelExport.ts';
 import type { KpiPoolConfig } from '../src/types.ts';
@@ -71,4 +71,40 @@ test('Excel honors mixed selections and distinguishes same-named performance are
   assert.deepEqual(buildKpiExcelRows(config, rows, selection).map((row) => row.name), ['a', 'b']);
   assert.deepEqual(buildKpiExcelRows(config, rows, { ...selection, performanceAreas: ['a-z'] }).map((row) => row.name), ['a']);
   assert.deepEqual(buildKpiExcelRows(config, rows, { userGroups: [], useCases: ['b1'], performanceAreas: [] }).map((row) => row.name), ['b']);
+});
+
+test('user groups and use cases can be reordered without moving cases into another group', () => {
+  const config = fixture();
+  config.kpis = [metric('assigned', 'a1', ['a-z'])];
+  const before = structuredClone(config.kpis);
+  config.enums.userGroup = moveEnumOption(config.enums.userGroup, 'b', -1);
+  config.enums.useCase = moveEnumOption(config.enums.useCase, 'a2', -1, ['a1', 'a2']);
+  assert.deepEqual(config.enums.useCase.map((option) => option.id), ['a2', 'b1', 'a1', 'b2']);
+  assert.equal(moveEnumOption(config.enums.useCase, 'a2', -1, ['a1', 'a2']), config.enums.useCase);
+  assert.equal(moveEnumOption(config.enums.useCase, 'missing', 1), config.enums.useCase);
+  assert.deepEqual(config.kpis, before);
+  const restored = repairConfig(JSON.parse(JSON.stringify(prepareForExport(config)))).config;
+  assert.deepEqual(restored.enums.userGroup.map((option) => option.id), ['b', 'a', 'empty']);
+  assert.deepEqual(restored.enums.useCase.filter((option) => option.userGroup === 'a').map((option) => option.id), ['a2', 'a1']);
+  assert.deepEqual(restored.kpis[0].userGroupUseCases, before[0].userGroupUseCases);
+});
+
+test('use case sorting follows both hierarchy levels, reverses, and reacts to definition reordering', () => {
+  const groups = [{ id: 'b', label: 'Zebra' }, { id: 'a', label: 'Alpha' }];
+  const cases = [useCases[2], useCases[0], useCases[3], useCases[1]];
+  const rows = [metric('a1', 'a1', []), metric('a2', 'a2', []), metric('b1', 'b1', []), metric('b2', 'b2', []),
+    { ...metric('empty', 'a1', []), userGroupUseCases: [] }];
+  const sorted = (order: 'asc' | 'desc') => [...rows].sort((a, b) => compareUseCaseAssignments(groups, cases, a, b, order)).map((row) => row.id);
+  assert.deepEqual(sorted('asc'), ['b2', 'b1', 'a2', 'a1', 'empty']);
+  assert.deepEqual(sorted('desc'), ['a1', 'a2', 'b1', 'b2', 'empty']);
+  const changedGroups = moveEnumOption(groups, 'a', -1);
+  assert.ok(compareUseCaseAssignments(changedGroups, cases, rows[0], rows[2], 'asc') < 0);
+  const changedCases = moveEnumOption(cases, 'a1', -1, ['a1', 'a2']);
+  assert.ok(compareUseCaseAssignments(groups, changedCases, rows[0], rows[1], 'asc') < 0);
+  const multiple = { ...rows[0], userGroupUseCases: [...rows[0].userGroupUseCases, ...rows[3].userGroupUseCases] };
+  assert.ok(compareUseCaseAssignments(groups, cases, multiple, rows[2], 'asc') < 0);
+  assert.ok(compareUseCaseAssignments(groups, cases, multiple, rows[1], 'desc') < 0);
+  assert.equal(compareUseCaseAssignments(groups, cases, rows[0], rows[0], 'asc'), 0);
+  const groupOnly = { userGroupUseCases: [{ userGroup: 'b', useCases: [] }] };
+  assert.ok(compareUseCaseAssignments(groups, cases, groupOnly, rows[0], 'asc') < 0);
 });
