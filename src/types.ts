@@ -1,9 +1,9 @@
-export const spatialScaleKeys = ['link', 'cell', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
+export const spatialScaleKeys = ['link', 'parcel', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
 export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
 
 export const spatialScaleLabels = {
   link: 'Link',
-  cell: 'Cell',
+  parcel: 'Parcel',
   project: 'Project',
   taz: 'TAZ',
   corridor: 'Corridor',
@@ -21,7 +21,7 @@ export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
 
-export const CURRENT_SCHEMA_VERSION = 45 as const;
+export const CURRENT_SCHEMA_VERSION = 46 as const;
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];

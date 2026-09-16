@@ -1,4 +1,5 @@
 import { sourceTableUnit } from './types.js';
+import { migrateParcelTerminology } from './parcelTerminology.js';
 import { normalizeScenarioNames, reconcileKpiScenarios, migrateScenarioDecoration } from './scenarios.js';
 import { z } from 'zod';
 import {
@@ -266,7 +267,7 @@ const kpiSchema = z.object({
   }),
   spatialScales: z.object({
     link: spatialScaleSchema,
-    cell: spatialScaleSchema,
+    parcel: spatialScaleSchema,
     project: spatialScaleSchema,
     taz: spatialScaleSchema,
     corridor: spatialScaleSchema,
@@ -2156,7 +2157,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
     const matchingScale = spatialScaleKeys.find((scale) =>
       normalizedSpatialUnit === scale.toLocaleLowerCase() ||
       normalizedSpatialUnit === spatialScaleLabels[scale].toLocaleLowerCase().replace(/[^a-z0-9]/g, '') ||
-      (scale === 'cell' && normalizedSpatialUnit === 'grid')
+      (scale === 'parcel' && ['grid', 'cell', 'cells', 'parcels'].includes(normalizedSpatialUnit))
     );
     const spatialUnit: SpatialUnit = rawSpatialUnit.toLocaleLowerCase() === 'point'
       ? 'Point'
@@ -2702,7 +2703,7 @@ export const createBlankKpi = (): KpiMetric => ({
   },
   spatialScales: {
     link: emptyScale(),
-    cell: emptyScale(),
+    parcel: emptyScale(),
     project: emptyScale(),
     taz: emptyScale(),
     corridor: emptyScale(),
@@ -2743,7 +2744,9 @@ export const repairConfig = (input: unknown): RepairResult => {
 
   const requiresCellTerminologyMigration =
     !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < CELL_TERMINOLOGY_SCHEMA_VERSION;
-  const terminologyInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
+  const gridMigratedInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
+  const terminologyInput = !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 46
+    ? migrateParcelTerminology(gridMigratedInput) : gridMigratedInput;
   const migratedInput = !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 44
     ? migrateScenarioDecoration(terminologyInput) : terminologyInput;
 
