@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filteredUseCaseIds, matchesUseCaseSelection, moveEnumOption, movePerformanceArea, compareFocusedPerformanceAreas, compareUseCaseAssignments } from '../src/useCaseFilters.ts';
+import { filteredUseCaseIds, matchesUseCaseSelection, moveEnumOption, movePerformanceArea, reorderEnumOption, compareFocusedPerformanceAreas, compareUseCaseAssignments } from '../src/useCaseFilters.ts';
 import { createBlankConfig, createBlankKpi, prepareForExport, repairConfig } from '../src/configSchema.ts';
 import { buildKpiExcelRows } from '../src/excelExport.ts';
 import type { KpiPoolConfig } from '../src/types.ts';
@@ -107,4 +107,32 @@ test('use case sorting follows both hierarchy levels, reverses, and reacts to de
   assert.equal(compareUseCaseAssignments(groups, cases, rows[0], rows[0], 'asc'), 0);
   const groupOnly = { userGroupUseCases: [{ userGroup: 'b', useCases: [] }] };
   assert.ok(compareUseCaseAssignments(groups, cases, groupOnly, rows[0], 'asc') < 0);
+});
+
+test('dragging inserts before or after a target across multiple positions within its scope', () => {
+  const areaIds = ['a-z', 'a-a', 'a-m'];
+  const moved = reorderEnumOption(areas, 'a-z', 'a-m', 'after', areaIds);
+  assert.deepEqual(moved.map((option) => option.id), ['a-a', 'b-z', 'a-m', 'a-z']);
+  assert.equal(moved[1], areas[1]);
+  assert.deepEqual(reorderEnumOption(moved, 'a-z', 'a-a', 'before', areaIds), areas);
+  assert.deepEqual(reorderEnumOption(areas, 'a-m', 'a-a', 'before', areaIds).map((option) => option.id), ['a-z', 'b-z', 'a-m', 'a-a']);
+  assert.deepEqual(areas.map((option) => option.id), ['a-z', 'b-z', 'a-a', 'a-m']);
+  assert.deepEqual(reorderEnumOption(useCases, 'a1', 'a2', 'after', ['a1', 'a2']).map((option) => option.id), ['a2', 'b1', 'a1', 'b2']);
+  const config = fixture();
+  config.enums.userGroup = reorderEnumOption(config.enums.userGroup, 'a', 'empty', 'after');
+  config.enums.performanceArea = moved;
+  const restored = repairConfig(JSON.parse(JSON.stringify(prepareForExport(config)))).config;
+  assert.deepEqual(restored.enums.userGroup.map((option) => option.id), ['b', 'empty', 'a']);
+  assert.deepEqual(restored.enums.performanceArea.filter((option) => option.useCase === 'a1').map((option) => option.id), ['a-a', 'a-m', 'a-z']);
+  assert.ok(compareFocusedPerformanceAreas(moved, metric('alpha', 'a1', ['a-a']), metric('zebra', 'a1', ['a-z']), 'a1', 'asc') < 0);
+});
+
+test('dropping onto itself, in the current position, or outside its sibling scope leaves order unchanged', () => {
+  const siblings = ['a-z', 'a-a', 'a-m'];
+  assert.equal(reorderEnumOption(areas, 'a-z', 'a-z', 'after', siblings), areas);
+  assert.equal(reorderEnumOption(areas, 'a-z', 'a-a', 'before', siblings), areas);
+  assert.equal(reorderEnumOption(areas, 'a-a', 'a-z', 'after', siblings), areas);
+  assert.equal(reorderEnumOption(areas, 'a-z', 'b-z', 'after', siblings), areas);
+  assert.equal(reorderEnumOption(areas, 'b-z', 'a-z', 'before', siblings), areas);
+  assert.equal(reorderEnumOption(areas, 'missing', 'a-z', 'before', siblings), areas);
 });

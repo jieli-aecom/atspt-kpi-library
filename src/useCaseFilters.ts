@@ -27,6 +27,24 @@ export const moveEnumOption = (options: EnumOption[], id: string, direction: -1 
 export const movePerformanceArea = (options: EnumOption[], id: string, useCase: string, direction: -1 | 1) =>
   moveEnumOption(options, id, direction, options.filter((option) => option.useCase === useCase).map((option) => option.id));
 
+export const reorderEnumOption = (
+  options: EnumOption[], sourceId: string, targetId: string, position: 'before' | 'after',
+  siblingIds = options.map((option) => option.id)
+) => {
+  if (sourceId === targetId) return options;
+  const siblings = new Set(siblingIds);
+  const ordered = options.filter((option) => siblings.has(option.id));
+  const source = ordered.find((option) => option.id === sourceId);
+  if (!source || !ordered.some((option) => option.id === targetId)) return options;
+  const remaining = ordered.filter((option) => option.id !== sourceId);
+  const targetIndex = remaining.findIndex((option) => option.id === targetId);
+  remaining.splice(targetIndex + (position === 'after' ? 1 : 0), 0, source);
+  if (remaining.every((option, index) => option === ordered[index])) return options;
+  let index = 0;
+  // Reorder only sibling slots so other groups and use cases stay untouched.
+  return options.map((option) => siblings.has(option.id) ? remaining[index++] : option);
+};
+
 export const compareUseCaseAssignments = (
   userGroups: EnumOption[], useCases: EnumOption[],
   left: Pick<KpiMetric, 'userGroupUseCases'>, right: Pick<KpiMetric, 'userGroupUseCases'>,

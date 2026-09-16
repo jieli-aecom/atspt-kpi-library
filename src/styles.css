@@ -1544,12 +1544,14 @@ h1 {
 }
 
 .library-item-shell.is-drag-over-before,
-.variable-row.is-drag-over-before {
+.variable-row.is-drag-over-before,
+.enum-edit-row.is-drag-over-before {
   box-shadow: inset 0 2px 0 #565c91;
 }
 
 .library-item-shell.is-drag-over-after,
-.variable-row.is-drag-over-after {
+.variable-row.is-drag-over-after,
+.enum-edit-row.is-drag-over-after {
   box-shadow: inset 0 -2px 0 #565c91;
 }
 
@@ -5830,6 +5832,16 @@ h1 {
   background: #ffffff;
 }
 
+.cell-enum-count-trigger {
+  width: fit-content;
+  min-width: 48px;
+  border-color: #c8ced6;
+  background: #ffffff;
+  padding: 3px 8px;
+  font-weight: 700;
+  text-align: center;
+}
+
 .cell-enum-popover {
   position: absolute;
   z-index: 20;
@@ -7354,13 +7366,7 @@ h1 {
 .field-formula-summary .formula-semantic-token.is-actionable { cursor: pointer; }
 
 .enum-edit-row.reorderable-enum-row {
-  grid-template-columns: 48px minmax(90px, 0.9fr) minmax(110px, 1.1fr) 24px;
-}
-
-.enum-order-controls {
-  display: flex;
-  align-items: center;
-  gap: 3px;
+  grid-template-columns: 24px minmax(90px, 0.9fr) minmax(110px, 1.1fr) 24px;
 }
 
 .use-case-definition-popover {

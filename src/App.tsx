@@ -1,4 +1,4 @@
-import { filteredUseCaseIds, matchesUseCaseSelection, moveEnumOption, compareFocusedPerformanceAreas, compareUseCaseAssignments } from './useCaseFilters';
+import { filteredUseCaseIds, matchesUseCaseSelection, reorderEnumOption, compareFocusedPerformanceAreas, compareUseCaseAssignments } from './useCaseFilters';
 import { sourceTableUnit } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { installPopupDragGuard } from './popupDragGuard';
@@ -15,7 +15,6 @@ import {
   BookOpen,
   Check,
   ChevronDown,
-  ChevronUp,
   ChevronsUp,
   CircleHelp,
   Columns3,
@@ -180,7 +179,7 @@ const validDefaultFocus = (config: KpiPoolConfig, focus?: KpiDefaultFocus): UseC
 
 const categoryFields: KpiEnumCategoryKey[] = [];
 
-const initialColumnWidths = [220, 145, 225, 334, 251, 115, 120, 135, 145, 83];
+const initialColumnWidths = [220, 145, 225, 334, 266, 115, 120, 120, 145, 83];
 const minColumnWidths = [170, 115, 165, 240, 180, 100, 105, 110, 125, 76];
 const defaultHiddenEnumColumns: KpiEnumCategoryKey[] = ['previousApplication', 'federalRequirement'];
 const estimatedCollapsedRowHeight = 78;
@@ -1445,9 +1444,28 @@ function EnumDefinitionEditor({
 }: EnumHeaderProps) {
   const [newUseCaseUserGroup, setNewUseCaseUserGroup] = useState('');
   const [newPerformanceAreaUseCase, setNewPerformanceAreaUseCase] = useState('');
+  const draggedOptionIdRef = useRef<string | null>(null);
+  const [optionDragOver, setOptionDragOver] = useState<{ id: string; position: DropPosition } | null>(null);
+  const clearOptionDrag = () => {
+    draggedOptionIdRef.current = null;
+    setOptionDragOver(null);
+  };
+  useEffect(clearOptionDrag, [newUseCaseUserGroup, newPerformanceAreaUseCase]);
   const allManagerOptions = manageOptions ?? config.enums[category];
   const addUseCaseUserGroupOptions = useCaseUserGroupOptions ?? config.enums.userGroup;
   const addPerformanceAreaUseCaseOptions = performanceAreaUseCaseOptions ?? config.enums.useCase;
+  const performanceAreaUseCaseGroups = [
+    ...config.enums.userGroup.map((group) => ({
+      id: group.id,
+      label: group.label,
+      options: addPerformanceAreaUseCaseOptions.filter((option) => option.userGroup === group.id)
+    })),
+    {
+      id: 'unassigned',
+      label: 'Unassigned',
+      options: addPerformanceAreaUseCaseOptions.filter((option) => !config.enums.userGroup.some((group) => group.id === option.userGroup))
+    }
+  ].filter((group) => group.options.length > 0);
   const managerOptions =
     category === 'useCase'
       ? allManagerOptions.filter((option) => option.userGroup === newUseCaseUserGroup)
@@ -1805,10 +1823,12 @@ function EnumDefinitionEditor({
                   <label className="enum-add-group">
                     <span>Use case</span>
                     <select value={newPerformanceAreaUseCase} onChange={(event) => setNewPerformanceAreaUseCase(event.target.value)}>
-                      {addPerformanceAreaUseCaseOptions.map((option) => (
-                        <option value={option.id} key={option.id}>
-                          {option.label}
-                        </option>
+                      {performanceAreaUseCaseGroups.map((group) => (
+                        <optgroup label={group.label} key={group.id}>
+                          {group.options.map((option) => (
+                            <option value={option.id} key={option.id}>{option.label}</option>
+                          ))}
+                        </optgroup>
                       ))}
                     </select>
                   </label>
@@ -1842,22 +1862,49 @@ function EnumDefinitionEditor({
                         : 'No options in this category.'}
                   </span>
                 ) : null}
-                {managerOptions.map((option, optionIndex) => (
-                  <div className={`enum-edit-row ${reorderable ? 'reorderable-enum-row' : ''}`} key={`${option.id}-${option.useCase ?? option.userGroup ?? ''}`}>
+                {managerOptions.map((option) => (
+                  <div
+                    className={`enum-edit-row ${reorderable ? 'reorderable-enum-row' : ''} ${optionDragOver?.id === option.id ? `is-drag-over-${optionDragOver.position}` : ''}`}
+                    key={`${option.id}-${option.useCase ?? option.userGroup ?? ''}`}
+                    onDragOver={(event) => {
+                      const sourceId = draggedOptionIdRef.current;
+                      if (!reorderable || !sourceId || !managerOptions.some((entry) => entry.id === sourceId)) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      event.dataTransfer.dropEffect = 'move';
+                      if (sourceId === option.id) { setOptionDragOver(null); return; }
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      setOptionDragOver({ id: option.id, position: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' });
+                    }}
+                    onDragLeave={(event) => {
+                      if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
+                      setOptionDragOver((current) => current?.id === option.id ? null : current);
+                    }}
+                    onDrop={(event) => {
+                      const sourceId = draggedOptionIdRef.current;
+                      if (!reorderable || !sourceId) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const position = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after';
+                      const nextOptions = reorderEnumOption(config.enums[category], sourceId, option.id, position, managerOptions.map((entry) => entry.id));
+                      if (nextOptions !== config.enums[category]) {
+                        onConfigChange({ ...config, enums: { ...config.enums, [category]: nextOptions } });
+                      }
+                      clearOptionDrag();
+                    }}
+                  >
                     {reorderable ? (
-                      <div className="enum-order-controls">
-                        {([-1, 1] as const).map((direction) => (
-                          <button className="mini-icon-button" type="button" key={direction}
-                            aria-label={`Move ${option.label} ${direction === -1 ? 'up' : 'down'}`}
-                            title={`Move ${direction === -1 ? 'up' : 'down'}`}
-                            disabled={direction === -1 ? optionIndex === 0 : optionIndex === managerOptions.length - 1}
-                            onClick={() => onConfigChange({ ...config, enums: { ...config.enums,
-                              [category]: moveEnumOption(config.enums[category], option.id, direction, managerOptions.map((entry) => entry.id))
-                            } })}>
-                            {direction === -1 ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-                          </button>
-                        ))}
-                      </div>
+                      <button className="mini-icon-button drag-handle" type="button" draggable
+                        aria-label={`Drag ${option.label} to reorder`} title="Drag to reorder"
+                        onDragStart={(event) => {
+                          event.stopPropagation();
+                          draggedOptionIdRef.current = option.id;
+                          event.dataTransfer.effectAllowed = 'move';
+                          event.dataTransfer.setData('text/plain', option.id);
+                        }}
+                        onDragEnd={clearOptionDrag}
+                      ><GripVertical size={13} aria-hidden="true" /></button>
                     ) : null}
                     <input value={option.label} onChange={(event) => updateOption(option, 'label', event.target.value)} />
                     <input
@@ -1914,7 +1961,7 @@ function UseCaseHeader({
   return (
     <div className="use-case-header-control">
       <div className="header-title">
-        <span className="use-case-compact-title">User Group / Use Case</span>
+        <span className="use-case-compact-title">Use Cases</span>
         <div className="enum-manager-control" ref={managerRef}>
           <button className="mini-icon-button" type="button"
             aria-label="Manage User Group / Use Case" title="Manage User Group / Use Case"
@@ -3176,7 +3223,8 @@ function RowEnumSelect({
   selected,
   onChange,
   options,
-  highlightedOptionId
+  highlightedOptionId,
+  showCount = false
 }: {
   config: KpiPoolConfig;
   category: EnumCategoryKey;
@@ -3184,6 +3232,7 @@ function RowEnumSelect({
   onChange: (next: string[]) => void;
   options?: (EnumOption & HeaderFilterOption)[];
   highlightedOptionId?: string;
+  showCount?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
@@ -3196,12 +3245,16 @@ function RowEnumSelect({
   return (
     <div className="cell-enum-control" ref={controlRef}>
       <button
-        className="cell-enum-trigger"
+        className={`cell-enum-trigger ${showCount ? 'cell-enum-count-trigger' : ''}`}
         type="button"
-        aria-label={`Edit ${enumCategoryLabels[category]} for row`}
+        aria-label={`Edit ${enumCategoryLabels[category]} for row${showCount ? `, ${selectedOptionDetails.length} selected` : ''}`}
+        aria-expanded={open}
+        title={showCount ? `${selectedOptionDetails.length} selected performance areas` : undefined}
         onClick={() => setOpen((next) => !next)}
       >
-        {selectedOptionDetails.length ? (
+        {showCount ? (
+          <span>{selectedOptionDetails.length}</span>
+        ) : selectedOptionDetails.length ? (
           <span className="pill-list">
             {selectedOptionDetails.map((option) => (
               <span
@@ -8695,6 +8748,7 @@ function RowPerformanceAreaSelect({
     <RowEnumSelect
       config={config}
       category="performanceArea"
+      showCount={!assignment}
       selected={selected}
       options={options}
       onChange={(performanceAreas) => onChange(setPerformanceAreasForUseCases(config, kpi, targetUseCases, performanceAreas))}
@@ -10606,17 +10660,16 @@ function KpiTable({
       : filteredUseCaseIds(config.enums.useCase, filters.userGroups, filters.useCases),
     [config.enums.useCase, filters.userGroups, filters.useCases, focusedAssignment]
   );
-  const performanceAreaUseCaseOptions = useMemo(() => {
-    const userGroupLabels = new Map(config.enums.userGroup.map((option) => [option.id, option.label]));
-    return config.enums.useCase.filter((option) => performanceAreaScopeUseCases.includes(option.id)).map((option) => ({
-      ...option, label: `${userGroupLabels.get(option.userGroup ?? '') ?? 'Unassigned'} / ${option.label}`
-    }));
-  }, [config.enums.useCase, config.enums.userGroup, performanceAreaScopeUseCases]);
+  const performanceAreaUseCaseOptions = useMemo(
+    () => config.enums.useCase.filter((option) => performanceAreaScopeUseCases.includes(option.id)),
+    [config.enums.useCase, performanceAreaScopeUseCases]
+  );
   const performanceAreaHeaderOptions = useMemo(() => performanceAreaUseCaseOptions.flatMap((useCase) =>
     config.enums.performanceArea.filter((option) => option.useCase === useCase.id).map((option) => ({
-      ...option, groupId: useCase.id, groupLabel: focusedAssignment ? undefined : useCase.label
+      ...option, groupId: useCase.id, groupLabel: focusedAssignment ? undefined
+        : `${config.enums.userGroup.find((group) => group.id === useCase.userGroup)?.label ?? 'Unassigned'} / ${useCase.label}`
     }))
-  ), [config.enums.performanceArea, performanceAreaUseCaseOptions, focusedAssignment]);
+  ), [config.enums.performanceArea, config.enums.userGroup, performanceAreaUseCaseOptions, focusedAssignment]);
   const performanceAreaManagerOptions = performanceAreaHeaderOptions;
   const performanceAreaFilterIds = useMemo(
     () => new Set(performanceAreaHeaderOptions.map((option) => option.id)),
