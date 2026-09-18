@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Settings2, X } from 'lucide-react';
+import { Plus, RotateCcw, Settings2, Trash2, X } from 'lucide-react';
 import katex from 'katex';
 import { InlineMath } from 'react-katex';
 import { spatialScaleKeys, genericSpatialUnits, type KpiPoolConfig, type LogicDefinition } from './types';
@@ -92,25 +92,29 @@ function LogicRow({ item, config, onChange, highlighted }: { item: LogicDefiniti
     finally { setBusy(false); }
   };
   return <div className={`logic-definition-row ${highlighted ? 'is-source-highlighted' : ''}`} data-library-target={`logic:${item.id}`}>
-    <fieldset disabled={busy}>
-      <label className="field"><span>Logic LaTeX</span><input aria-label="Logic LaTeX" value={draft.latex} onChange={(event) => setDraft({ ...draft, latex: event.target.value })} /></label>
-      <label className="field"><span>Meaning</span><textarea aria-label="Logic meaning" value={draft.explanation} onChange={(event) => setDraft({ ...draft, explanation: event.target.value })} /></label>
-      <InlineMath math={draft.latex} />
-      <div className="library-final-actions"><button type="button" className="primary-action tiny" onClick={apply}>Apply logic</button><button type="button" className="secondary-action tiny" onClick={() => { setDraft(item); setError(''); }}>Reset</button><button type="button" className="secondary-action tiny" onClick={() => onChange({ ...config, logic: config.logic.filter((entry) => entry.id !== item.id) })}>Delete logic</button></div>
+    <fieldset className="logic-definition-fields" disabled={busy}>
+      <input className="logic-definition-latex" aria-label="Logic LaTeX" spellCheck={false} value={draft.latex} onChange={(event) => setDraft({ ...draft, latex: event.target.value })} />
+      <textarea aria-label="Logic meaning" placeholder="Meaning" rows={1} value={draft.explanation} onChange={(event) => setDraft({ ...draft, explanation: event.target.value })} />
+      <div className="logic-definition-preview"><InlineMath math={draft.latex} /></div>
+      <div className="logic-definition-actions"><button type="button" className="primary-action tiny" aria-label="Apply logic" title="Apply changes to all formula references" onClick={apply}>Apply</button><button type="button" className="mini-icon-button" aria-label="Reset logic" title="Reset changes" onClick={() => { setDraft(item); setError(''); }}><RotateCcw size={13} /></button><button type="button" className="mini-icon-button danger" aria-label="Delete logic" title="Delete definition; written formulas are retained" onClick={() => onChange({ ...config, logic: config.logic.filter((entry) => entry.id !== item.id) })}><Trash2 size={13} /></button></div>
     </fieldset>
-    {error ? <p role="alert">{error}</p> : null}
+    {error ? <p className="logic-definition-error" role="alert">{error}</p> : null}
     {busy ? <BusyNotice /> : null}
   </div>;
 }
 
 export function LogicLibrary({ config, onChange, highlightedId }: { config: KpiPoolConfig; onChange: (next: KpiPoolConfig) => void; highlightedId?: string }) {
   return <section className="logic-library" aria-label="Logic">
-    <h3>Logic</h3><p>Define reusable notation and its meaning. Logic is highlighted in every formula automatically. Apply a changed expression to update all references. Deleting a definition retains written formulas.</p>
-    {config.logic.map((item) => <LogicRow key={item.id} item={item} config={config} onChange={onChange} highlighted={item.id === highlightedId} />)}
+    <div className="logic-library-heading"><h3>Logic</h3>
     <button type="button" className="secondary-action tiny" onClick={() => {
       let latex = '\\max'; let suffix = 1;
       while ([...config.logic, ...Object.values(config.spatialScaleDefinitions)].some((entry) => entry.latex === latex)) latex = `\\operatorname{logic${suffix++}}`;
       onChange({ ...config, logic: [...config.logic, { id: crypto.randomUUID(), latex, explanation: '' }] });
-    }}>Add logic</button>
+    }}><Plus size={13} />Add logic</button></div>
+    <p>Highlighted in every formula. Apply changes to update all references.</p>
+    {config.logic.length ? <div className="logic-definition-scroll"><div className="logic-definition-list">
+      <div className="logic-definition-columns" aria-hidden="true"><span>LaTeX</span><span>Meaning</span><span>Preview</span><span>Actions</span></div>
+      {config.logic.map((item) => <LogicRow key={item.id} item={item} config={config} onChange={onChange} highlighted={item.id === highlightedId} />)}
+    </div></div> : null}
   </section>;
 }

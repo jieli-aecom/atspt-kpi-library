@@ -7433,7 +7433,7 @@ h1 {
 .global-definition-dialog footer { border-top: 1px solid #e1e7eb; padding-top: 10px; }
 .global-definition-dialog footer > span { max-width: 285px; color: #687783; font-size: 10px; line-height: 1.5; }
 .scale-definition-actions { display: flex; gap: 6px; flex-shrink: 0; }
-.logic-library p { font-size: 12px; line-height: 1.6; font-weight: normal; }
+.logic-library > p { margin: 4px 0 8px; color: var(--popup-muted); font-size: 11px; line-height: 1.5; font-weight: normal; }
 .global-definition-dialog fieldset, .logic-definition-row fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .scale-definition-list { display: grid; gap: 4px; }
 .scale-definition-columns, .scale-definition-row {
@@ -7458,11 +7458,25 @@ h1 {
 .scale-legend-example.is-current { color: #b42318; background: #be322a12; }
 .scale-legend-example.is-other { color: #a65c00; background: #d98c231a; }
 .scale-definition-error { color: #b42318; font-size: 11px; margin: 8px 0; }
-.logic-library { padding: 12px; margin-bottom: 16px; border: 1px solid #d4dfeb; border-radius: 8px; background: #fafcfe; }
-.logic-library h3 { margin: 0; }
-.logic-definition-row { padding: 12px; margin: 8px 0; background: white; border: 1px solid #d4dfeb; border-radius: 6px; }
+.logic-library { padding: 8px; margin-bottom: 12px; border: 1px solid #d4dfeb; border-radius: 6px; background: #fafcfe; }
+.logic-library-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.logic-library h3 { margin: 0; font-size: 12px; font-weight: 650; }
+.logic-definition-scroll { overflow-x: auto; padding: 3px; margin: -3px; }
+.logic-definition-list { display: grid; gap: 4px; min-width: 520px; }
+.logic-definition-columns, .logic-definition-row .logic-definition-fields {
+  display: grid; grid-template-columns: minmax(120px, 1fr) minmax(160px, 1.6fr) minmax(64px, .55fr) 105px;
+  align-items: center; gap: 6px;
+}
+.logic-definition-columns { padding: 0 6px 2px; font-size: 10px; font-weight: 600; color: var(--popup-muted); }
+.logic-definition-row { padding: 5px; background: white; border: 1px solid #d4dfeb; border-radius: 5px; }
 .logic-definition-row.is-source-highlighted { outline: 3px solid #c38722; }
-.logic-definition-row textarea { min-height: 58px; }
+.logic-definition-row :is(input, textarea) { width: 100%; min-width: 0; height: 28px; min-height: 28px; padding: 4px 7px; font-size: 11px; line-height: 18px; }
+.logic-definition-row textarea { resize: vertical; }
+.logic-definition-latex { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.logic-definition-preview { min-width: 0; overflow-x: auto; overflow-y: hidden; font-size: 12px; padding: 0 2px; }
+.logic-definition-preview .katex { font-size: 1em; }
+.logic-definition-actions { display: flex; align-items: center; gap: 4px; }
+.logic-definition-error { margin: 5px 0 0; color: #b42318; font-size: 11px; font-weight: 400; }
 .formula-semantic-token.formula-logic-token { color: #00756a !important; background: #00857918 !important; box-shadow: inset 0 -2px #00857980; }
 .formula-logic-insert { color: #00756a; }
 .formula-semantic-token.formula-scale-other-token { color: #a65c00 !important; background: #d98c231a !important; box-shadow: inset 0 -2px #a65c0070; }
