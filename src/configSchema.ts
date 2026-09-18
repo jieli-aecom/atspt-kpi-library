@@ -6,6 +6,7 @@ import { normalizeScenarioNames, reconcileKpiScenarios, migrateScenarioDecoratio
 import { z } from 'zod';
 import {
   CURRENT_SCHEMA_VERSION,
+  kpiStatuses,
   kpiScenarioTypes,
   tableSourceCategories,
   type TableSourceCategory,
@@ -246,6 +247,8 @@ const defaultFocusSchema = z.object({
 });
 
 const kpiSchema = z.object({
+  status: z.enum(kpiStatuses),
+  unit: z.string(),
   scenarioType: z.enum(kpiScenarioTypes),
   scenarioNames: z.tuple([z.string().min(1), z.string().min(1)]),
   id: z.string().min(1),
@@ -364,6 +367,8 @@ const isCurrentUseCaseNote = (value: unknown): value is KpiUseCaseNote =>
 
 const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
   isRecord(value) &&
+  kpiStatuses.includes(value.status as never) &&
+  typeof value.unit === 'string' &&
   typeof value.id === 'string' &&
   typeof value.lastModified === 'string' &&
   Number.isFinite(Date.parse(value.lastModified)) &&
@@ -2688,6 +2693,8 @@ export const createBlankConfig = (): KpiPoolConfig => ({
 });
 
 export const createBlankKpi = (): KpiMetric => ({
+  status: 'Drafted',
+  unit: '',
   scenarioType: 'Scenario',
   scenarioNames: ['Scenario', 'Scenario 2'],
   id: createId('kpi'),
@@ -2822,7 +2829,12 @@ export const repairConfig = (input: unknown): RepairResult => {
       ? (record.prerequisite ?? record.Prerequisite) as Record<string, unknown>
       : {};
 
+    const note = stringValue(record.note ?? record.Note ?? record.ambiguities ?? record.Ambiguities);
+    const repairedNoteLabels = repairKpiNoteLabels(record.noteLabels ?? record.labels ?? record.Labels, noteLabels, warnings, name);
+    const status = record.status ?? record.Status;
     const kpi: KpiMetric = {
+      status: kpiStatuses.includes(status as never) ? status as KpiMetric['status'] : note.trim() || repairedNoteLabels.length ? 'Question' : 'Drafted',
+      unit: stringValue(record.unit ?? record.Unit),
       scenarioType: kpiScenarioTypes.includes(record.scenarioType as never) ? record.scenarioType as KpiMetric['scenarioType'] : 'Scenario',
       scenarioNames: normalizeScenarioNames(record.scenarioNames),
       id: ensureUniqueId(record.id, 'kpi', usedKpiIds, warnings, `KPI "${name}"`),
@@ -2831,8 +2843,8 @@ export const repairConfig = (input: unknown): RepairResult => {
         return value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : importTimestamp;
       })(),
       name,
-      note: stringValue(record.note ?? record.Note ?? record.ambiguities ?? record.Ambiguities),
-      noteLabels: repairKpiNoteLabels(record.noteLabels ?? record.labels ?? record.Labels, noteLabels, warnings, name),
+      note,
+      noteLabels: repairedNoteLabels,
       dimensions: repairKpiDimensions(record.dimensions, valueEnums, warnings, name),
       sources: repairKpiSources(record.sources ?? record.source ?? record.Source, warnings, name),
       description: {

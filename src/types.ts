@@ -26,7 +26,7 @@ export type SpatialUnit = string;
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   typeof value === 'string';
 
-export const CURRENT_SCHEMA_VERSION = 48 as const;
+export const CURRENT_SCHEMA_VERSION = 49 as const;
 
 export type SpatialScaleDefinition = { name: string; latex: string };
 export type SpatialScaleDefinitions = Record<SpatialScaleDefinitionKey, SpatialScaleDefinition>;
@@ -280,7 +280,12 @@ export type KpiDefaultFocus = {
   useCase: string;
 };
 
+export const kpiStatuses = ['Drafted', 'Question', 'Reviewed'] as const;
+export type KpiStatus = typeof kpiStatuses[number];
+
 export type KpiMetric = {
+  status: KpiStatus;
+  unit: string;
   scenarioType: KpiScenarioType;
   scenarioNames: [string, string];
   id: string;

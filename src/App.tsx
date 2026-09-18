@@ -7,7 +7,7 @@ import { fieldSourceRows } from './fieldSourceSummary';
 import { installPopupDragGuard } from './popupDragGuard';
 import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
 import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex, scenarioFormulaTokens, scenarioBaseFromLatex, sourceSelectionKey, groupSourceSelections } from './scenarios';
-import { kpiScenarioTypes } from './types';
+import { kpiScenarioTypes, kpiStatuses, type KpiStatus } from './types';
 import { tableSourceCategories, type TableSourceCategory } from './types';
 import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { BlockMath, InlineMath } from 'react-katex';
@@ -20,6 +20,8 @@ import {
   ChevronDown,
   ChevronsUp,
   CircleHelp,
+  CircleCheck,
+  CircleDashed,
   Columns3,
   Copy,
   Cloud,
@@ -131,7 +133,7 @@ const EXPORTED_SNAPSHOT_ATTRIBUTE = 'data-kpi-exported-snapshot';
 type ColumnFilters = {
   name: string;
   description: string;
-  notesOnly: boolean;
+  status: KpiStatus | '';
   noteLabels: string[];
   formula: string;
   prerequisite: string;
@@ -245,7 +247,7 @@ const isRowBackgroundClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
 const emptyFilters = (): ColumnFilters => ({
   name: '',
   description: '',
-  notesOnly: false,
+  status: '',
   noteLabels: [],
   formula: '',
   prerequisite: '',
@@ -321,7 +323,7 @@ type CompiledFilters = {
   source: ColumnFilters;
   name: string;
   description: string;
-  notesOnly: boolean;
+  status: KpiStatus | '';
   noteLabels: Set<string>;
   formula: string;
   prerequisite: string;
@@ -417,7 +419,7 @@ const compileFilters = (filters: ColumnFilters): CompiledFilters => {
     source: filters,
     name: normalize(filters.name),
     description: normalize(filters.description),
-    notesOnly: filters.notesOnly,
+    status: filters.status,
     noteLabels: new Set(filters.noteLabels),
     formula: normalize(filters.formula),
     prerequisite: normalize(filters.prerequisite),
@@ -928,7 +930,7 @@ const formatLastModified = (timestamp: string) => {
 
 const activeFilterCount = (filters: ColumnFilters) =>
   (filters.name || filters.description ? 1 : 0) +
-  (filters.notesOnly ? 1 : 0) +
+  (filters.status ? 1 : 0) +
   filters.noteLabels.length +
   (filters.formula ? 1 : 0) +
   (filters.prerequisite ? 1 : 0) +
@@ -954,7 +956,7 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
     return true;
   }
 
-  if (filters.notesOnly && !kpi.note.trim() && kpi.noteLabels.length === 0) {
+  if (filters.status && kpi.status !== filters.status) {
     return false;
   }
 
@@ -1047,6 +1049,7 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
   return {
     ...kpi,
     name: nameFilter || kpi.name,
+    status: filters.status || (filters.noteLabels.length ? 'Question' : kpi.status),
     noteLabels: [...filters.noteLabels],
     description: {
       overview: descriptionFilter,
@@ -1108,6 +1111,8 @@ const duplicateKpiMetric = (kpi: KpiMetric, focusAssignment?: UseCaseAssignment)
     }));
 
   return {
+    status: kpi.status,
+    unit: kpi.unit,
     scenarioType: kpi.scenarioType,
     scenarioNames: [...kpi.scenarioNames],
     id: createBlankKpi().id,
@@ -1189,8 +1194,8 @@ function TextHeaderFilter({
   value,
   placeholder,
   onChange,
-  notesOnly,
-  onNotesOnlyChange,
+  status,
+  onStatusChange,
   noteLabelOptions = [],
   noteLabels = [],
   onNoteLabelsChange
@@ -1199,30 +1204,24 @@ function TextHeaderFilter({
   value: string;
   placeholder: string;
   onChange: (value: string) => void;
-  notesOnly?: boolean;
-  onNotesOnlyChange?: (value: boolean) => void;
+  status?: KpiStatus | '';
+  onStatusChange?: (value: KpiStatus | '') => void;
   noteLabelOptions?: { id: string; name: string }[];
   noteLabels?: string[];
   onNoteLabelsChange?: (value: string[]) => void;
 }) {
-  const activeCount = (value ? 1 : 0) + (notesOnly ? 1 : 0) + noteLabels.length;
+  const activeCount = (value ? 1 : 0) + (status ? 1 : 0) + noteLabels.length;
   return (
     <div className="header-control">
       <div className="header-title">
         <span>{label}</span>
         {activeCount ? <strong>{activeCount}</strong> : null}
-        {typeof notesOnly === 'boolean' && onNotesOnlyChange ? (
+        {status !== undefined && onStatusChange ? (
           <div className="note-filter-actions">
-            <label className="note-filter-toggle" title="Show only KPIs with notes">
-              <CircleHelp size={12} aria-hidden="true" />
-              <input
-                type="checkbox"
-                role="switch"
-                aria-label="Show only KPIs with notes"
-                checked={notesOnly}
-                onChange={(event) => onNotesOnlyChange(event.target.checked)}
-              />
-            </label>
+            <select className="kpi-status-filter" aria-label="Filter KPIs by status" value={status} onChange={(event) => onStatusChange(event.target.value as KpiStatus | '')}>
+              <option value="">All statuses</option>
+              {kpiStatuses.map((status) => <option key={status}>{status}</option>)}
+            </select>
             {onNoteLabelsChange ? (
               <NoteLabelHeaderFilter
                 options={noteLabelOptions}
@@ -9760,12 +9759,31 @@ function KpiNoteDialog({
           <div>
             <strong id={titleId}>{kpi.name || 'Untitled KPI'}</strong>
           </div>
-          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close notes" onClick={closeDialog}>
+          <button ref={closeButtonRef} className="mini-icon-button" type="button" title="Close" aria-label="Close status" onClick={closeDialog}>
             <X size={16} aria-hidden="true" />
           </button>
         </header>
         <div className="kpi-note-dialog-body">
+          <div className="field kpi-status-field">
+            <span id={`${titleId}-status`}>Status</span>
+            <div className="kpi-status-buttons" role="group" aria-labelledby={`${titleId}-status`}>
+              {kpiStatuses.map((status) => (
+                <button
+                  key={status}
+                  className={`kpi-status-option status-${status.toLowerCase()}`}
+                  type="button"
+                  aria-pressed={kpi.status === status}
+                  onClick={() => onChange({ ...kpi, status })}
+                >
+                  <KpiStatusIcon status={status} />
+                  {status}
+                </button>
+              ))}
+            </div>
+          </div>
+          {kpi.status === 'Question' ? <>
           <div className="lookup-details-heading kpi-note-editor-heading">
+            <strong>Notes</strong>
             <label className="lookup-details-mode">
               <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
               <input
@@ -9810,7 +9828,7 @@ function KpiNoteDialog({
           )}
           <section className="kpi-note-labels" aria-labelledby={`kpi-note-labels-title-${kpi.id}`}>
             <div className="kpi-note-labels-heading">
-              <strong id={`kpi-note-labels-title-${kpi.id}`}>Labels</strong>
+              <strong id={`kpi-note-labels-title-${kpi.id}`}>Note labels</strong>
               <button className="secondary-action tiny" type="button" aria-expanded={manageLabels} onClick={() => setManageLabels((current) => !current)}>
                 {manageLabels ? 'Done' : 'Manage label pool'}
               </button>
@@ -9888,11 +9906,17 @@ function KpiNoteDialog({
               </div>
             ) : null}
           </section>
+          </> : <p className="kpi-status-hint">Notes and note labels are available when the status is Question.</p>}
         </div>
       </section>
     </div>,
     document.body
   );
+}
+
+function KpiStatusIcon({ status }: { status: KpiStatus }) {
+  const Icon = status === 'Reviewed' ? CircleCheck : status === 'Question' ? CircleHelp : CircleDashed;
+  return <Icon size={14} aria-hidden="true" />;
 }
 
 function KpiRow({
@@ -10045,24 +10069,27 @@ function KpiRow({
                     </button>
                   ) : null}
                 </div>
-                <select className="kpi-scenario-tag" aria-label={`Scenario type for ${kpi.name}`} value={kpi.scenarioType} onClick={stopRowToggle} onChange={(event) => {
-                  const scenarioType = event.target.value as KpiMetric['scenarioType'];
-                  const updated = reconcileKpiScenarios(config, { ...kpi, scenarioType, scenarioNames: scenarioType === 'Inter-Scenario' ? ['Scenario', 'Scenario 2'] : kpi.scenarioNames });
-                  patch(updated);
-                }}>{kpiScenarioTypes.map((type) => <option key={type}>{type}</option>)}</select>
+                <div className="kpi-scenario-unit-row">
+                  <select className="kpi-scenario-tag" aria-label={`Scenario type for ${kpi.name}`} value={kpi.scenarioType} onClick={stopRowToggle} onChange={(event) => {
+                    const scenarioType = event.target.value as KpiMetric['scenarioType'];
+                    const updated = reconcileKpiScenarios(config, { ...kpi, scenarioType, scenarioNames: scenarioType === 'Inter-Scenario' ? ['Scenario', 'Scenario 2'] : kpi.scenarioNames });
+                    patch(updated);
+                  }}>{kpiScenarioTypes.map((type) => <option key={type}>{type}</option>)}</select>
+                  <AutoGrowTextarea className="kpi-unit-input" rows={1} value={kpi.unit} placeholder="Unit" aria-label={`Unit for ${kpi.name}`} onClick={stopRowToggle} onValueChange={(unit) => patch({ unit })} />
+                </div>
               </div>
               <button
-                className={`kpi-note-button ${kpi.note.trim() || kpi.noteLabels.length ? 'has-note' : ''}`}
+                className={`kpi-note-button status-${kpi.status.toLowerCase()}`}
                 type="button"
-                aria-label={`Edit notes for ${kpi.name}`}
+                aria-label={`Edit status for ${kpi.name}: ${kpi.status}`}
                 aria-haspopup="dialog"
-                title={kpi.note.trim() || kpi.noteLabels.length ? 'Edit notes' : 'Add notes'}
+                title={`Status: ${kpi.status}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   setNoteOpen(true);
                 }}
               >
-                <CircleHelp size={14} aria-hidden="true" />
+                <KpiStatusIcon status={kpi.status} />
               </button>
             </div>
             <AutoGrowTextarea
@@ -10884,8 +10911,8 @@ function KpiTable({
                   value={filters.name || filters.description}
                   placeholder="Search name or description..."
                   onChange={(name) => onFiltersChange({ ...filters, name, description: '' })}
-                  notesOnly={filters.notesOnly}
-                  onNotesOnlyChange={(notesOnly) => onFiltersChange({ ...filters, notesOnly })}
+                  status={filters.status}
+                  onStatusChange={(status) => onFiltersChange({ ...filters, status })}
                   noteLabelOptions={config.noteLabels}
                   noteLabels={filters.noteLabels}
                   onNoteLabelsChange={(noteLabels) => onFiltersChange({ ...filters, noteLabels })}

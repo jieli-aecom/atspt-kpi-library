@@ -24,9 +24,12 @@ export const buildSystematicJsonExport = (config: KpiPoolConfig, kpis: readonly 
     'Data Source Groups': config.dataSourceGroups,
     KPIs: kpis.map((kpi) => ({
       Name: kpi.name,
+      Status: kpi.status,
+      Unit: kpi.unit,
       ScenarioType: kpi.scenarioType,
       ScenarioNames: kpi.scenarioNames,
       Note: kpi.note,
+      Labels: kpi.noteLabels.map((id) => config.noteLabels.find((label) => label.id === id)?.name ?? id),
       Source: kpi.sources.map((source) => {
         if (source.type !== 'dataField') return source;
         const group = dataSourceGroupBySourceId.get(source.dataSourceId);

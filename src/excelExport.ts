@@ -13,6 +13,8 @@ export type ExcelExportFilters = {
 };
 
 export type KpiExcelRow = {
+  status?: string;
+  unit?: string;
   userGroup: string;
   useCase: string;
   name: string;
@@ -37,7 +39,9 @@ export const KPI_EXCEL_COLUMNS = [
   { key: 'description', label: 'Description', width: 58 },
   { key: 'note', label: 'Notes', width: 58, richTextKey: 'noteMarkdown' },
   { key: 'noteLabels', label: 'Labels', width: 34 },
-  { key: 'performanceAreas', label: 'Performance Areas', width: 44 }
+  { key: 'performanceAreas', label: 'Performance Areas', width: 44 },
+  { key: 'status', label: 'Status', width: 16 },
+  { key: 'unit', label: 'Unit', width: 20 }
 ] as const satisfies readonly KpiExcelColumnDefinition[];
 
 export type KpiExcelColumnKey = (typeof KPI_EXCEL_COLUMNS)[number]['key'];
@@ -324,6 +328,8 @@ export const buildKpiExcelRows = (
           .map(({ useCase }) => useCaseLabelById.get(useCase) ?? useCase)
           .filter(Boolean)
       ).join(', '),
+      status: kpi.status,
+      unit: kpi.unit,
       name: kpi.name,
       description: kpi.description.overview,
       note: markdownToExcelText(kpi.note),
