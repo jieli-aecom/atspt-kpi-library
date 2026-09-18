@@ -94,3 +94,27 @@ test('unnamed custom domains do not introduce a synthetic Custom domain keyword'
   const domainTokens = getDomainTokens({ domains: [{ name: 'Custom domain', options: ['Car'], sourceIds: ['field'] }] }, { sources: [{ id: 'field' }] });
   assert.equal(domainTokens.some((token) => token.latex === 'Customdomain'), false);
 });
+
+test('logic commands decorate without sources, including inside source/result expressions', () => {
+  const logic = { latex: '\\max', kind: 'logic', label: 'Maximum', target: { kind: 'logic', logicId: 'max' } };
+  const formula = String.raw`y=\max(x_{Cell_i},x_{Cell})`;
+  const semanticTokens = [logic, { latex: 'Cell', kind: 'scale', label: 'Current unit' }, { latex: 'Cell_i', kind: 'scale-other', label: 'Other unit' }];
+  for (const tokens of [semanticTokens, [...semanticTokens, { latex: String.raw`\max(x_{Cell_i},x_{Cell})`, kind: 'source', label: 'Source' }]]) {
+    const html = render(formula, tokens);
+    assert.match(html, /formula-logic-token/);
+    assert.match(html, /formula-scale-other-token/);
+    assert.match(html, /formula-scale-token/);
+  }
+  assert.doesNotMatch(decorateFormulaTokens(String.raw`\maximum`, [logic]).decorated, /formula-logic-token/);
+});
+
+test('catalog changes invalidate visible rows for scale names and new logic without editing the KPI', () => {
+  const start = app.indexOf('const kpiCatalogChangeAffectsRow =');
+  const end = app.indexOf('const sameMeasuredKpiRowProps =', start);
+  const compiled = ts.transpileModule(`${app.slice(start, end)}; kpiCatalogChangeAffectsRow`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const affects = runInNewContext(compiled);
+  const config = { spatialScaleDefinitions: {}, logic: [], kpis: [] };
+  assert.equal(affects(config, { ...config, logic: [{ latex: '\\max' }] }, 'kpi'), true);
+  assert.equal(affects(config, { ...config, spatialScaleDefinitions: {} }, 'kpi'), true);
+  assert.equal(affects(config, { ...config }, 'kpi'), false);
+});

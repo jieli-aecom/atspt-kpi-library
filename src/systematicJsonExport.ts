@@ -1,6 +1,5 @@
 import {
   spatialScaleKeys,
-  spatialScaleLabels,
   type KpiMetric,
   type KpiPoolConfig
 } from './types';
@@ -14,11 +13,12 @@ export const buildSystematicJsonExport = (config: KpiPoolConfig, kpis: readonly 
   return {
     'Domain Definitions': {
       'Global Domains': config.valueEnums,
-      'Spatial Scales': spatialScaleKeys.map((id) => ({ id, label: spatialScaleLabels[id] })),
+      'Spatial Scales': spatialScaleKeys.map((id) => ({ id, label: config.spatialScaleDefinitions[id].name, latex: config.spatialScaleDefinitions[id].latex })),
       'Performance Areas': config.enums.performanceArea,
       'User Group': config.enums.userGroup,
       'Use Case': config.enums.useCase
     },
+    Logic: config.logic,
     'Data Sources': config.dataSources,
     'Data Source Groups': config.dataSourceGroups,
     KPIs: kpis.map((kpi) => ({

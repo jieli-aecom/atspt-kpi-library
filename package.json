@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc && vite build",
+    "test": "node --import ./tests/register-ts.mjs --test tests/*.test.ts",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

@@ -1,9 +1,10 @@
-export const spatialScaleKeys = ['link', 'parcel', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
+// Stable identities and hierarchy; display names and notation live in the configuration.
+export const spatialScaleKeys = ['link', 'cell', 'project', 'taz', 'corridor', 'subRegion', 'region'] as const;
 export type SpatialScaleKey = (typeof spatialScaleKeys)[number];
 
 export const spatialScaleLabels = {
   link: 'Link',
-  parcel: 'Parcel',
+  cell: 'Cell',
   project: 'Project',
   taz: 'TAZ',
   corridor: 'Corridor',
@@ -16,12 +17,22 @@ export const spatialUnitOptions = [
   ...spatialScaleKeys.map((scale) => spatialScaleLabels[scale]),
   ...genericSpatialUnits
 ];
-export type SpatialUnit = '' | (typeof spatialUnitOptions)[number];
+export type SpatialUnit = string;
 
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
-  value === '' || (typeof value === 'string' && spatialUnitOptions.some((option) => option === value));
+  typeof value === 'string';
 
-export const CURRENT_SCHEMA_VERSION = 46 as const;
+export const CURRENT_SCHEMA_VERSION = 47 as const;
+
+export type SpatialScaleDefinition = { name: string; latex: string };
+export type SpatialScaleDefinitions = Record<SpatialScaleKey, SpatialScaleDefinition>;
+export type LogicDefinition = { id: string; latex: string; explanation: string };
+export const defaultSpatialScaleDefinitions = (): SpatialScaleDefinitions => Object.fromEntries(
+  spatialScaleKeys.map((key) => [key, { name: spatialScaleLabels[key], latex: spatialScaleLabels[key] }])
+) as SpatialScaleDefinitions;
+export const configuredSpatialUnits = (config: KpiPoolConfig): string[] => [
+  ...spatialScaleKeys.map((key) => config.spatialScaleDefinitions[key].name), ...genericSpatialUnits
+];
 
 export const kpiEnumCategoryKeys = ['previousApplication', 'federalRequirement', 'performanceArea'] as const;
 export type KpiEnumCategoryKey = (typeof kpiEnumCategoryKeys)[number];
@@ -114,6 +125,11 @@ export type DataSource = {
 
 export const sourceTableUnit = (source?: Pick<DataSource, 'spatialUnit' | 'customUnit'>): string =>
   (source?.spatialUnit || source?.customUnit || '').trim();
+
+export const sourceTableUnitLatex = (definitions: SpatialScaleDefinitions, source?: Pick<DataSource, 'spatialUnit' | 'customUnit'>): string => {
+  const scale = spatialScaleKeys.find((key) => source?.spatialUnit === definitions[key].name);
+  return scale ? definitions[scale].latex : sourceTableUnit(source).replace(/\s+/g, '');
+};
 
 export type TableRelation = {
   id: string;
@@ -283,6 +299,8 @@ export type KpiMetric = {
 
 export type KpiPoolConfig = {
   schemaVersion: typeof CURRENT_SCHEMA_VERSION;
+  spatialScaleDefinitions: SpatialScaleDefinitions;
+  logic: LogicDefinition[];
   title: string;
   updatedAt?: string;
   defaultFocus?: KpiDefaultFocus;

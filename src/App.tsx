@@ -1,5 +1,8 @@
+import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
+import { indexedScaleLatex } from './globalDefinitions';
+import { configuredSpatialUnits } from './types';
 import { filteredUseCaseIds, matchesUseCaseSelection, reorderEnumOption, compareFocusedPerformanceAreas, compareUseCaseAssignments } from './useCaseFilters';
-import { sourceTableUnit } from './types.js';
+import { sourceTableUnit, sourceTableUnitLatex } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { installPopupDragGuard } from './popupDragGuard';
 import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
@@ -112,8 +115,6 @@ import {
   type KpiUseCasePerformanceArea,
   type KpiUserGroupUseCase,
   spatialScaleKeys,
-  spatialScaleLabels,
-  spatialUnitOptions,
   type SpatialScaleKey
 } from './types';
 
@@ -147,19 +148,21 @@ type SourceLibraryEditTarget =
   | { kind: 'dataField'; dataSourceId: string; fieldId: string }
   | { kind: 'lookup'; lookupId: string }
   | { kind: 'variable'; variableId: string }
-  | { kind: 'domain'; domainId: string };
+  | { kind: 'domain'; domainId: string }
+  | { kind: 'logic'; logicId: string };
 
 type SourceLibraryEditRequest = SourceLibraryEditTarget & { requestId: number };
 const transientSourceHighlightDurationMs = 2500;
 
 type FormulaSemanticTarget =
   | { kind: 'source'; sourceId: string }
+  | { kind: 'logic'; logicId: string }
   | { kind: 'dimension' }
   | { kind: 'formula'; formulaIndex: number };
 
 type FormulaSourceHighlight = { sourceId: string; requestId: number };
 
-const sourceLibraryTargetKey = (target: SourceLibraryEditTarget) => target.kind === 'dataField'
+const sourceLibraryTargetKey = (target: SourceLibraryEditTarget) => target.kind === 'logic' ? `logic:${target.logicId}` : target.kind === 'dataField'
   ? `field:${target.fieldId}`
   : target.kind === 'lookup'
     ? `lookup:${target.lookupId}`
@@ -1266,7 +1269,7 @@ function NoteLabelHeaderFilter({
         {value.length ? <span>{value.length}</span> : null}
       </button>
       {open ? (
-        <div className="header-popover note-label-filter-popover" role="dialog" aria-label="Filter notes by label">
+        <div className="popup-surface header-popover note-label-filter-popover" role="dialog" aria-label="Filter notes by label">
           <div className="note-label-filter-heading">
             <strong>Note labels</strong>
             <button className="text-action" type="button" disabled={value.length === 0} onClick={() => onChange([])}>Clear</button>
@@ -1314,7 +1317,7 @@ function HeaderMultiSelect({
         <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
       </button>
       {open ? (
-        <div className="header-popover" role="dialog" aria-label={label}>
+        <div className="popup-surface header-popover" role="dialog" aria-label={label}>
           <div className="popover-title">{label}</div>
           <button className="text-action" type="button" disabled={!value.length} onClick={() => onChange([])}>Clear</button>
           {options.length === 0 ? <span className="empty-option">No options</span> : null}
@@ -1337,21 +1340,25 @@ function HeaderMultiSelect({
 }
 
 function ScaleHeaderFilter({
+  config,
+  onConfigChange,
   value,
   onChange
 }: {
+  config: KpiPoolConfig;
+  onConfigChange: (next: KpiPoolConfig) => void;
   value: SpatialScaleKey[];
   onChange: (next: SpatialScaleKey[]) => void;
 }) {
   return (
     <div className="header-control">
       <div className="header-title">
-        <span>Spatial Scales</span>
+        <span>Spatial Scales</span><SpatialScaleController config={config} onChange={onConfigChange} />
         {value.length ? <strong>{value.length}</strong> : null}
       </div>
       <HeaderMultiSelect
         label="Filter spatial scales"
-        options={spatialScaleKeys.map((scale) => ({ id: scale, label: spatialScaleLabels[scale] }))}
+        options={spatialScaleKeys.map((scale) => ({ id: scale, label: config.spatialScaleDefinitions[scale].name }))}
         value={value}
         onChange={(next) => onChange(next as SpatialScaleKey[])}
       />
@@ -1383,7 +1390,7 @@ function ColumnVisibilityControl({
         {hiddenCount ? <span>{hiddenCount}</span> : null}
       </button>
       {open ? (
-        <div className="header-popover column-visibility-popover">
+        <div className="popup-surface header-popover column-visibility-popover">
           <div className="popover-title">Columns</div>
           {categoryFields.map((category) => (
             <label className="check-row" key={category}>
@@ -1429,7 +1436,7 @@ function EnumHeader(props: EnumHeaderProps) {
             aria-expanded={manageOpen} onClick={() => setManageOpen((next) => !next)}>
             <Settings2 size={13} aria-hidden="true" />
           </button>
-          {manageOpen ? <div className="enum-popover"><EnumDefinitionEditor {...props} /></div> : null}
+          {manageOpen ? <div className="popup-surface enum-popover"><EnumDefinitionEditor {...props} /></div> : null}
         </div>
       </div>
       <HeaderMultiSelect label={`Filter ${enumCategoryLabels[category]}`}
@@ -1906,8 +1913,9 @@ function EnumDefinitionEditor({
                         onDragEnd={clearOptionDrag}
                       ><GripVertical size={13} aria-hidden="true" /></button>
                     ) : null}
-                    <input value={option.label} onChange={(event) => updateOption(option, 'label', event.target.value)} />
+                    <input aria-label={`${enumCategoryLabels[category]} name`} value={option.label} onChange={(event) => updateOption(option, 'label', event.target.value)} />
                     <input
+                      aria-label={`${option.label || enumCategoryLabels[category]} description`}
                       value={option.description ?? ''}
                       placeholder="Description"
                       onChange={(event) => updateOption(option, 'description', event.target.value)}
@@ -1969,7 +1977,7 @@ function UseCaseHeader({
             <Settings2 size={13} aria-hidden="true" />
           </button>
           {manageOpen ? (
-            <div className="enum-popover use-case-definition-popover" role="dialog" aria-label="User Group / Use Case definitions">
+            <div className="popup-surface enum-popover use-case-definition-popover" role="dialog" aria-label="User Group / Use Case definitions">
               {(['userGroup', 'useCase'] as const).map((category) => (
                 <EnumDefinitionEditor key={category} config={config} category={category} filter={[]}
                   onFilterChange={() => {}} onConfigChange={changeConfig} />
@@ -2122,8 +2130,8 @@ function UseCaseFocusController({
   );
 }
 
-const spatialScaleFormulaItem = (scale: SpatialScaleKey, value: KpiMetric['spatialScales'][SpatialScaleKey]): KpiFormulaItem => ({
-  tag: `${spatialScaleLabels[scale]} aggregation`,
+const spatialScaleFormulaItem = (config: KpiPoolConfig, scale: SpatialScaleKey, value: KpiMetric['spatialScales'][SpatialScaleKey]): KpiFormulaItem => ({
+  tag: `${config.spatialScaleDefinitions[scale].name} aggregation`,
   formula: value.formula,
   leftExpression: value.leftExpression,
   rightExpression: value.rightExpression,
@@ -2166,7 +2174,7 @@ function SpatialScaleBadges({
                 key={scale}
                 title={value.aggregationMethod || 'No aggregation formula'}
               >
-                {spatialScaleLabels[scale]}
+                {config.spatialScaleDefinitions[scale].name}
               </span>
             );
           })}
@@ -2174,14 +2182,14 @@ function SpatialScaleBadges({
       ) : null}
       {scalesWithFormula.map((scale) => {
         const value = kpi.spatialScales[scale];
-        const item = spatialScaleFormulaItem(scale, value);
+        const item = spatialScaleFormulaItem(config, scale, value);
         return (
           <div className="scale-aggregation-summary is-on" key={scale}>
             <span
               className={`scale-badge is-on ${value.isBasicUnit ? 'is-basic' : ''}`}
               title={value.aggregationMethod || 'No aggregation explanation'}
             >
-              {spatialScaleLabels[scale]}
+              {config.spatialScaleDefinitions[scale].name}
             </span>
             <InteractiveFormulaPreview config={config} kpi={kpi} item={item} onSemanticTarget={onSemanticTarget} />
           </div>
@@ -2621,7 +2629,7 @@ function GroupedDomainSelect({
         <span>{selected?.name || 'Untitled domain'}</span>
         <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
       </button>
-      {open ? <div className="global-domain-picker grouped-domain-select-menu" role="menu">
+      {open ? <div className="popup-surface global-domain-picker grouped-domain-select-menu" role="menu">
         <GroupedDomainPickerOptions
           definitions={definitions}
           groups={groups}
@@ -3245,7 +3253,7 @@ function RowEnumSelect({
         <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
       </button>
       {open ? (
-        <div className="cell-enum-popover">
+        <div className="popup-surface cell-enum-popover">
           <div className="popover-title">{enumCategoryLabels[category]}</div>
           {availableOptions.length === 0 ? <span className="empty-option">No options defined.</span> : null}
           {availableOptions.map((option, index) => (
@@ -3321,7 +3329,7 @@ function RowKpiSelect({
         <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
       </button>
       {open ? (
-        <div className="cell-enum-popover">
+        <div className="popup-surface cell-enum-popover">
           <div className="popover-title">Prerequisite KPI</div>
           <label className="popover-search">
             <Search size={13} aria-hidden="true" />
@@ -3509,7 +3517,7 @@ const latexIdentifier = (value: string) => value.replace(/\s+/g, '');
 
 const sourceFieldDefaultLatex = (field: Pick<DataSourceField, 'name' | 'dataType'>, spatialUnit: string, dimensions: DataSourceFieldDimension[] = []) => {
   const fieldName = latexIdentifier(field.name);
-  const spatial = latexIdentifier(spatialUnit);
+  const spatial = spatialUnit;
   const dimensionTags = dimensions.map((dimension) => latexIdentifier(dimension.name)).filter(Boolean);
   const subscript = [...dimensionTags, spatial].filter(Boolean).join(',');
   const expression = field.dataType === 'collection' ? `\\{${fieldName}\\}` : fieldName;
@@ -3678,6 +3686,11 @@ function DataSourceHeader({
   const [libraryInsertDragOver, setLibraryInsertDragOver] = useState<{ kind: LibraryKind; key: string } | null>(null);
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const [focusedEditRequest, setFocusedEditRequest] = useState<SourceLibraryEditRequest>();
+  useEffect(() => {
+    const navigate = (event: Event) => onEditLibrarySource({ kind: 'logic', logicId: (event as CustomEvent<string>).detail });
+    window.addEventListener('kpi-open-logic', navigate);
+    return () => window.removeEventListener('kpi-open-logic', navigate);
+  }, [onEditLibrarySource]);
   const libraryVisible = open && Boolean(popoverPosition);
   useLayoutEffect(() => {
     const list = libraryListRef.current;
@@ -3722,6 +3735,7 @@ function DataSourceHeader({
       return;
     }
     setActiveLibrarySection('variables');
+    if (editRequest.kind === 'logic') return;
     const group = config.variableGroups.find((entry) => entry.itemIds.includes(editRequest.variableId));
     if (group) {
       setExpandedVariableGroupIds((current) => [...new Set([...current, group.id])]);
@@ -5599,7 +5613,7 @@ function DataSourceHeader({
       </div>
       {open && popoverPosition ? createPortal(
         <div
-          className="data-source-popover"
+          className="popup-surface data-source-popover"
           ref={popoverRef}
           role="dialog"
           aria-label="Constants, domains, lookups, and source tables"
@@ -5681,6 +5695,7 @@ function DataSourceHeader({
               </div>
             </section> : null}
             {activeLibrarySection === 'variables' ? <section className="variable-library is-direct-library">
+              <LogicLibrary config={config} onChange={commitConfig} highlightedId={focusedEditRequest?.kind === 'logic' ? focusedEditRequest.logicId : undefined} />
               <div
                 className={`variable-library-list library-ungrouped-dropzone ${libraryGroupDragOver?.kind === 'variable' && libraryGroupDragOver.groupId === undefined ? 'is-drag-over' : ''}`}
                 id="variable-library-list"
@@ -5819,7 +5834,7 @@ function DataSourceHeader({
                     (relation.sourceDataSourceId === draftRelationTargetId && relation.targetDataSourceId === draftRelationSourceId)
                   : relation.sourceDataSourceId === draftRelationSourceId && relation.targetDataSourceId === draftRelationTargetId
               )) : false;
-              const renderRelationEditor = (className = '') => relationEditor ? <div className={`field-relation-popover ${className}`} role="dialog" aria-label={relationEditor.relationId ? 'Edit relationship' : 'Add relationship'}>
+              const renderRelationEditor = (className = '') => relationEditor ? <div className={`popup-surface field-relation-popover ${className}`} role="dialog" aria-label={relationEditor.relationId ? 'Edit relationship' : 'Add relationship'}>
                 <div className="field-relation-popover-heading"><span><Link2 size={13} aria-hidden="true" /><strong>{relationEditor.relationId ? 'Edit relationship' : `Relate ${source.name || 'this table'}`}</strong></span><button className="mini-icon-button" type="button" title="Close" onClick={() => setRelationEditor(null)}><X size={12} /></button></div>
                 {!relationEditor.relationId && sourceRelations.length ? <div className="field-relation-existing">
                   {sourceRelations.map((relation) => {
@@ -6152,7 +6167,7 @@ function DataSourceHeader({
                             <button className="secondary-action tiny" type="button" onClick={() => { setFieldGroupDomainPickerId(undefined); addFieldGroupDimension(sourceIndex, group.id); }}><Plus size={11} /> Add custom dimension</button>
                             <div className="global-domain-add-control">
                               <button className="secondary-action tiny" type="button" disabled={config.valueEnums.length === 0} aria-expanded={fieldGroupDomainPickerId === group.id} onClick={() => setFieldGroupDomainPickerId((current) => current === group.id ? undefined : group.id)}><Plus size={11} /> Add global domain</button>
-                              {fieldGroupDomainPickerId === group.id ? <div className="global-domain-picker" role="menu">
+                              {fieldGroupDomainPickerId === group.id ? <div className="popup-surface global-domain-picker" role="menu">
                                 <GroupedDomainPickerOptions
                                   definitions={config.valueEnums.filter((definition) => !group.dimensions.some((entry) => entry.enumId === definition.id))}
                                   groups={config.valueEnumGroups}
@@ -6244,7 +6259,7 @@ function DataSourceHeader({
                       onChange={(event) => updateDataSource(sourceIndex, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}
                     >
                       <option value="">No spatial unit</option>
-                      {spatialUnitOptions.map((unit) => <option value={unit} key={unit}>{unit}</option>)}
+                      {configuredSpatialUnits(config).map((unit) => <option value={unit} key={unit}>{unit}</option>)}
                     </select>
                     {!source.spatialUnit ? <input className="data-source-custom-unit" aria-label="Custom table unit" placeholder="Specify unit" value={source.customUnit ?? ''} onChange={(event) => updateDataSource(sourceIndex, { customUnit: event.target.value })} /> : null}
                     </div>
@@ -6482,7 +6497,7 @@ function DataSourceHeader({
         enumEditor={renderLookupEnumOptions(fieldDetailsField.options, fieldDetailsField.name || 'Field',
           (options) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { options }), fieldDetailsField.enumId,
           (enumId) => { const definition = config.valueEnums.find((entry) => entry.id === enumId); updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, { enumId, ...(definition ? { options: [...definition.options] } : {}) }); })}
-        defaultLatex={fieldDetailsField.preferredLatex || sourceFieldDefaultLatex(fieldDetailsField, sourceTableUnit(fieldDetailsSource), fieldDetailsGroup?.dimensions)}
+        defaultLatex={fieldDetailsField.preferredLatex || sourceFieldDefaultLatex(fieldDetailsField, sourceTableUnitLatex(config.spatialScaleDefinitions, fieldDetailsSource), fieldDetailsGroup?.dimensions)}
         onChange={(partial) => updateField(fieldDetailsSourceIndex, fieldDetailsFieldIndex, partial)}
         onChangeGlobally={(latex, reportProgress) => changeFieldLatexGlobally(fieldDetailsSourceIndex, fieldDetailsFieldIndex, latex, reportProgress)}
         onClose={closeFieldDetails}
@@ -6503,7 +6518,7 @@ function DataSourceHeader({
         ).length, 0);
         return createPortal(
           <div
-            className="data-source-field-move-menu"
+            className="popup-surface data-source-field-move-menu"
             role="menu"
             aria-label={`Move ${moveField.name || 'field'} to another table`}
             style={{ top: fieldMoveMenu.top, left: fieldMoveMenu.left }}
@@ -6536,7 +6551,7 @@ function DataSourceHeader({
         return <KpiSupportDialog config={config} target={supportTarget} onClose={() => setSupportTarget(undefined)}>
           <div className="library-detail-properties">
             <label className="field"><span>Name</span><input aria-label="Table name" value={source.name} onChange={(event) => updateDataSource(index, { name: event.target.value })} /></label>
-            <label className="field"><span>Spatial unit</span><select aria-label="Spatial unit" value={source.spatialUnit} onChange={(event) => updateDataSource(index, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}><option value="">No spatial unit</option>{spatialUnitOptions.map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
+            <label className="field"><span>Spatial unit</span><select aria-label="Spatial unit" value={source.spatialUnit} onChange={(event) => updateDataSource(index, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}><option value="">No spatial unit</option>{configuredSpatialUnits(config).map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
             {!source.spatialUnit ? <label className="field"><span>Unit (LaTeX subscript)</span><input aria-label="Custom table unit" placeholder="Specify unit" value={source.customUnit ?? ''} onChange={(event) => updateDataSource(index, { customUnit: event.target.value })} /></label> : null}
             <label className="field full-width"><span>Description</span><textarea rows={2} aria-label="Table description" value={source.description ?? ''} onChange={(event) => updateDataSource(index, { description: event.target.value })} /></label>
           </div>
@@ -6901,7 +6916,7 @@ function KpiSourceEditor({
       onChange(kpi.sources.filter((item) => !sameField(item)));
       return;
     }
-    const baseLatex = field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, sourceTableUnit(dataSource), group?.dimensions);
+    const baseLatex = field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, sourceTableUnitLatex(config.spatialScaleDefinitions, dataSource), group?.dimensions);
     onChange(reconcileKpiScenarios(config, { ...kpi, sources: [...kpi.sources, {
           id: createLocalId('kpi-source'),
           type: 'dataField',
@@ -7213,7 +7228,7 @@ function KpiSourceEditor({
           />
           <div
             data-preserve-source-library-state={fieldOwner ? true : undefined}
-            className="kpi-source-popover"
+            className="popup-surface kpi-source-popover"
             ref={popoverRef}
             role="dialog"
             aria-label={fieldOwner ? "Field sources" : "KPI sources"}
@@ -7600,7 +7615,7 @@ function FieldDetailsDialog({
     <div className="kpi-note-dialog-backdrop library-details-backdrop" data-preserve-source-library-state onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeDialog();
     }}>
-      <section ref={dialogRef} className="kpi-note-dialog field-preprocessing-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={isApplyingGlobally}>
+      <section ref={dialogRef} className="popup-surface kpi-note-dialog field-preprocessing-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} aria-busy={isApplyingGlobally}>
         <header className="kpi-note-dialog-header">
           <div>
             <span>Field details</span>
@@ -7763,7 +7778,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const lastFormulaItem = priorItems.slice().reverse().find((prior) => prior.formula.trim() || prior.leftExpression.trim());
   const basicUnitScale = spatialScaleKeys.find((scale) => kpi.spatialScales[scale].applicable && kpi.spatialScales[scale].isBasicUnit);
   const aggregationShortcut = spatialScale
-    ? `\\sum_{${basicUnitScale ? latexIdentifier(spatialScaleLabels[basicUnitScale]) : ''} \\in ${latexIdentifier(spatialScaleLabels[spatialScale])}}`
+    ? `\\sum_{${basicUnitScale ? config.spatialScaleDefinitions[basicUnitScale].latex : ''} \\in ${config.spatialScaleDefinitions[spatialScale].latex}}`
     : '';
   const fieldDomains = useMemo(() => formulaFieldDomains(config, kpi), [config, kpi]);
   const dimensionShortcuts = useMemo(() => {
@@ -7874,7 +7889,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
           {spatialScale ? <section className="formula-shortcut-group is-priority">
             <span className="formula-shortcut-group-label">Scale formula</span>
             <div className="formula-shortcut-group-options">
-              <button className="formula-scale-insert" type="button" title={`Sum from ${basicUnitScale ? spatialScaleLabels[basicUnitScale] : 'an unspecified basic unit'} into ${spatialScaleLabels[spatialScale]}`} onClick={() => insertLatex(aggregationShortcut)}>
+              <button className="formula-scale-insert" type="button" title={`Sum from ${basicUnitScale ? config.spatialScaleDefinitions[basicUnitScale].name : 'an unspecified basic unit'} into ${config.spatialScaleDefinitions[spatialScale].name}`} onClick={() => insertLatex(aggregationShortcut)}>
                 <span className="formula-shortcut-kind">Sum</span>
                 <InlineMath math={aggregationShortcut} errorColor="#b42318" />
               </button>
@@ -7882,9 +7897,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
                 <span>{lastFormulaItem.tag.trim() || 'Last formula'}</span>
                 {lastFormulaItem.leftExpression.trim() ? <InlineMath math={lastFormulaItem.leftExpression} errorColor="#b42318" /> : 'No left term'}
               </button> : null}
-              <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[spatialScale]}`} onClick={() => insertLatex(spatialScaleLabels[spatialScale])}>
+              <button className="formula-scale-insert" type="button" title={`Spatial scale: ${config.spatialScaleDefinitions[spatialScale].name}`} onClick={() => insertLatex(config.spatialScaleDefinitions[spatialScale].latex)}>
                 <span className="formula-shortcut-kind">Scale</span>
-                <InlineMath math={spatialScaleLabels[spatialScale]} errorColor="#b42318" />
+                <InlineMath math={config.spatialScaleDefinitions[spatialScale].latex} errorColor="#b42318" />
               </button>
             </div>
           </section> : null}
@@ -7932,6 +7947,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
               </button>)}
             </div>
           </section> : null}
+          {config.logic.length ? <section className="formula-shortcut-group"><span className="formula-shortcut-group-label">Logic</span><div className="formula-shortcut-group-options">
+            {config.logic.map((entry) => <button type="button" className="formula-logic-insert" key={entry.id} title={entry.explanation} onClick={() => insertLatex(entry.latex)}><InlineMath math={entry.latex} /></button>)}
+          </div></section> : null}
           {insertableResults.some((prior) => !spatialScale || prior !== lastFormulaItem) ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Previous items</span>
             <div className="formula-shortcut-group-options">
@@ -7944,10 +7962,10 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             <section className="formula-shortcut-group">
               <span className="formula-shortcut-group-label">Spatial-scale keywords</span>
               <div className="formula-shortcut-group-options">
-                {spatialScaleKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${spatialScaleLabels[scale]}`} key={scale} onClick={() => insertLatex(spatialScaleLabels[scale])}>
-                  <InlineMath math={spatialScaleLabels[scale]} errorColor="#b42318" />
+                {spatialScaleKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${config.spatialScaleDefinitions[scale].name}`} key={scale} onClick={() => insertLatex(config.spatialScaleDefinitions[scale].latex)}>
+                  <InlineMath math={config.spatialScaleDefinitions[scale].latex} errorColor="#b42318" />
                 </button>)}
-                {['Zone', ...genericSpatialUnits].map((keyword) => <button className="formula-scale-insert" type="button" title={`Generic spatial unit: ${keyword}`} key={keyword} onClick={() => insertLatex(keyword)}>
+                {genericSpatialUnits.map((keyword) => <button className="formula-scale-insert" type="button" title={`Generic spatial unit: ${keyword}`} key={keyword} onClick={() => insertLatex(keyword)}>
                   <InlineMath math={keyword} errorColor="#b42318" />
                 </button>)}
               </div>
@@ -7964,7 +7982,7 @@ type FormulaSemanticToken = {
   sourceIds?: string[];
   matchLatex?: string;
   requiresFollowingParenthesis?: boolean;
-  kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale' | 'scenario';
+  kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale' | 'scale-other' | 'logic' | 'scenario';
   prominent?: boolean;
   label: string;
   target?: FormulaSemanticTarget;
@@ -7996,7 +8014,7 @@ const cacheFormulaResult = <T,>(cache: Map<string, T>, key: string, value: T) =>
   return value;
 };
 
-const spatialScaleFormulaKeywords = [...spatialScaleKeys.map((scale) => spatialScaleLabels[scale]), 'Zone', ...genericSpatialUnits];
+
 
 const allowFormulaSemanticClass = (context: TrustContext) => context.command === '\\htmlClass';
 
@@ -8166,7 +8184,7 @@ const decorateFormulaTokens = (formula: string, tokens: FormulaSemanticToken[]):
     };
     const decorateNestedSemanticTokens = (parentLatex: string, parentToken: typeof uniqueTokens[number]) => {
       const nestedTokens = activeTokens.filter((token) =>
-        token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale' || token.kind === 'scenario')
+        token.index !== parentToken.index && (token.kind === 'dimension' || token.kind === 'scale' || token.kind === 'scale-other' || token.kind === 'logic' || token.kind === 'scenario')
       );
       // Filter qualifiers contain domain values too (e.g. Mode_{Link|Car}).
       const nestedSearchLatex = parentLatex;
@@ -8433,11 +8451,16 @@ function InteractiveFormulaPreview({
       ...sourceTokens,
       ...dimensionTokens,
       ...fieldDomainTokens,
-      ...spatialScaleFormulaKeywords.map((keyword) => ({
-        latex: keyword,
-        kind: 'scale' as const,
-        label: `Spatial scale: ${keyword}`
-      })),
+      ...spatialScaleKeys.flatMap((scale): FormulaSemanticToken[] => {
+        const definition = config.spatialScaleDefinitions[scale];
+        const bases = [...new Set([definition.latex, ...(!definition.latex.includes('\\') && !/[{}]/.test(definition.latex) ? [`\\mathrm{${definition.latex}}`, `\\text{${definition.latex}}`] : [])])];
+        return bases.flatMap((base) => [
+          { latex: base, kind: 'scale' as const, label: `${definition.name}: unit being calculated` },
+          ...indexedScaleLatex(item.formula, base).map((latex) => ({ latex, kind: 'scale-other' as const, label: `${definition.name}: other geographical unit` }))
+        ]);
+      }),
+      ...genericSpatialUnits.map((latex) => ({ latex, kind: 'scale' as const, label: `Spatial unit: ${latex}` })),
+      ...config.logic.map((entry): FormulaSemanticToken => ({ latex: entry.latex, kind: 'logic', label: `Logic: ${entry.explanation || entry.latex}`, target: { kind: 'logic', logicId: entry.id } })),
       ...customUnitTokens,
       ...priorItemTokens,
       ...scenarioFormulaTokens(kpi),
@@ -8449,7 +8472,7 @@ function InteractiveFormulaPreview({
         originFormulaIndex: currentFormulaIndex >= 0 ? currentFormulaIndex : undefined
       }
     ]),
-    [kpi.scenarioNames, currentFormulaIndex, customUnitTokens, dimensionTokens, fieldDomainTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
+    [config.spatialScaleDefinitions, config.logic, kpi.scenarioNames, currentFormulaIndex, customUnitTokens, dimensionTokens, fieldDomainTokens, finalFormulaItem, item, item.formula, item.leftExpression, item.tag, priorItemTokens, sourceTokens]
   );
   const renderedHtml = useMemo(
     () => renderFormulaHtml(item.formula, semantic.decorated, inline),
@@ -8527,7 +8550,7 @@ function InteractiveFormulaPreview({
       elements.forEach((element) => {
         element.title = token.label;
         element.tabIndex = 0;
-        if (!token.target || !onSemanticTarget) return;
+        if (!token.target || (!onSemanticTarget && token.target.kind !== 'logic')) return;
         element.classList.add('is-actionable');
         element.setAttribute('role', 'button');
         const activate = (event: Event) => {
@@ -8547,7 +8570,8 @@ function InteractiveFormulaPreview({
           }
           if (!semanticTarget) return;
           event.stopPropagation();
-          onSemanticTarget(semanticTarget);
+          if (semanticTarget.kind === 'logic') window.dispatchEvent(new CustomEvent('kpi-open-logic', { detail: semanticTarget.logicId }));
+          else onSemanticTarget?.(semanticTarget);
         };
         const handleKeyDown = (event: KeyboardEvent) => {
           if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -8601,7 +8625,7 @@ function RowUseCaseGroupChip({
         <strong>{entry.useCases.length}</strong>
       </button>
       {open ? (
-        <div className="cell-enum-popover use-case-chip-popover">
+        <div className="popup-surface cell-enum-popover use-case-chip-popover">
           <div className="popover-title">{userGroupLabel} use cases</div>
           {availableUseCases.length === 0 ? <span className="empty-option">No use cases defined.</span> : null}
           {availableUseCases.map((useCase) => (
@@ -8688,7 +8712,7 @@ function RowUseCaseSelect({
             <Plus size={12} aria-hidden="true" />
           </button>
           {groupPickerOpen ? (
-            <div className="cell-enum-popover use-case-group-picker-popover">
+            <div className="popup-surface cell-enum-popover use-case-group-picker-popover">
               <div className="popover-title">User groups</div>
               {config.enums.userGroup.length === 0 ? <span className="empty-option">No user groups defined.</span> : null}
               {config.enums.userGroup.map((userGroup) => (
@@ -8765,11 +8789,11 @@ function SpatialScaleMatrix({
       </div>
       {spatialScaleKeys.map((scale) => {
         const scaleValue = kpi.spatialScales[scale];
-        const item = spatialScaleFormulaItem(scale, scaleValue);
+        const item = spatialScaleFormulaItem(config, scale, scaleValue);
         return (
           <section className={`spatial-scale-formula-card ${scaleValue.applicable ? 'is-applicable' : ''} ${scaleValue.applicable && !scaleValue.isBasicUnit ? 'has-formula' : ''}`} key={scale}>
             <div className="spatial-scale-card-heading">
-              <strong>{spatialScaleLabels[scale]}</strong>
+              <strong>{config.spatialScaleDefinitions[scale].name}</strong>
               <label className="spatial-scale-check">
                 <input
                   type="checkbox"
@@ -9466,7 +9490,7 @@ function KpiDimensionControl({
         <span aria-hidden="true">By</span>
       </button>
       {open ? (
-        <div className="kpi-dimension-popover" id={popoverId} role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
+        <div className="popup-surface kpi-dimension-popover" id={popoverId} role="dialog" aria-label={`Dimensions for ${kpi.name}`}>
           <div className="popover-title">Dimensions</div>
           <div className="kpi-dimension-list">
             {kpi.dimensions.length === 0 ? <span className="empty-option">This KPI has no dimensions.</span> : null}
@@ -9502,7 +9526,7 @@ function KpiDimensionControl({
             <div className="global-domain-add-control global-domain-dropdown-wrapper">
               <button ref={domainPickerButtonRef} className="secondary-action tiny" type="button" disabled={config.valueEnums.length === 0} aria-expanded={domainPickerOpen} onClick={() => setDomainPickerOpen((current) => !current)}><Plus size={11} /> Add global domain</button>
               {domainPickerOpen && domainPickerPosition ? createPortal(<div
-                className="global-domain-picker is-floating"
+                className="popup-surface global-domain-picker is-floating"
                 ref={domainPickerRef}
                 role="menu"
                 style={domainPickerPosition}
@@ -9630,7 +9654,7 @@ function KpiNoteDialog({
     <div className="kpi-note-dialog-backdrop library-details-backdrop" data-preserve-source-library-state onMouseDown={(event) => {
       if (event.target === event.currentTarget) closeDialog();
     }}>
-      <section ref={dialogRef} className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+      <section ref={dialogRef} className="popup-surface kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="kpi-note-dialog-header">
           <div>
             <strong id={titleId}>{kpi.name || 'Untitled KPI'}</strong>
@@ -10175,7 +10199,7 @@ function PrerequisiteKpiDialog({
       if (event.target === event.currentTarget) onClose();
     }}>
       <section
-        className="prerequisite-kpi-dialog"
+        className="popup-surface prerequisite-kpi-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="prerequisite-kpi-dialog-title"
@@ -10332,6 +10356,8 @@ const summarizeKpiCatalogChanges = (previous: KpiPoolConfig, next: KpiPoolConfig
 
 const kpiCatalogChangeAffectsRow = (previous: KpiPoolConfig, next: KpiPoolConfig, rowKpiId: string) => {
   if (
+    previous.spatialScaleDefinitions !== next.spatialScaleDefinitions ||
+    previous.logic !== next.logic ||
     previous.enums !== next.enums ||
     previous.noteLabels !== next.noteLabels ||
     previous.valueEnums !== next.valueEnums ||
@@ -10779,7 +10805,7 @@ function KpiTable({
                 {resizeHandle(3, 'Formula')}
               </th>
               <th className={headerClass(4)}>
-                <ScaleHeaderFilter value={filters.scales} onChange={(scales) => onFiltersChange({ ...filters, scales })} />
+                <ScaleHeaderFilter config={config} onConfigChange={onConfigChange} value={filters.scales} onChange={(scales) => onFiltersChange({ ...filters, scales })} />
                 {resizeHandle(4, 'Spatial Scales')}
               </th>
               {visibleEnumCategories.map((category) => {
@@ -10970,7 +10996,7 @@ function SaveActions({
         <ChevronDown size={14} aria-hidden="true" className={open ? 'rotate' : ''} />
       </button>
       {open ? (
-        <div className="topbar-action-menu" role="menu">
+        <div className="popup-surface topbar-action-menu" role="menu">
           <button
             className="topbar-action-menu-item danger-action"
             type="button"
@@ -11015,7 +11041,7 @@ function HtmlActions({
         <Ellipsis size={17} aria-hidden="true" />
       </button>
       {open ? (
-        <div className="topbar-action-menu" role="menu">
+        <div className="popup-surface topbar-action-menu" role="menu">
           <button
             className="topbar-action-menu-item"
             type="button"
@@ -11091,7 +11117,7 @@ function ExcelExportActions({
         <ChevronDown size={13} aria-hidden="true" className={open ? 'rotate' : ''} />
       </button>
       {open ? (
-        <div className="topbar-action-menu excel-export-menu" role="dialog" aria-label="Choose Excel export columns">
+        <div className="popup-surface topbar-action-menu excel-export-menu" role="dialog" aria-label="Choose Excel export columns">
           <div className="excel-export-column-list">
             {KPI_EXCEL_COLUMNS.map((column) => (
               <label className="check-row excel-export-option" key={column.key}>
@@ -11666,6 +11692,7 @@ function EditorApp({
         ...(merged.lookupConflicts > 0
           ? [`${merged.lookupConflicts} imported lookup${merged.lookupConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : []),
+        ...(merged.logicConflicts > 0 ? [`${merged.logicConflicts} imported logic definitions had an existing ID; current definitions were kept and formula references synchronized.`] : []),
         ...(merged.variableConflicts > 0
           ? [`${merged.variableConflicts} imported constant${merged.variableConflicts === 1 ? '' : 's'} had an existing ID with different content; the current definition was kept.`]
           : [])

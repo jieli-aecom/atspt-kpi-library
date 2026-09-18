@@ -4,12 +4,12 @@ import { createBlankConfig, createBlankKpi, repairConfig, prepareForExport, kpiP
 import { migrateParcelSubscripts, migrateParcelTerminology } from '../src/parcelTerminology.ts';
 import { CURRENT_SCHEMA_VERSION, spatialScaleKeys, spatialScaleLabels, spatialUnitOptions } from '../src/types.ts';
 
-test('native spatial scales and units use Parcel', () => {
-  assert.ok(spatialScaleKeys.includes('parcel'));
-  assert.equal(spatialScaleLabels.parcel, 'Parcel');
-  assert.ok(spatialUnitOptions.includes('Parcel'));
-  assert.ok(!spatialUnitOptions.some((unit) => /cell/i.test(unit)));
-  assert.ok(createBlankKpi().spatialScales.parcel);
+test('native spatial scales and units use Cell', () => {
+  assert.ok(spatialScaleKeys.includes('cell'));
+  assert.equal(spatialScaleLabels.cell, 'Cell');
+  assert.ok(spatialUnitOptions.includes('Cell'));
+  assert.ok(!spatialUnitOptions.some((unit) => /parcel/i.test(unit)));
+  assert.ok(createBlankKpi().spatialScales.cell);
 });
 
 test('subscripts migrate singular, plural, nested wrappers and multiple expressions', () => {
@@ -23,7 +23,7 @@ test('subscripts migrate singular, plural, nested wrappers and multiple expressi
 
 const fixture = (schemaVersion: number, legacyScale = 'cell', legacyUnit = 'Cell') => {
   const kpi = createBlankKpi();
-  const { parcel, ...scales } = kpi.spatialScales;
+  const { cell, ...scales } = kpi.spatialScales;
   const expression = `Flow_{${legacyUnit},NoBuild}`;
   return {
     ...createBlankConfig(), schemaVersion,
@@ -37,7 +37,7 @@ const fixture = (schemaVersion: number, legacyScale = 'cell', legacyUnit = 'Cell
         tag: '', formula: expression, leftExpression: '', rightExpression: expression,
         generalExplanation: 'Cell prose', terms: [{ term: expression, explanation: 'Cell prose' }]
       }] }] },
-      spatialScales: { ...scales, [legacyScale]: { ...parcel, applicable: true, aggregationMethod: 'Sum', formula: expression, rightExpression: expression } }
+      spatialScales: { ...scales, [legacyScale]: { ...cell, applicable: true, aggregationMethod: 'Sum', formula: expression, rightExpression: expression } }
     }]
   };
 };
@@ -48,20 +48,20 @@ test('v45 migration preserves scale settings, references and prose across export
   const { config, warnings } = repairConfig(input);
   assert.deepEqual(input, original);
   assert.equal(config.schemaVersion, CURRENT_SCHEMA_VERSION);
-  assert.ok(warnings.some((warning) => warning.includes('45 to 46')));
-  assert.equal(config.dataSources[0].spatialUnit, 'Parcel');
-  assert.equal(config.dataSources[0].fields[0].preferredLatex, 'Flow_{Parcel,NoBuild}');
+  assert.ok(warnings.some((warning) => warning.includes('45 to 47')));
+  assert.equal(config.dataSources[0].spatialUnit, 'Cell');
+  assert.equal(config.dataSources[0].fields[0].preferredLatex, 'Flow_{Cell,NoBuild}');
   const kpi = config.kpis[0];
   assert.equal(kpi.id, 'cell-kpi');
   assert.equal(kpi.name, 'Cell KPI');
   assert.equal(kpi.description.overview, 'Spreadsheet cells');
-  assert.equal(kpi.sources[0].latex, 'Flow_{Parcel,NoBuild}');
-  assert.equal(kpi.description.formulas[0].items[0].rightExpression, 'Flow_{Parcel,NoBuild}');
-  assert.equal(kpi.description.formulas[0].items[0].terms[0].term, 'Flow_{Parcel,NoBuild}');
-  assert.equal(kpi.spatialScales.parcel.applicable, true);
-  assert.equal(kpi.spatialScales.parcel.aggregationMethod, 'Sum');
-  assert.equal(kpi.spatialScales.parcel.rightExpression, 'Flow_{Parcel,NoBuild}');
-  assert.ok(!('cell' in kpi.spatialScales));
+  assert.equal(kpi.sources[0].latex, 'Flow_{Cell,NoBuild}');
+  assert.equal(kpi.description.formulas[0].items[0].rightExpression, 'Flow_{Cell,NoBuild}');
+  assert.equal(kpi.description.formulas[0].items[0].terms[0].term, 'Flow_{Cell,NoBuild}');
+  assert.equal(kpi.spatialScales.cell.applicable, true);
+  assert.equal(kpi.spatialScales.cell.aggregationMethod, 'Sum');
+  assert.equal(kpi.spatialScales.cell.rightExpression, 'Flow_{Cell,NoBuild}');
+  assert.ok(!('parcel' in kpi.spatialScales));
   assert.ok(kpiPoolConfigSchema.safeParse(config).success);
   assert.equal(repairConfig(config).config, config);
   const exported = prepareForExport(config);
@@ -69,12 +69,12 @@ test('v45 migration preserves scale settings, references and prose across export
   assert.deepEqual(repairConfig(serialized).config, serialized);
 });
 
-test('older Grid configs and unversioned Cell configs migrate to Parcel', () => {
+test('older Grid configs and unversioned Cell configs migrate to Cell', () => {
   for (const input of [fixture(21, 'grid', 'Grid'), { ...fixture(45), schemaVersion: undefined }]) {
     const config = repairConfig(input).config;
-    assert.equal(config.dataSources[0].spatialUnit, 'Parcel');
-    assert.equal(config.kpis[0].spatialScales.parcel.applicable, true);
-    assert.equal(config.kpis[0].sources[0].latex, 'Flow_{Parcel,NoBuild}');
+    assert.equal(config.dataSources[0].spatialUnit, 'Cell');
+    assert.equal(config.kpis[0].spatialScales.cell.applicable, true);
+    assert.equal(config.kpis[0].sources[0].latex, 'Flow_{Cell,NoBuild}');
   }
 });
 

@@ -449,7 +449,7 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
   return <div className="table-diagram-backdrop" role="presentation" onMouseDown={(event) => {
     if (event.target === event.currentTarget) onClose();
   }}>
-    <section className="table-diagram-dialog" role="dialog" aria-modal="true" aria-label="Current source table diagram">
+    <section className="popup-surface table-diagram-dialog" role="dialog" aria-modal="true" aria-label="Current source table diagram">
       <header className="table-diagram-toolbar">
         <div>
           <strong>Source table diagram</strong>
@@ -727,7 +727,7 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
         </div>
       </div>
     </section>
-    {viewedDimension ? <dialog ref={domainDialogRef} className="diagram-domain-dialog" aria-labelledby="diagram-domain-title"
+    {viewedDimension ? <dialog ref={domainDialogRef} className="popup-surface diagram-domain-dialog" aria-labelledby="diagram-domain-title"
       onKeyDown={(event) => event.stopPropagation()}
       onCancel={(event) => { event.preventDefault(); setViewedDimension(undefined); }}>
       <header><div><strong id="diagram-domain-title">{viewedDomain?.name || viewedDimension.name || 'Custom domain'}</strong><small>{viewedDomain ? 'Global domain' : 'Custom dimension domain'} · Read only</small></div>

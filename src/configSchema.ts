@@ -1,3 +1,5 @@
+import { migrateCellTerminology } from './globalDefinitions.js';
+import { defaultSpatialScaleDefinitions, sourceTableUnitLatex } from './types.js';
 import { sourceTableUnit } from './types.js';
 import { migrateParcelTerminology } from './parcelTerminology.js';
 import { normalizeScenarioNames, reconcileKpiScenarios, migrateScenarioDecoration } from './scenarios.js';
@@ -38,9 +40,7 @@ import {
   type KpiUserGroupUseCase,
   type RepairResult,
   isSpatialUnit,
-  spatialScaleLabels,
   spatialScaleKeys,
-  spatialUnitOptions,
   type SpatialUnit,
   type SpatialScaleConfig
 } from './types.js';
@@ -152,7 +152,7 @@ const dataSourceSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   spatialUnit: z.custom<SpatialUnit>(isSpatialUnit, {
-    message: `Spatial unit must be blank or one of: ${spatialUnitOptions.join(', ')}`
+    message: 'Spatial unit must be a string'
   }),
   customUnit: z.string().optional(),
   primaryKeyFieldId: z.string().min(1).optional(),
@@ -267,7 +267,7 @@ const kpiSchema = z.object({
   }),
   spatialScales: z.object({
     link: spatialScaleSchema,
-    parcel: spatialScaleSchema,
+    cell: spatialScaleSchema,
     project: spatialScaleSchema,
     taz: spatialScaleSchema,
     corridor: spatialScaleSchema,
@@ -284,6 +284,8 @@ const kpiSchema = z.object({
 
 export const kpiPoolConfigSchema = z.object({
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  spatialScaleDefinitions: z.object(Object.fromEntries(spatialScaleKeys.map((key) => [key, z.object({ name: z.string().trim().min(1), latex: z.string().trim().min(1) })])) as Record<typeof spatialScaleKeys[number], z.ZodObject<{ name: z.ZodString; latex: z.ZodString }>>),
+  logic: z.array(z.object({ id: z.string().min(1), latex: z.string().trim().min(1), explanation: z.string() })),
   title: z.string(),
   updatedAt: z.string().optional(),
   defaultFocus: defaultFocusSchema.optional(),
@@ -426,6 +428,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
     input.schemaVersion !== CURRENT_SCHEMA_VERSION ||
     typeof input.title !== 'string' ||
     (input.updatedAt !== undefined && typeof input.updatedAt !== 'string') ||
+    !isRecord(input.spatialScaleDefinitions) ||
+    !Array.isArray(input.logic) ||
     !Array.isArray(input.noteLabels) ||
     !isRecord(input.enums) ||
     !Array.isArray(input.valueEnums) ||
@@ -823,7 +827,7 @@ const legacyLatexIdentifier = (value: string) => value.trim().replace(/\s+/g, '\
 
 const defaultDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionNames: string[]) => {
   const field = latexIdentifier(fieldName);
-  const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), latexIdentifier(spatialUnit)]
+  const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), spatialUnit]
     .filter(Boolean)
     .join(',');
   return subscript ? `${field}_{${subscript}}` : field;
@@ -832,7 +836,7 @@ const defaultDataFieldLatex = (fieldName: string, spatialUnit: string, dimension
 const defaultCollectionDataFieldLatex = (fieldName: string, spatialUnit: string, dimensionNames: string[]) => {
   const field = latexIdentifier(fieldName);
   const expression = `\\{${field}\\}`;
-  const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), latexIdentifier(spatialUnit)]
+  const subscript = [...dimensionNames.map(latexIdentifier).filter(Boolean), spatialUnit]
     .filter(Boolean)
     .join(',');
   return subscript ? `${expression}_{${subscript}}` : expression;
@@ -2010,7 +2014,7 @@ const normalizeDataSourceFieldType = (value: unknown, legacyUnit: string): DataS
   return legacyUnit.trim() ? 'number' : 'text';
 };
 
-const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[], warnings: string[]): DataSource[] => {
+const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[], warnings: string[], spatialDefinitions = defaultSpatialScaleDefinitions()): DataSource[] => {
   if (rawValue == null) {
     return [];
   }
@@ -2154,15 +2158,15 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
     });
     const rawSpatialUnit = stringValue(rawSource.spatialUnit ?? rawSource.spatialScale ?? rawSource['Spatial Unit']).trim();
     const normalizedSpatialUnit = rawSpatialUnit.toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
-    const matchingScale = spatialScaleKeys.find((scale) =>
+    const matchingScale = spatialScaleKeys.find((scale) => rawSpatialUnit.toLocaleLowerCase() === spatialDefinitions[scale].name.toLocaleLowerCase()) ?? spatialScaleKeys.find((scale) =>
       normalizedSpatialUnit === scale.toLocaleLowerCase() ||
-      normalizedSpatialUnit === spatialScaleLabels[scale].toLocaleLowerCase().replace(/[^a-z0-9]/g, '') ||
-      (scale === 'parcel' && ['grid', 'cell', 'cells', 'parcels'].includes(normalizedSpatialUnit))
+      normalizedSpatialUnit === spatialDefinitions[scale].name.toLocaleLowerCase().replace(/[^a-z0-9]/g, '') ||
+      (scale === 'cell' && ['grid', 'cell', 'cells', 'parcels'].includes(normalizedSpatialUnit))
     );
     const spatialUnit: SpatialUnit = rawSpatialUnit.toLocaleLowerCase() === 'point'
       ? 'Point'
       : matchingScale
-        ? spatialScaleLabels[matchingScale]
+        ? spatialDefinitions[matchingScale].name
         : '';
     if (rawSpatialUnit && !spatialUnit) {
       warnings.push(`${name}: unsupported spatial unit "${rawSpatialUnit}" was cleared.`);
@@ -2658,6 +2662,8 @@ const repairKpiNoteLabels = (
 
 export const createBlankConfig = (): KpiPoolConfig => ({
   schemaVersion: CURRENT_SCHEMA_VERSION,
+  spatialScaleDefinitions: defaultSpatialScaleDefinitions(),
+  logic: [],
   title: 'Untitled KPI Library',
   updatedAt: new Date().toISOString(),
   noteLabels: [],
@@ -2703,7 +2709,7 @@ export const createBlankKpi = (): KpiMetric => ({
   },
   spatialScales: {
     link: emptyScale(),
-    parcel: emptyScale(),
+    cell: emptyScale(),
     project: emptyScale(),
     taz: emptyScale(),
     corridor: emptyScale(),
@@ -2745,8 +2751,10 @@ export const repairConfig = (input: unknown): RepairResult => {
   const requiresCellTerminologyMigration =
     !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < CELL_TERMINOLOGY_SCHEMA_VERSION;
   const gridMigratedInput = requiresCellTerminologyMigration ? migrateLegacyGridTerminology(input) : input;
-  const terminologyInput = !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 46
+  const parcelInput = !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 46
     ? migrateParcelTerminology(gridMigratedInput) : gridMigratedInput;
+  const terminologyInput = !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 47
+    ? migrateCellTerminology(parcelInput) : parcelInput;
   const migratedInput = !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 44
     ? migrateScenarioDecoration(terminologyInput) : terminologyInput;
 
@@ -2765,12 +2773,27 @@ export const repairConfig = (input: unknown): RepairResult => {
   } else if (!Number.isFinite(inputSchemaVersion)) {
     warnings.push(`Upgraded an unversioned configuration to schema version ${CURRENT_SCHEMA_VERSION}.`);
   }
+  const spatialScaleDefinitions = defaultSpatialScaleDefinitions();
+  if (isRecord(rawConfig.spatialScaleDefinitions)) {
+    for (const key of spatialScaleKeys) {
+      const definition = rawConfig.spatialScaleDefinitions[key];
+      if (isRecord(definition)) spatialScaleDefinitions[key] = {
+        name: stringValue(definition.name).trim() || spatialScaleDefinitions[key].name,
+        latex: stringValue(definition.latex).trim() || spatialScaleDefinitions[key].latex
+      };
+    }
+  }
+  const logicIds = new Set<string>();
+  const logic = (Array.isArray(rawConfig.logic) ? rawConfig.logic : []).flatMap((entry) => {
+    if (!isRecord(entry) || !stringValue(entry.latex).trim()) return [];
+    return [{ id: ensureUniqueId(entry.id, 'logic', logicIds, warnings, 'Logic'), latex: stringValue(entry.latex).trim(), explanation: stringValue(entry.explanation) }];
+  });
   const legacyPerformanceAreas = isLegacyPerformanceAreaSchema(rawConfig);
 
   const enums = repairEnums(rawConfig, warnings);
   const valueEnums = repairValueEnums(rawConfig.valueEnums ?? rawConfig.reusableEnums, warnings);
   const valueEnumGroups = repairDataLibraryGroups(rawConfig.valueEnumGroups ?? rawConfig.enumGroups, valueEnums, 'enum', warnings);
-  const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, valueEnums, warnings);
+  const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, valueEnums, warnings, spatialScaleDefinitions);
   const tableRelations = repairTableRelations(rawConfig.tableRelations ?? rawConfig.relations, repairedDataSources, warnings);
   const dataSources = reconcileRelationFields(repairedDataSources, tableRelations);
   const dataSourceGroups = repairDataLibraryGroups(rawConfig.dataSourceGroups ?? rawConfig.sourceGroups, dataSources, 'dataSource', warnings);
@@ -2877,7 +2900,7 @@ export const repairConfig = (input: unknown): RepairResult => {
         const { version: legacyOption, ...withoutLegacyOption } = legacySource;
         const firstDimension = group?.dimensions[0];
         const latex = firstDimension && source.latex === legacyDataFieldLatex(field.name, sourceTableUnit(dataSource), firstDimension.name, legacyOption)
-          ? defaultDataFieldLatex(field.name, sourceTableUnit(dataSource), dimensionNames)
+          ? defaultDataFieldLatex(field.name, sourceTableUnitLatex(spatialScaleDefinitions, dataSource), dimensionNames)
           : source.latex;
         normalizedSource = { ...withoutLegacyOption, latex };
       }
@@ -2892,7 +2915,7 @@ export const repairConfig = (input: unknown): RepairResult => {
           `\\{${legacyIdentifier}\\}`
         ]);
         if (oldDefaults.has(normalizedSource.latex)) {
-          const nextLatex = defaultCollectionDataFieldLatex(field.name, sourceTableUnit(dataSource), dimensionNames);
+          const nextLatex = defaultCollectionDataFieldLatex(field.name, sourceTableUnitLatex(spatialScaleDefinitions, dataSource), dimensionNames);
           if (nextLatex !== normalizedSource.latex) {
             const previousReplacement = sourceLatexReplacements.get(normalizedSource.latex);
             if (!sourceLatexReplacements.has(normalizedSource.latex)) {
@@ -2995,6 +3018,8 @@ export const repairConfig = (input: unknown): RepairResult => {
 
   const repaired: KpiPoolConfig = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
+    spatialScaleDefinitions,
+    logic,
     title: stringValue(rawConfig.title).trim() || 'Untitled KPI Library',
     updatedAt: stringValue(rawConfig.updatedAt) || new Date().toISOString(),
     defaultFocus,

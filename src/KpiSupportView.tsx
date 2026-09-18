@@ -43,7 +43,7 @@ export function KpiSupportDialog({ config, target, onClose, children, heading = 
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
   }}>
-    <section className="kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby="kpi-support-title">
+    <section className="popup-surface kpi-note-dialog" role="dialog" aria-modal="true" aria-labelledby="kpi-support-title">
       <header className="kpi-note-dialog-header"><div><span>{heading}</span><strong id="kpi-support-title">{table?.name || 'Untitled table'}{field ? ` · ${field.name || 'Untitled field'}` : ''}</strong></div>
         <button className="mini-icon-button" type="button" ref={closeRef} aria-label={`Close ${heading.toLowerCase()}`} onClick={onClose}><X size={16} /></button>
       </header>

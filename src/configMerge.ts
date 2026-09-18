@@ -1,3 +1,5 @@
+import { alignGlobalDefinitions } from './globalDefinitions.js';
+import { spatialScaleKeys } from './types.js';
 import { CURRENT_SCHEMA_VERSION, enumCategoryKeys, type DataLibraryGroup, type KpiPoolConfig } from './types.js';
 
 export type ConfigMergeResult = {
@@ -17,6 +19,8 @@ export type ConfigMergeResult = {
   lookupConflicts: number;
   addedVariables: number;
   variableConflicts: number;
+  addedLogic: number;
+  logicConflicts: number;
 };
 
 const sameValue = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
@@ -74,31 +78,41 @@ export const mergeConcurrentConfig = (
   current: KpiPoolConfig,
   base: KpiPoolConfig,
   incoming: KpiPoolConfig
-): KpiPoolConfig => ({
-  ...current,
-  schemaVersion: CURRENT_SCHEMA_VERSION,
-  title: incoming.title !== base.title ? incoming.title : current.title,
-  defaultFocus: !sameValue(incoming.defaultFocus, base.defaultFocus)
-    ? incoming.defaultFocus
-    : current.defaultFocus,
-  noteLabels: mergeConcurrentCollection(current.noteLabels, base.noteLabels, incoming.noteLabels),
-  enums: Object.fromEntries(
-    enumCategoryKeys.map((category) => [
-      category,
-      mergeConcurrentCollection(current.enums[category], base.enums[category], incoming.enums[category])
-    ])
-  ) as KpiPoolConfig['enums'],
-  valueEnums: mergeConcurrentCollection(current.valueEnums, base.valueEnums, incoming.valueEnums),
-  valueEnumGroups: mergeConcurrentCollection(current.valueEnumGroups, base.valueEnumGroups, incoming.valueEnumGroups),
-  dataSources: mergeConcurrentCollection(current.dataSources, base.dataSources, incoming.dataSources),
-  dataSourceGroups: mergeConcurrentCollection(current.dataSourceGroups, base.dataSourceGroups, incoming.dataSourceGroups),
-  tableRelations: mergeConcurrentCollection(current.tableRelations, base.tableRelations, incoming.tableRelations),
-  lookups: mergeConcurrentCollection(current.lookups, base.lookups, incoming.lookups),
-  lookupGroups: mergeConcurrentCollection(current.lookupGroups, base.lookupGroups, incoming.lookupGroups),
-  variables: mergeConcurrentCollection(current.variables, base.variables, incoming.variables),
-  variableGroups: mergeConcurrentCollection(current.variableGroups, base.variableGroups, incoming.variableGroups),
-  kpis: mergeConcurrentCollection(current.kpis, base.kpis, incoming.kpis)
-});
+): KpiPoolConfig => {
+  const definitions = Object.fromEntries(spatialScaleKeys.map((key) => [key,
+    sameValue(incoming.spatialScaleDefinitions[key], base.spatialScaleDefinitions[key])
+      ? current.spatialScaleDefinitions[key] : incoming.spatialScaleDefinitions[key]
+  ])) as KpiPoolConfig['spatialScaleDefinitions'];
+  const logic = mergeConcurrentCollection(current.logic, base.logic, incoming.logic);
+  current = alignGlobalDefinitions(current, definitions, logic);
+  base = alignGlobalDefinitions(base, definitions, logic);
+  incoming = alignGlobalDefinitions(incoming, definitions, logic);
+  return {
+    ...current,
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    title: incoming.title !== base.title ? incoming.title : current.title,
+    defaultFocus: !sameValue(incoming.defaultFocus, base.defaultFocus)
+      ? incoming.defaultFocus
+      : current.defaultFocus,
+    noteLabels: mergeConcurrentCollection(current.noteLabels, base.noteLabels, incoming.noteLabels),
+    enums: Object.fromEntries(
+      enumCategoryKeys.map((category) => [
+        category,
+        mergeConcurrentCollection(current.enums[category], base.enums[category], incoming.enums[category])
+      ])
+    ) as KpiPoolConfig['enums'],
+    valueEnums: mergeConcurrentCollection(current.valueEnums, base.valueEnums, incoming.valueEnums),
+    valueEnumGroups: mergeConcurrentCollection(current.valueEnumGroups, base.valueEnumGroups, incoming.valueEnumGroups),
+    dataSources: mergeConcurrentCollection(current.dataSources, base.dataSources, incoming.dataSources),
+    dataSourceGroups: mergeConcurrentCollection(current.dataSourceGroups, base.dataSourceGroups, incoming.dataSourceGroups),
+    tableRelations: mergeConcurrentCollection(current.tableRelations, base.tableRelations, incoming.tableRelations),
+    lookups: mergeConcurrentCollection(current.lookups, base.lookups, incoming.lookups),
+    lookupGroups: mergeConcurrentCollection(current.lookupGroups, base.lookupGroups, incoming.lookupGroups),
+    variables: mergeConcurrentCollection(current.variables, base.variables, incoming.variables),
+    variableGroups: mergeConcurrentCollection(current.variableGroups, base.variableGroups, incoming.variableGroups),
+    kpis: mergeConcurrentCollection(current.kpis, base.kpis, incoming.kpis)
+  };
+};
 
 const mergeImportedLibraryGroups = <T extends { id: string }>(
   currentGroups: DataLibraryGroup[],
@@ -130,6 +144,12 @@ const mergeImportedLibraryGroups = <T extends { id: string }>(
 };
 
 export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolConfig): ConfigMergeResult => {
+  const incomingOriginal = incoming;
+  const addedLogic = incoming.logic.filter((item) => !current.logic.some((existing) => existing.id === item.id));
+  const logicConflicts = incoming.logic.filter((item) => current.logic.some((existing) => existing.id === item.id && !sameValue(existing, item))).length;
+  const logic = [...current.logic, ...addedLogic];
+  const empty = !current.kpis.length && !current.dataSources.length && !current.lookups.length && !current.variables.length && !current.valueEnums.length && !current.logic.length;
+  incoming = alignGlobalDefinitions(incoming, empty ? incoming.spatialScaleDefinitions : current.spatialScaleDefinitions, logic);
   let addedEnumOptions = 0;
   let enumConflicts = 0;
   const enums = Object.fromEntries(
@@ -225,6 +245,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
   });
 
   const currentIsEmpty =
+    current.logic.length === 0 &&
     current.kpis.length === 0 &&
     current.dataSources.length === 0 &&
     current.dataSourceGroups.length === 0 &&
@@ -242,6 +263,8 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     config: {
       ...current,
       schemaVersion: CURRENT_SCHEMA_VERSION,
+      spatialScaleDefinitions: empty ? incomingOriginal.spatialScaleDefinitions : current.spatialScaleDefinitions,
+      logic,
       title: currentIsEmpty ? incoming.title : current.title,
       defaultFocus: currentIsEmpty ? incoming.defaultFocus : current.defaultFocus,
       noteLabels: [...current.noteLabels, ...addedNoteLabels],
@@ -295,7 +318,9 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
     addedLookups: addedLookups.length,
     lookupConflicts,
     addedVariables: addedVariables.length,
-    variableConflicts
+    variableConflicts,
+    addedLogic: addedLogic.length,
+    logicConflicts
   };
 };
 
