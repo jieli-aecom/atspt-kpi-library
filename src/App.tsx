@@ -7983,6 +7983,7 @@ type FormulaSemanticToken = {
   latex: string;
   sourceIds?: string[];
   matchLatex?: string;
+  indexedScaleBases?: string[];
   requiresFollowingParenthesis?: boolean;
   kind: 'source' | 'collection' | 'lookup' | 'variable' | 'result' | 'dimension' | 'scale' | 'scale-other' | 'logic' | 'scenario';
   prominent?: boolean;
@@ -7999,6 +8000,7 @@ const formulaDecorationCache = new Map<string, DecoratedFormula>();
 const formulaHtmlCache = new Map<string, string>();
 const formulaTokenValidityCache = new Map<string, boolean>();
 const formulaTokenMatchCache = new Map<string, Map<string, boolean>>();
+const indexedSourcePartsCache = new Map<string, string[]>();
 const formulaCacheLimit = 500;
 
 const formulaTokenTarget = (token: FormulaSemanticToken, parentTarget?: FormulaSemanticTarget) =>
@@ -8058,9 +8060,88 @@ const qualifiedFormulaTokenMatch = (formula: string, prefix: string, index: numb
   return undefined;
 };
 
+// Match a cited field's notation while allowing an index on its spatial units.
+// Literal segments and balanced braces avoid wildcard matches across expressions.
+const indexedSourceParts = (token: FormulaSemanticToken): string[] => {
+  const latex = token.matchLatex ?? token.latex;
+  const bases = token.indexedScaleBases;
+  if (!bases?.length) return [];
+  const key = JSON.stringify([latex, bases]);
+  const cached = indexedSourcePartsCache.get(key);
+  if (cached) return cached;
+  const parts: string[] = [];
+  const sortedBases = [...bases].filter(Boolean).sort((a, b) => b.length - a.length);
+  let segmentStart = 0;
+  for (let cursor = 0; cursor < latex.length; cursor++) {
+    const base = sortedBases.find((entry) => latex.startsWith(entry, cursor) && hasFormulaTokenBoundaries(latex, entry, cursor));
+    if (!base) continue;
+    const end = cursor + base.length;
+    // An explicitly indexed citation remains specific to that index.
+    if (latex[end] !== '_') {
+      parts.push(latex.slice(segmentStart, end));
+      segmentStart = end;
+    }
+    cursor = end - 1;
+  }
+  if (parts.length) parts.push(latex.slice(segmentStart));
+  return cacheFormulaResult(indexedSourcePartsCache, key, parts);
+};
+
+const formulaSubscriptEnd = (formula: string, start: number): number | undefined => {
+  if (formula[start] !== '_') return start;
+  let cursor = start + 1;
+  while (/\s/.test(formula[cursor] ?? '') && cursor < formula.length) cursor++;
+  if (formula[cursor] === '{') {
+    let depth = 1;
+    for (cursor++; cursor < formula.length; cursor++) {
+      if (formula[cursor] === '\\') { cursor++; continue; }
+      if (formula[cursor] === '{') depth++;
+      if (formula[cursor] === '}' && --depth === 0) return cursor + 1;
+    }
+    return undefined;
+  }
+  if (formula[cursor] === '\\') {
+    cursor++;
+    if (/[a-zA-Z]/.test(formula[cursor] ?? '')) {
+      while (/[a-zA-Z]/.test(formula[cursor] ?? '') && cursor < formula.length) cursor++;
+      return cursor;
+    }
+    return cursor < formula.length ? cursor + 1 : undefined;
+  }
+  return cursor < formula.length && !/[{}_^]/.test(formula[cursor]) ? cursor + 1 : undefined;
+};
+
+const findIndexedSourceToken = (formula: string, token: FormulaSemanticToken, startIndex: number): FormulaTokenMatch | undefined => {
+  const parts = indexedSourceParts(token);
+  if (!parts.length) return undefined;
+  let index = formula.indexOf(parts[0], startIndex);
+  while (index >= 0) {
+    let cursor: number | undefined = index;
+    for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+      const part = parts[partIndex];
+      if (cursor === undefined) break;
+      if (partIndex === parts.length - 1 && part === '}' && formula[cursor] === '|') {
+        const qualified = qualifiedFormulaTokenMatch(formula, formula.slice(index, cursor), index);
+        cursor = qualified ? index + qualified.length : undefined;
+        break;
+      }
+      if (!formula.startsWith(part, cursor)) { cursor = undefined; break; }
+      cursor += part.length;
+      if (partIndex < parts.length - 1) cursor = formulaSubscriptEnd(formula, cursor);
+    }
+    if (cursor !== undefined) {
+      const latex = formula.slice(index, cursor);
+      if (hasFormulaTokenBoundaries(formula, latex, index)) return { index, latex };
+    }
+    index = formula.indexOf(parts[0], index + 1);
+  }
+  return undefined;
+};
+
 const findFormulaToken = (formula: string, token: FormulaSemanticToken, startIndex: number): FormulaTokenMatch | undefined => {
   const matchLatex = token.matchLatex ?? token.latex;
   const qualifiedPrefix = qualifiedFormulaTokenPrefix(token);
+  const indexedMatch = findIndexedSourceToken(formula, token, startIndex);
   let index = startIndex;
   while (index < formula.length) {
     const exactIndex = formula.indexOf(matchLatex, index);
@@ -8070,7 +8151,7 @@ const findFormulaToken = (formula: string, token: FormulaSemanticToken, startInd
       : qualifiedIndex < 0
         ? exactIndex
         : Math.min(exactIndex, qualifiedIndex);
-    if (nextIndex < 0) return undefined;
+    if (nextIndex < 0) return indexedMatch;
     const matchedLatex = nextIndex === qualifiedIndex && qualifiedPrefix
       ? qualifiedFormulaTokenMatch(formula, qualifiedPrefix, nextIndex)
       : matchLatex;
@@ -8080,10 +8161,10 @@ const findFormulaToken = (formula: string, token: FormulaSemanticToken, startInd
     }
     const hasBoundaries = hasFormulaTokenBoundaries(formula, matchedLatex, nextIndex);
     const followedByParenthesis = !token.requiresFollowingParenthesis || /^\s*\(/.test(formula.slice(nextIndex + matchLatex.length));
-    if (hasBoundaries && followedByParenthesis) return { index: nextIndex, latex: matchedLatex };
+    if (hasBoundaries && followedByParenthesis) return indexedMatch && indexedMatch.index <= nextIndex ? indexedMatch : { index: nextIndex, latex: matchedLatex };
     index = nextIndex + 1;
   }
-  return undefined;
+  return indexedMatch;
 };
 
 const formulaContainsToken = (formula: string, token: FormulaSemanticToken) => {
@@ -8099,6 +8180,7 @@ const formulaContainsToken = (formula: string, token: FormulaSemanticToken) => {
   const tokenKey = JSON.stringify([
     token.kind,
     token.matchLatex ?? token.latex,
+    token.indexedScaleBases,
     Boolean(token.requiresFollowingParenthesis)
   ]);
   const cached = matchesByToken.get(tokenKey);
@@ -8425,13 +8507,17 @@ function InteractiveFormulaPreview({
       : undefined;
     return {
       latex: source.latex,
+      indexedScaleBases: source.type === 'dataField' ? spatialScaleKeys.flatMap((scale) => {
+        const latex = config.spatialScaleDefinitions[scale].latex;
+        return [latex, ...(!latex.includes('\\') && !/[{}]/.test(latex) ? [`\\mathrm{${latex}}`, `\\text{${latex}}`] : [])];
+      }) : undefined,
       matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
       requiresFollowingParenthesis: lookupOpenParenthesis > 0,
       kind: source.type === 'variable' ? 'variable' : source.type === 'lookup' ? 'lookup' : fieldType === 'collection' ? 'collection' : 'source',
       label: `Source: ${sourceItemTooltip(config, source)}`,
       target: { kind: 'source', sourceId: source.id }
     };
-  }), [config.dataSources, config.lookups, config.variables, kpi.sources, referencedKpiNames]);
+  }), [config.dataSources, config.lookups, config.variables, config.spatialScaleDefinitions, kpi.sources, referencedKpiNames]);
   const itemCatalog = formulaItemCatalog(kpi);
   const regularFormulaItems = itemCatalog.items;
   const finalFormulaItem = itemCatalog.finalItem;

@@ -118,3 +118,41 @@ test('catalog changes invalidate visible rows for scale names and new logic with
   assert.equal(affects(config, { ...config, spatialScaleDefinitions: {} }, 'kpi'), true);
   assert.equal(affects(config, { ...config }, 'kpi'), false);
 });
+
+const cellIdSource = (latex = 'CellID_{Cell}', bases = ['Cell']) => ({
+  latex, indexedScaleBases: bases, kind: 'source', label: 'Cell ID', target: { kind: 'source', sourceId: 'cell-id' }
+});
+
+test('cited fields decorate indexed spatial units and preserve their source target', () => {
+  for (const index of ['i', '{j,k}', '{i_{j}}', String.raw`\alpha`, String.raw`{\text{other unit}}`, String.raw`{\{i\}}`]) {
+    const formula = `CellID_{Cell_${index}}`;
+    const result = decorateFormulaTokens(formula, [cellIdSource(), { latex: `Cell_${index}`, kind: 'scale-other', label: 'Other cell' }]);
+    assert.match(result.decorated, /formula-source-token/);
+    assert.ok(result.decorated.endsWith('}}}'));
+    assert.equal(result.tokens.find((token) => token.kind === 'source').target.sourceId, 'cell-id');
+    const html = render(formula, [cellIdSource(), { latex: `Cell_${index}`, kind: 'scale-other', label: 'Other cell' }]);
+    assert.match(html, /formula-source-token/);
+    assert.match(html, /formula-scale-other-token/);
+  }
+});
+
+test('indexed field references coexist with exact references, qualifiers and multiple scale positions', () => {
+  const result = decorateFormulaTokens('CellID_{Cell}+CellID_{Cell_i}+CellID_{Cell_{j,k}|Car}', [cellIdSource()]);
+  assert.equal((result.decorated.match(/formula-source-token/g) ?? []).length, 3);
+  assert.match(render('Flow_{Cell_i,Link_{j}}', [cellIdSource('Flow_{Cell,Link}', ['Cell', 'Link'])]), /formula-source-token/);
+  assert.match(render('CellID_{Cell_i|Car}', [cellIdSource(), ...tokens()]), /formula-dimension-token/);
+});
+
+test('indexed source matching uses configured notation and does not broaden unrelated or indexed citations', () => {
+  for (const base of ['Zone', String.raw`\mathrm{Zone}`, String.raw`\mathcal{C}`]) {
+    assert.match(render(`ID_{${base}_{j}}`, [cellIdSource(`ID_{${base}}`, [base])]), /formula-source-token/);
+  }
+  for (const formula of ['OtherCellID_{Cell_i}', 'CellID_{Cellular_i}', 'CellID_{Link_i}', 'CellID_{Cell_{i}', 'CellID_{Cell_}', 'CellID_{Cell_i}+x']) {
+    const source = formula.endsWith('+x') ? cellIdSource('CellID_{Cell_j}') : cellIdSource();
+    assert.doesNotMatch(decorateFormulaTokens(formula, [source]).decorated, /formula-source-token/);
+  }
+  assert.doesNotMatch(render('CellID_{Cell_i}', [{ ...cellIdSource(), indexedScaleBases: undefined }]), /formula-source-token/);
+  // A definition change must invalidate cached membership for the same source/formula.
+  assert.doesNotMatch(render('CellID_{Cell_i}', [cellIdSource('CellID_{Cell}', ['Zone'])]), /formula-source-token/);
+  assert.match(render('CellID_{Cell_i}', [cellIdSource()]), /formula-source-token/);
+});
