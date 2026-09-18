@@ -4,6 +4,8 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 import ts from 'typescript';
 import katex from 'katex';
+import { defaultSpatialScaleDefinitions, spatialScaleDefinitionKeys, genericSpatialUnits } from '../src/types.ts';
+import { indexedScaleLatex } from '../src/globalDefinitions.ts';
 
 // Exercise the actual renderer without mounting the application's browser UI.
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -11,9 +13,9 @@ const renderer = app.slice(app.indexOf('const formulaDecorationCache ='), app.in
 const domainTokens = app.slice(app.indexOf('  const fieldDomainTokens = useMemo('), app.indexOf('  const referencedKpiNames = JSON.stringify'));
 const compiled = ts.transpileModule(`${renderer}
 function getDomainTokens(config, kpi) { ${domainTokens} return fieldDomainTokens; }
-({ decorateFormulaTokens, getDomainTokens, formulaTokenTarget });`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-const { decorateFormulaTokens, getDomainTokens, formulaTokenTarget } = runInNewContext(compiled, {
-  katex, spatialScaleKeys: [], spatialScaleLabels: {}, genericSpatialUnits: [],
+({ decorateFormulaTokens, getDomainTokens, formulaTokenTarget, spatialScaleFormulaTokens });`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const { decorateFormulaTokens, getDomainTokens, formulaTokenTarget, spatialScaleFormulaTokens } = runInNewContext(compiled, {
+  katex, spatialScaleKeys: [], spatialScaleLabels: {}, genericSpatialUnits, spatialScaleDefinitionKeys, indexedScaleLatex,
   useMemo: (fn: () => unknown) => fn(),
   formulaFieldDomains: (config: { domains: unknown[] }) => config.domains,
   latexIdentifier: (value: string) => value.replace(/\s+/g, ''),
@@ -26,6 +28,25 @@ const render = (formula: string, semanticTokens: unknown[]) => {
   const result = decorateFormulaTokens(formula, semanticTokens);
   return katex.renderToString(result.decorated, { output: 'html', throwOnError: true, strict: 'ignore', trust: (context) => context.command === '\\htmlClass' });
 };
+
+test('plain and indexed scales, including generic Zone, trace to the scale controller inside field references', () => {
+  const config = { spatialScaleDefinitions: defaultSpatialScaleDefinitions() };
+  const formula = String.raw`CellID_{Cell}+CellID_{Cell_{j,k}}+Zone+Zone_i+\mathrm{Zone}_{j}`;
+  const scales = spatialScaleFormulaTokens(config, formula);
+  for (const [latex, key] of [['Cell', 'cell'], ['Cell_{j,k}', 'cell'], ['Zone', 'zone'], ['Zone_i', 'zone'], [String.raw`\mathrm{Zone}_{j}`, 'zone']]) {
+    const target = scales.find((token) => token.latex === latex).target;
+    assert.equal(target.kind, 'spatialScale');
+    assert.equal(target.scaleKey, key);
+  }
+  const html = render(formula, [cellIdSource(), ...scales]);
+  assert.match(html, /formula-source-token/);
+  assert.match(html, /formula-scale-token/);
+  assert.match(html, /formula-scale-other-token/);
+  config.spatialScaleDefinitions.zone = { name: 'Generic area', latex: 'G' };
+  const renamed = spatialScaleFormulaTokens(config, 'G_i+Zone');
+  assert.equal(renamed.find((token) => token.latex === 'G_i').target.scaleKey, 'zone');
+  assert.equal(renamed.some((token) => token.latex === 'Zone'), false);
+});
 
 test('shared domain values retain a source target and list all citations', () => {
   for (const token of tokens()) {

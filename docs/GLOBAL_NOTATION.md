@@ -1,4 +1,4 @@
-# Global notation (schema 47)
+# Global notation (schema 48)
 
 Use the controller in the **Spatial Scales** heading to edit scale names and LaTeX.
 The seven scale identities and their hierarchy are fixed. A name change also changes
@@ -9,6 +9,10 @@ units, including references inside subscripts and other expressions.
 A plain scale token denotes the geographical unit being calculated and appears red.
 An indexed token such as `Cell_i`, `Cell_{j,k}`, or `\mathrm{Cell}_{other}` denotes
 another unit and appears orange. The same rules apply to customized notation.
+Click either kind of scale token (or press Enter/Space) to open the controller and
+focus its definition, including scale tokens nested inside a field reference.
+The generic **Zone** entry has editable name and notation but sits outside the
+seven-level hierarchy. Both `Zone` and `Zone_i` are highlighted automatically.
 
 **Constants → Logic** holds LaTeX expressions and explanations (for example `\max`).
 These definitions do not require KPI source selection. Matching formula tokens
@@ -21,6 +25,9 @@ retains formula text and removes its highlighting.
 
 - Schema 47 adds `spatialScaleDefinitions`, keyed by stable scale identity, and
   `logic`, a list of `{ id, latex, explanation }` records.
+- Schema 48 adds the `zone` definition with default name and notation `Zone`.
+  Older libraries receive this entry without changing their seven scale settings.
+  Generic Zone participates in global renaming, table units, exports and merges.
 - Historical schema 46's `parcel` KPI settings migrate to `cell`; Parcel/Parcels
   notation and spatial units migrate to Cell/Cells. IDs, ordinary prose, names,
   and unrelated identifiers remain intact. Earlier Grid/Cell configurations

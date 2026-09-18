@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { Plus, RotateCcw, Settings2, Trash2, X } from 'lucide-react';
 import katex from 'katex';
 import { InlineMath } from 'react-katex';
-import { spatialScaleKeys, genericSpatialUnits, type KpiPoolConfig, type LogicDefinition } from './types';
+import { spatialScaleDefinitionKeys, genericSpatialUnits, type SpatialScaleDefinitionKey, type KpiPoolConfig, type LogicDefinition } from './types';
 import { rewriteGlobalNotation, scaleReplacements } from './globalDefinitions';
 
 const notationError = (entries: { latex: string }[]) => {
@@ -30,17 +30,36 @@ export function SpatialScaleController({ config, onChange }: { config: KpiPoolCo
   const [draft, setDraft] = useState(config.spatialScaleDefinitions);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [focusedScale, setFocusedScale] = useState<SpatialScaleDefinitionKey>();
+  const dialogRef = useRef<HTMLElement>(null);
   const latest = useRef(config); latest.current = config;
+  useEffect(() => {
+    const navigate = (event: Event) => {
+      const key = (event as CustomEvent<SpatialScaleDefinitionKey>).detail;
+      setDraft(latest.current.spatialScaleDefinitions);
+      setError('');
+      setFocusedScale(spatialScaleDefinitionKeys.includes(key) ? key : undefined);
+      setOpen(true);
+    };
+    window.addEventListener('kpi-open-spatial-scale', navigate);
+    return () => window.removeEventListener('kpi-open-spatial-scale', navigate);
+  }, []);
+  useEffect(() => {
+    if (!open) return;
+    const row = focusedScale ? dialogRef.current?.querySelector<HTMLElement>(`[data-scale-key="${focusedScale}"]`) : undefined;
+    row?.scrollIntoView({ block: 'nearest' });
+    (row?.querySelector('input') ?? dialogRef.current?.querySelector('button'))?.focus();
+  }, [open, focusedScale]);
   const apply = async () => {
-    const normalized = Object.fromEntries(spatialScaleKeys.map((key) => [key, { name: draft[key].name.trim(), latex: draft[key].latex.trim() }])) as typeof draft;
-    const names = spatialScaleKeys.map((key) => normalized[key].name.toLocaleLowerCase());
+    const normalized = Object.fromEntries(spatialScaleDefinitionKeys.map((key) => [key, { name: draft[key].name.trim(), latex: draft[key].latex.trim() }])) as typeof draft;
+    const names = spatialScaleDefinitionKeys.map((key) => normalized[key].name.toLocaleLowerCase());
     const validation = names.some((name) => !name) ? 'Enter a name for every scale.'
       : new Set([...names, ...genericSpatialUnits.map((name) => name.toLocaleLowerCase())]).size !== names.length + genericSpatialUnits.length ? 'Scale names must be distinct from each other and from Point.'
       : notationError([...Object.values(normalized), ...config.logic]);
     if (validation) { setError(validation); return; }
     setBusy(true); setError('');
     try {
-      const next = await rewriteGlobalNotation(config, scaleReplacements(config.spatialScaleDefinitions, normalized), new Map(spatialScaleKeys.map((key) => [config.spatialScaleDefinitions[key].name, normalized[key].name])));
+      const next = await rewriteGlobalNotation(config, scaleReplacements(config.spatialScaleDefinitions, normalized), new Map(spatialScaleDefinitionKeys.map((key) => [config.spatialScaleDefinitions[key].name, normalized[key].name])));
       if (latest.current !== config) throw new Error('The library changed during this update. Apply again to use the latest library.');
       onChange({ ...next, spatialScaleDefinitions: normalized });
       setOpen(false);
@@ -48,19 +67,20 @@ export function SpatialScaleController({ config, onChange }: { config: KpiPoolCo
     finally { setBusy(false); }
   };
   return <>
-    <button className="mini-icon-button" type="button" aria-label="Manage spatial scales" aria-haspopup="dialog" aria-expanded={open} title="Manage spatial scales" onClick={() => { setDraft(config.spatialScaleDefinitions); setError(''); setOpen(true); }}><Settings2 size={13} /></button>
+    <button className="mini-icon-button" type="button" aria-label="Manage spatial scales" aria-haspopup="dialog" aria-expanded={open} title="Manage spatial scales" onClick={() => { setDraft(config.spatialScaleDefinitions); setError(''); setFocusedScale(undefined); setOpen(true); }}><Settings2 size={13} /></button>
     {open ? createPortal(<div className="global-definition-overlay" onKeyDown={(event) => { event.stopPropagation(); if (event.key === 'Escape' && !busy) setOpen(false); }}>
-      <section className="popup-surface global-definition-dialog" role="dialog" aria-modal="true" aria-label="Manage spatial scales">
+      <section ref={dialogRef} className="popup-surface global-definition-dialog" role="dialog" aria-modal="true" aria-label="Manage spatial scales">
         <header><div><h2>Spatial Scales</h2><p>Rename scales and edit notation. The hierarchy stays fixed.</p></div><button type="button" className="mini-icon-button" aria-label="Close spatial scales" disabled={busy} onClick={() => setOpen(false)}><X size={14} /></button></header>
         <fieldset className="scale-definition-list" disabled={busy} aria-label="Spatial scale definitions">
           <div className="scale-definition-columns" aria-hidden="true"><span>#</span><span>Name</span><span>LaTeX</span><span>Preview</span></div>
-          {spatialScaleKeys.map((key, index) => <div className="scale-definition-row" key={key}>
-            <span className="scale-definition-number">{index + 1}</span>
-            <input aria-label={`Scale ${index + 1} name`} value={draft[key].name} onChange={(event) => setDraft({ ...draft, [key]: { name: event.target.value, latex: draft[key].latex === draft[key].name ? event.target.value : draft[key].latex } })} />
-            <input className="scale-definition-latex" aria-label={`Scale ${index + 1} LaTeX`} value={draft[key].latex} onChange={(event) => setDraft({ ...draft, [key]: { ...draft[key], latex: event.target.value } })} />
+          {spatialScaleDefinitionKeys.map((key, index) => <div className={`scale-definition-row ${key === 'zone' ? 'is-generic' : ''} ${focusedScale === key ? 'is-source-highlighted' : ''}`} data-scale-key={key} key={key}>
+            <span className="scale-definition-number" title={key === 'zone' ? 'Generic unit; outside the hierarchy' : undefined}>{key === 'zone' ? 'G' : index + 1}</span>
+            <input aria-label={key === 'zone' ? 'Generic Zone name' : `Scale ${index + 1} name`} value={draft[key].name} onChange={(event) => setDraft({ ...draft, [key]: { name: event.target.value, latex: draft[key].latex === draft[key].name ? event.target.value : draft[key].latex } })} />
+            <input className="scale-definition-latex" aria-label={key === 'zone' ? 'Generic Zone LaTeX' : `Scale ${index + 1} LaTeX`} value={draft[key].latex} onChange={(event) => setDraft({ ...draft, [key]: { ...draft[key], latex: event.target.value } })} />
             <div className="scale-definition-preview"><InlineMath math={draft[key].latex} /></div>
           </div>)}
         </fieldset>
+        <p className="scale-definition-generic-note">G = generic unit, outside the hierarchy.</p>
         <div className="scale-definition-legend" aria-label="Scale notation guide">
           <span><span className="scale-legend-example is-current"><InlineMath math={draft.cell.latex} /></span>Current unit</span>
           <span><span className="scale-legend-example is-other"><InlineMath math={`${draft.cell.latex}_i`} /></span>Other unit · any subscript</span>

@@ -1,5 +1,5 @@
 import { alignGlobalDefinitions } from './globalDefinitions.js';
-import { spatialScaleKeys } from './types.js';
+import { spatialScaleDefinitionKeys } from './types.js';
 import { CURRENT_SCHEMA_VERSION, enumCategoryKeys, type DataLibraryGroup, type KpiPoolConfig } from './types.js';
 
 export type ConfigMergeResult = {
@@ -79,7 +79,7 @@ export const mergeConcurrentConfig = (
   base: KpiPoolConfig,
   incoming: KpiPoolConfig
 ): KpiPoolConfig => {
-  const definitions = Object.fromEntries(spatialScaleKeys.map((key) => [key,
+  const definitions = Object.fromEntries(spatialScaleDefinitionKeys.map((key) => [key,
     sameValue(incoming.spatialScaleDefinitions[key], base.spatialScaleDefinitions[key])
       ? current.spatialScaleDefinitions[key] : incoming.spatialScaleDefinitions[key]
   ])) as KpiPoolConfig['spatialScaleDefinitions'];

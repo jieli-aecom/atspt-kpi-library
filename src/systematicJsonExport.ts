@@ -14,6 +14,7 @@ export const buildSystematicJsonExport = (config: KpiPoolConfig, kpis: readonly 
     'Domain Definitions': {
       'Global Domains': config.valueEnums,
       'Spatial Scales': spatialScaleKeys.map((id) => ({ id, label: config.spatialScaleDefinitions[id].name, latex: config.spatialScaleDefinitions[id].latex })),
+      'Generic Spatial Units': [{ id: 'zone', label: config.spatialScaleDefinitions.zone.name, latex: config.spatialScaleDefinitions.zone.latex }, { id: 'point', label: 'Point', latex: 'Point' }],
       'Performance Areas': config.enums.performanceArea,
       'User Group': config.enums.userGroup,
       'Use Case': config.enums.useCase

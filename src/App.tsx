@@ -115,6 +115,8 @@ import {
   type KpiUseCasePerformanceArea,
   type KpiUserGroupUseCase,
   spatialScaleKeys,
+  spatialScaleDefinitionKeys,
+  type SpatialScaleDefinitionKey,
   type SpatialScaleKey
 } from './types';
 
@@ -156,6 +158,7 @@ const transientSourceHighlightDurationMs = 2500;
 
 type FormulaSemanticTarget =
   | { kind: 'source'; sourceId: string }
+  | { kind: 'spatialScale'; scaleKey?: SpatialScaleDefinitionKey }
   | { kind: 'logic'; logicId: string }
   | { kind: 'dimension' }
   | { kind: 'formula'; formulaIndex: number };
@@ -7964,7 +7967,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
             <section className="formula-shortcut-group">
               <span className="formula-shortcut-group-label">Spatial-scale keywords</span>
               <div className="formula-shortcut-group-options">
-                {spatialScaleKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${config.spatialScaleDefinitions[scale].name}`} key={scale} onClick={() => insertLatex(config.spatialScaleDefinitions[scale].latex)}>
+                {spatialScaleDefinitionKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${config.spatialScaleDefinitions[scale].name}`} key={scale} onClick={() => insertLatex(config.spatialScaleDefinitions[scale].latex)}>
                   <InlineMath math={config.spatialScaleDefinitions[scale].latex} errorColor="#b42318" />
                 </button>)}
                 {genericSpatialUnits.map((keyword) => <button className="formula-scale-insert" type="button" title={`Generic spatial unit: ${keyword}`} key={keyword} onClick={() => insertLatex(keyword)}>
@@ -8021,6 +8024,22 @@ const cacheFormulaResult = <T,>(cache: Map<string, T>, key: string, value: T) =>
 
 
 const allowFormulaSemanticClass = (context: TrustContext) => context.command === '\\htmlClass';
+
+const spatialScaleFormulaTokens = (config: KpiPoolConfig, formula: string): FormulaSemanticToken[] => [
+  ...spatialScaleDefinitionKeys.flatMap((scale): FormulaSemanticToken[] => {
+    const definition = config.spatialScaleDefinitions[scale];
+    const bases = [...new Set([definition.latex, ...(!definition.latex.includes('\\') && !/[{}]/.test(definition.latex) ? [`\\mathrm{${definition.latex}}`, `\\text{${definition.latex}}`] : [])])];
+    const target: FormulaSemanticTarget = { kind: 'spatialScale', scaleKey: scale };
+    return bases.flatMap((base) => [
+      { latex: base, kind: 'scale' as const, label: `${definition.name}: unit being calculated`, target },
+      ...indexedScaleLatex(formula, base).map((latex) => ({ latex, kind: 'scale-other' as const, label: `${definition.name}: other geographical unit`, target }))
+    ]);
+  }),
+  ...genericSpatialUnits.flatMap((latex): FormulaSemanticToken[] => [
+    { latex, kind: 'scale', label: `Spatial unit: ${latex}`, target: { kind: 'spatialScale' } },
+    ...indexedScaleLatex(formula, latex).map((indexed): FormulaSemanticToken => ({ latex: indexed, kind: 'scale-other', label: `${latex}: other geographical unit`, target: { kind: 'spatialScale' } }))
+  ])
+];
 
 const isFormulaIdentifierCharacter = (value: string | undefined) => Boolean(value && /[\p{L}\p{N}]/u.test(value));
 
@@ -8438,7 +8457,8 @@ function InteractiveFormulaPreview({
     return unit ? [{
       latex: latexIdentifier(unit),
       kind: 'scale',
-      label: `Table unit: ${unit}`
+      label: `Table unit: ${unit}`,
+      target: { kind: 'spatialScale' }
     }] : [];
   }), [config.dataSources]);
   const dimensionTokens = useMemo(() => {
@@ -8507,7 +8527,7 @@ function InteractiveFormulaPreview({
       : undefined;
     return {
       latex: source.latex,
-      indexedScaleBases: source.type === 'dataField' ? spatialScaleKeys.flatMap((scale) => {
+      indexedScaleBases: source.type === 'dataField' ? spatialScaleDefinitionKeys.flatMap((scale) => {
         const latex = config.spatialScaleDefinitions[scale].latex;
         return [latex, ...(!latex.includes('\\') && !/[{}]/.test(latex) ? [`\\mathrm{${latex}}`, `\\text{${latex}}`] : [])];
       }) : undefined,
@@ -8539,15 +8559,7 @@ function InteractiveFormulaPreview({
       ...sourceTokens,
       ...dimensionTokens,
       ...fieldDomainTokens,
-      ...spatialScaleKeys.flatMap((scale): FormulaSemanticToken[] => {
-        const definition = config.spatialScaleDefinitions[scale];
-        const bases = [...new Set([definition.latex, ...(!definition.latex.includes('\\') && !/[{}]/.test(definition.latex) ? [`\\mathrm{${definition.latex}}`, `\\text{${definition.latex}}`] : [])])];
-        return bases.flatMap((base) => [
-          { latex: base, kind: 'scale' as const, label: `${definition.name}: unit being calculated` },
-          ...indexedScaleLatex(item.formula, base).map((latex) => ({ latex, kind: 'scale-other' as const, label: `${definition.name}: other geographical unit` }))
-        ]);
-      }),
-      ...genericSpatialUnits.map((latex) => ({ latex, kind: 'scale' as const, label: `Spatial unit: ${latex}` })),
+      ...spatialScaleFormulaTokens(config, item.formula),
       ...config.logic.map((entry): FormulaSemanticToken => ({ latex: entry.latex, kind: 'logic', label: `Logic: ${entry.explanation || entry.latex}`, target: { kind: 'logic', logicId: entry.id } })),
       ...customUnitTokens,
       ...priorItemTokens,
@@ -8638,7 +8650,7 @@ function InteractiveFormulaPreview({
       elements.forEach((element) => {
         element.title = token.label;
         element.tabIndex = 0;
-        if (!token.target || (!onSemanticTarget && token.target.kind !== 'logic')) return;
+        if (!token.target || (!onSemanticTarget && token.target.kind !== 'logic' && token.target.kind !== 'spatialScale')) return;
         element.classList.add('is-actionable');
         element.setAttribute('role', 'button');
         const activate = (event: Event) => {
@@ -8659,6 +8671,7 @@ function InteractiveFormulaPreview({
           if (!semanticTarget) return;
           event.stopPropagation();
           if (semanticTarget.kind === 'logic') window.dispatchEvent(new CustomEvent('kpi-open-logic', { detail: semanticTarget.logicId }));
+          else if (semanticTarget.kind === 'spatialScale') window.dispatchEvent(new CustomEvent('kpi-open-spatial-scale', { detail: semanticTarget.scaleKey }));
           else onSemanticTarget?.(semanticTarget);
         };
         const handleKeyDown = (event: KeyboardEvent) => {

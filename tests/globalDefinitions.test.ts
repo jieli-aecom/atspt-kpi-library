@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBlankConfig, createBlankKpi, repairConfig, prepareForExport } from '../src/configSchema.ts';
 import { indexedScaleLatex, latexReplacer, rewriteGlobalNotation, alignGlobalDefinitions, scaleReplacements } from '../src/globalDefinitions.ts';
-import { sourceTableUnitLatex } from '../src/types.ts';
+import { sourceTableUnitLatex, spatialScaleKeys, CURRENT_SCHEMA_VERSION } from '../src/types.ts';
 import { mergeConcurrentConfig, mergeImportedConfig } from '../src/configMerge.ts';
 
 const fixture = () => {
@@ -17,6 +17,38 @@ const fixture = () => {
   config.dataSources = [{ id: 'table', name: 'Cell records', spatialUnit: 'Cell', fields: [], fieldGroups: [] }];
   return config;
 };
+
+test('v47 adds generic Zone without changing the spatial hierarchy or existing notation', () => {
+  const raw = JSON.parse(JSON.stringify(fixture()));
+  raw.schemaVersion = 47;
+  delete raw.spatialScaleDefinitions.zone;
+  raw.spatialScaleDefinitions.cell = { name: 'Parcel', latex: 'P' };
+  const migrated = repairConfig(raw).config;
+  assert.equal(migrated.schemaVersion, CURRENT_SCHEMA_VERSION);
+  assert.deepEqual(migrated.spatialScaleDefinitions.zone, { name: 'Zone', latex: 'Zone' });
+  assert.deepEqual(migrated.spatialScaleDefinitions.cell, raw.spatialScaleDefinitions.cell);
+  assert.deepEqual(Object.keys(migrated.kpis[0].spatialScales), [...spatialScaleKeys]);
+  assert.equal(repairConfig(migrated).config, migrated);
+});
+
+test('generic Zone renames survive repair, export and concurrent merge with indexed references', () => {
+  const base = fixture();
+  base.dataSources[0].spatialUnit = 'Zone';
+  base.kpis[0].sources[0].latex = 'ID_{Zone}';
+  base.kpis[0].description.formulas[0].items[0].formula = 'y=ID_{Zone_i}+Zone';
+  base.kpis[0].description.formulas[0].items[0].rightExpression = 'ID_{Zone_i}+Zone';
+  const definitions = { ...base.spatialScaleDefinitions, zone: { name: 'Generic area', latex: 'G' } };
+  const current = alignGlobalDefinitions(base, definitions, base.logic);
+  const incoming = structuredClone(base);
+  incoming.kpis[0].name = 'Unrelated edit';
+  const merged = mergeConcurrentConfig(current, base, incoming);
+  const restored = repairConfig(JSON.parse(JSON.stringify(prepareForExport(merged)))).config;
+  assert.equal(restored.spatialScaleDefinitions.zone.latex, 'G');
+  assert.equal(restored.dataSources[0].spatialUnit, 'Generic area');
+  assert.equal(restored.kpis[0].sources[0].latex, 'ID_{G}');
+  assert.equal(restored.kpis[0].description.formulas[0].items[0].formula.replace(/\s/g, ''), 'y=ID_{G_i}+G');
+  assert.equal(sourceTableUnitLatex(restored.spatialScaleDefinitions, restored.dataSources[0]), 'G');
+});
 
 test('v46 migrates Parcel settings and notation everywhere, retaining IDs and prose', () => {
   const original = fixture();

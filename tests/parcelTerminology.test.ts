@@ -48,7 +48,7 @@ test('v45 migration preserves scale settings, references and prose across export
   const { config, warnings } = repairConfig(input);
   assert.deepEqual(input, original);
   assert.equal(config.schemaVersion, CURRENT_SCHEMA_VERSION);
-  assert.ok(warnings.some((warning) => warning.includes('45 to 47')));
+  assert.ok(warnings.some((warning) => warning.includes(`45 to ${CURRENT_SCHEMA_VERSION}`)));
   assert.equal(config.dataSources[0].spatialUnit, 'Cell');
   assert.equal(config.dataSources[0].fields[0].preferredLatex, 'Flow_{Cell,NoBuild}');
   const kpi = config.kpis[0];

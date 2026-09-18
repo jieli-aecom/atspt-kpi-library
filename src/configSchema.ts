@@ -1,5 +1,5 @@
 import { migrateCellTerminology } from './globalDefinitions.js';
-import { defaultSpatialScaleDefinitions, sourceTableUnitLatex } from './types.js';
+import { defaultSpatialScaleDefinitions, spatialScaleDefinitionKeys, sourceTableUnitLatex } from './types.js';
 import { sourceTableUnit } from './types.js';
 import { migrateParcelTerminology } from './parcelTerminology.js';
 import { normalizeScenarioNames, reconcileKpiScenarios, migrateScenarioDecoration } from './scenarios.js';
@@ -284,7 +284,7 @@ const kpiSchema = z.object({
 
 export const kpiPoolConfigSchema = z.object({
   schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
-  spatialScaleDefinitions: z.object(Object.fromEntries(spatialScaleKeys.map((key) => [key, z.object({ name: z.string().trim().min(1), latex: z.string().trim().min(1) })])) as Record<typeof spatialScaleKeys[number], z.ZodObject<{ name: z.ZodString; latex: z.ZodString }>>),
+  spatialScaleDefinitions: z.object(Object.fromEntries(spatialScaleDefinitionKeys.map((key) => [key, z.object({ name: z.string().trim().min(1), latex: z.string().trim().min(1) })])) as Record<typeof spatialScaleDefinitionKeys[number], z.ZodObject<{ name: z.ZodString; latex: z.ZodString }>>),
   logic: z.array(z.object({ id: z.string().min(1), latex: z.string().trim().min(1), explanation: z.string() })),
   title: z.string(),
   updatedAt: z.string().optional(),
@@ -2158,7 +2158,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
     });
     const rawSpatialUnit = stringValue(rawSource.spatialUnit ?? rawSource.spatialScale ?? rawSource['Spatial Unit']).trim();
     const normalizedSpatialUnit = rawSpatialUnit.toLocaleLowerCase().replace(/[^a-z0-9]/g, '');
-    const matchingScale = spatialScaleKeys.find((scale) => rawSpatialUnit.toLocaleLowerCase() === spatialDefinitions[scale].name.toLocaleLowerCase()) ?? spatialScaleKeys.find((scale) =>
+    const matchingScale = spatialScaleDefinitionKeys.find((scale) => rawSpatialUnit.toLocaleLowerCase() === spatialDefinitions[scale].name.toLocaleLowerCase()) ?? spatialScaleDefinitionKeys.find((scale) =>
       normalizedSpatialUnit === scale.toLocaleLowerCase() ||
       normalizedSpatialUnit === spatialDefinitions[scale].name.toLocaleLowerCase().replace(/[^a-z0-9]/g, '') ||
       (scale === 'cell' && ['grid', 'cell', 'cells', 'parcels'].includes(normalizedSpatialUnit))
@@ -2775,7 +2775,7 @@ export const repairConfig = (input: unknown): RepairResult => {
   }
   const spatialScaleDefinitions = defaultSpatialScaleDefinitions();
   if (isRecord(rawConfig.spatialScaleDefinitions)) {
-    for (const key of spatialScaleKeys) {
+    for (const key of spatialScaleDefinitionKeys) {
       const definition = rawConfig.spatialScaleDefinitions[key];
       if (isRecord(definition)) spatialScaleDefinitions[key] = {
         name: stringValue(definition.name).trim() || spatialScaleDefinitions[key].name,

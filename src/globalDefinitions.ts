@@ -1,4 +1,4 @@
-import { spatialScaleKeys, type KpiPoolConfig, type SpatialScaleDefinitions } from './types.js';
+import { spatialScaleDefinitionKeys, type KpiPoolConfig, type SpatialScaleDefinitions } from './types.js';
 
 const latexKeys = new Set(['latex', 'LaTeX', 'scenarioBaseLatex', 'preferredLatex', 'formula', 'aggregationFormula',
   'leftExpression', 'rightExpression', 'term', 'Term', 'representation']);
@@ -48,7 +48,7 @@ export const migrateCellTerminology = (value: unknown): unknown => {
 };
 
 export const scaleReplacements = (before: SpatialScaleDefinitions, after: SpatialScaleDefinitions) => new Map(
-  spatialScaleKeys.map((key) => [before[key].latex, after[key].latex])
+  spatialScaleDefinitionKeys.map((key) => [before[key].latex, after[key].latex])
 );
 
 /** Normalize each participant to the winning definitions before import/three-way merge. */
@@ -56,7 +56,7 @@ export const alignGlobalDefinitions = (config: KpiPoolConfig, definitions: Spati
   const replacements = scaleReplacements(config.spatialScaleDefinitions, definitions);
   const targetLogic = new Map(logic.map((item) => [item.id, item.latex]));
   for (const item of config.logic) replacements.set(item.latex, targetLogic.get(item.id) ?? item.latex);
-  const units = new Map(spatialScaleKeys.map((key) => [config.spatialScaleDefinitions[key].name, definitions[key].name]));
+  const units = new Map(spatialScaleDefinitionKeys.map((key) => [config.spatialScaleDefinitions[key].name, definitions[key].name]));
   const replace = latexReplacer(replacements);
   const visit = (value: unknown, key = ''): unknown => {
     if (typeof value === 'string') return replaceValue(key, value, replace, units);
