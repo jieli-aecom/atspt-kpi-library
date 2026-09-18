@@ -2196,7 +2196,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
 const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
 const fallbackRelationKeyName = (source?: DataSource) => `${relationFieldBaseName(source?.name ?? 'Table')}ID`;
 const collectionRelationFieldName = (keyName: string) => {
-  const normalized = relationFieldBaseName(keyName);
+  const normalized = keyName.trim() || 'Table';
   return normalized.endsWith('s') ? normalized : `${normalized}s`;
 };
 
@@ -2294,7 +2294,7 @@ const reconcileRelationFields = (dataSources: DataSource[], relations: TableRela
       if (relation.cardinality === 'oneToMany' && source.id === relation.targetDataSourceId && !fields.some((field) => field.generatedRelationId === relation.id && field.generatedRelationRole === 'manyForeignKey')) {
         fields.push({
           id: createId('field'),
-          name: sourcePrimaryKey?.name.trim() ? relationFieldBaseName(sourcePrimaryKey.name) : fallbackRelationKeyName(relationSource),
+          name: sourcePrimaryKey?.name.trim() || fallbackRelationKeyName(relationSource),
           meaning: `ID of the related ${relationSource?.name ?? 'table'} record`,
           details: '',
           preprocessingNeeded: false,

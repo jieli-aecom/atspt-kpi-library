@@ -7326,6 +7326,16 @@ h1 {
 .table-source-category-heading > svg.is-expanded { transform: rotate(0deg); }
 .table-source-category-content { padding: 4px 10px 10px; }
 .table-source-category > .source-table-group-buttons { padding: 8px; }
+.source-table-group-picker .table-source-category { margin-block: 0; border-radius: 6px; }
+.source-table-group-picker .table-source-category-heading {
+  gap: 5px;
+  padding: 4px 6px;
+  font-size: 10px;
+  line-height: 14px;
+}
+.source-table-group-picker .table-source-category-heading > strong { font-size: inherit; font-weight: 600; }
+.source-table-group-picker .table-source-category-heading > svg { width: 11px; height: 11px; }
+.source-table-group-picker .table-source-category > .source-table-group-buttons { padding: 6px; }
 .table-source-category.is-category-drag-over {
   border-color: #527e8e;
   box-shadow: inset 0 0 0 2px #527e8e;
@@ -7503,6 +7513,8 @@ h1 {
   box-shadow: var(--popup-shadow);
 }
 .popup-surface :is(input, select, textarea) { font-weight: 400; }
+.popup-surface .data-source-header-name,
+.popup-surface .library-group.is-source .library-group-name-input { font-weight: 750; }
 .popup-surface :is(input, textarea)::placeholder { color: #8a949c; font-weight: 400; opacity: 1; }
 .popup-surface :is(span, label) { font-weight: inherit; }
 .popup-surface button { font-weight: 500; }

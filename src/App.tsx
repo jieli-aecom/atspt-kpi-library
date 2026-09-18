@@ -4367,7 +4367,7 @@ function DataSourceHeader({
   const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
   const fallbackPrimaryKeyName = (source: DataSource) => `${relationFieldBaseName(source.name)}ID`;
   const collectionNameFromKey = (keyName: string) => {
-    const normalized = relationFieldBaseName(keyName);
+    const normalized = keyName.trim() || 'Table';
     return normalized.endsWith('s') ? normalized : `${normalized}s`;
   };
   const uniqueFieldName = (source: DataSource, preferred: string) => {
@@ -4485,7 +4485,7 @@ function DataSourceHeader({
     };
     const targetPrimaryKey = target.fields.find((field) => field.id === target.primaryKeyFieldId);
     const collectionFieldName = uniqueFieldName(source, collectionNameFromKey(targetPrimaryKey?.name || fallbackPrimaryKeyName(target)));
-    const sourceKeyName = sourcePrimaryKey.name.trim() ? relationFieldBaseName(sourcePrimaryKey.name) : fallbackPrimaryKeyName(source);
+    const sourceKeyName = sourcePrimaryKey.name.trim() || fallbackPrimaryKeyName(source);
     const foreignKeyFieldName = uniqueFieldName(target, sourceKeyName);
     if (relation.cardinality === 'oneToMany') {
       workingSources.set(source.id, { ...source, fields: [...source.fields, {
@@ -6776,7 +6776,8 @@ function KpiSourceEditor({
   fieldOwner?: { dataSourceId: string; fieldId: string };
 }) {
   const [open, setOpen] = useState(false);
-  const [pickerScope, setPickerScope] = useState(fieldOwner ? `data:${fieldOwner.dataSourceId}` : '');
+  const [pickerScope, setPickerScope] = useState(fieldOwner ? `data:${fieldOwner.dataSourceId}` : 'tables');
+  const tablesScopeActive = pickerScope === 'tables' || pickerScope.startsWith('data:') || pickerScope.startsWith('data-group:');
   const [collapsedPickerCategories, setCollapsedPickerCategories] = useState<TableSourceCategory[]>([]);
   const [query, setQuery] = useState('');
   const [customName, setCustomName] = useState('');
@@ -7288,15 +7289,16 @@ function KpiSourceEditor({
           <section className="source-picker-section" ref={sourcePickerSectionRef}>
             <div className="popover-title source-picker-title">Add sources</div>
             <div className="source-scope-buttons" aria-label="Add source from">
-              {!fieldOwner ? <button className={!fieldOwner && pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? '' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={!fieldOwner && pickerScope === 'kpis' ? 'rotate' : ''} /></button> : null}
-              <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? '' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
-              <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? '' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Constants<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
-              <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? '' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
+              <button className={tablesScopeActive ? 'is-active' : ''} type="button" aria-expanded={tablesScopeActive} onClick={() => { setPickerScope('tables'); setQuery(''); }}><Table2 size={12} aria-hidden="true" />Tables<ChevronDown size={11} className={tablesScopeActive ? 'rotate' : ''} /></button>
+              {!fieldOwner ? <button className={!fieldOwner && pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? 'tables' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={!fieldOwner && pickerScope === 'kpis' ? 'rotate' : ''} /></button> : null}
+              <button className={pickerScope === 'lookups' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'lookups'} onClick={() => { setPickerScope((current) => current === 'lookups' ? 'tables' : 'lookups'); setQuery(''); }}><BookOpen size={12} aria-hidden="true" />Lookups<ChevronDown size={11} className={pickerScope === 'lookups' ? 'rotate' : ''} /></button>
+              <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? 'tables' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Constants<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
+              <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? 'tables' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
             </div>
-            <div className="source-table-group-picker">
+            {tablesScopeActive ? <div className="source-table-group-picker">
               <div className="source-table-group-picker-title">Source tables <small>Select a table or group</small></div>
               {tableSourceCategories.map((category) => <section className="table-source-category" key={category}>
-                <button className="table-source-category-heading" type="button" aria-expanded={!collapsedPickerCategories.includes(category)} onClick={() => { setCollapsedPickerCategories((current) => current.includes(category) ? current.filter((entry) => entry !== category) : [...current, category]); if ((selectedPickerDataSourceGroup?.category ?? (selectedDataSource ? selectedDataSource.category ?? 'Preprocessed Constants' : undefined)) === category) setPickerScope(''); }}><ChevronDown size={13} className={collapsedPickerCategories.includes(category) ? '' : 'is-expanded'} /><strong>{category}</strong></button>
+                <button className="table-source-category-heading" type="button" aria-expanded={!collapsedPickerCategories.includes(category)} onClick={() => { setCollapsedPickerCategories((current) => current.includes(category) ? current.filter((entry) => entry !== category) : [...current, category]); if ((selectedPickerDataSourceGroup?.category ?? (selectedDataSource ? selectedDataSource.category ?? 'Preprocessed Constants' : undefined)) === category) setPickerScope('tables'); }}><ChevronDown size={13} className={collapsedPickerCategories.includes(category) ? '' : 'is-expanded'} /><strong>{category}</strong></button>
                 {!collapsedPickerCategories.includes(category) ? <div className="source-table-group-buttons" aria-label={`Source tables and groups in ${category}`}>
                 {!pickerDataSourceGroups.some((group) => group.category === category) && !ungroupedPickerDataSources.some((source) => (source.category ?? 'Preprocessed Constants') === category) ? <span className="empty-option">No source tables.</span> : null}
                 {pickerDataSourceGroups.filter((group) => group.category === category).map((group) => {
@@ -7307,17 +7309,17 @@ function KpiSourceEditor({
                     aria-expanded={isActive}
                     key={group.id}
                     onClick={() => {
-                      setPickerScope(isActive ? '' : group.dataSources[0] ? `data:${group.dataSources[0].id}` : `data-group:${group.id}`);
+                      setPickerScope(isActive ? 'tables' : group.dataSources[0] ? `data:${group.dataSources[0].id}` : `data-group:${group.id}`);
                       setQuery('');
                     }}
                   ><Database size={13} aria-hidden="true" /><span><strong>{group.name}</strong><small>{group.dataSources.length} {group.dataSources.length === 1 ? 'table' : 'tables'}</small></span><ChevronDown size={11} className={isActive ? 'rotate' : ''} /></button>;
                 })}
                 {ungroupedPickerDataSources.filter((source) => (source.category ?? 'Preprocessed Constants') === category).map((source) => (
-                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={`table:${source.id}`} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? '' : `data:${source.id}`); setQuery(''); }}><Table2 size={13} aria-hidden="true" /><span><strong>{spatiallyScaledTableLabel(source.name, sourceTableUnit(source))}</strong></span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={`table:${source.id}`} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? 'tables' : `data:${source.id}`); setQuery(''); }}><Table2 size={13} aria-hidden="true" /><span><strong>{spatiallyScaledTableLabel(source.name, sourceTableUnit(source))}</strong></span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
                 ))}
               </div> : null}
               </section>)}
-            </div>
+            </div> : null}
             {selectedPickerDataSourceGroup ? <fieldset className="source-scope-panel source-table-picker-panel" ref={sourceTablePickerPanelRef}>
               <legend>{selectedPickerDataSourceGroup.category} / {selectedPickerDataSourceGroup.name}</legend>
               {selectedPickerDataSourceGroup.dataSources.length === 0 ? <span className="empty-option">No tables in this group.</span> : null}
