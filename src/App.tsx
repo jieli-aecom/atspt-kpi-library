@@ -2,6 +2,8 @@ import { FieldFlags } from './FieldFlagBadges';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
 import { indexedScaleLatex } from './globalDefinitions';
+import { CustomTableUnitInput, useCustomTableUnitRename } from './CustomTableUnitInput';
+import { collectionRelationName, fallbackRelationKeyName, synchronizeRelationKeyNames, updateRelationFieldRole } from './tableRelationNames';
 import { configuredSpatialUnits } from './types';
 import { filteredUseCaseIds, matchesUseCaseSelection, reorderEnumOption, compareFocusedPerformanceAreas, compareUseCaseAssignments } from './useCaseFilters';
 import { sourceTableUnit, sourceTableUnitLatex } from './types.js';
@@ -3641,6 +3643,7 @@ function DataSourceHeader({
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
 }) {
   const onConfigChange = (next: KpiPoolConfig) => commitConfig({ ...next, kpis: next.kpis.map((kpi) => reconcileKpiScenarios(next, kpi)), dataSources: reconcileFieldSources(next).map((source) => ({ ...source, category: next.dataSourceGroups.find((group) => group.itemIds.includes(source.id))?.category ?? source.category ?? 'Preprocessed Constants' })) });
+  const customUnitRename = useCustomTableUnitRename(config, commitConfig);
   const [open, setOpen] = useState(false);
   const [sourceCategoryDragOver, setSourceCategoryDragOver] = useState<TableSourceCategory>();
   const [collapsedSourceCategories, setCollapsedSourceCategories] = useState<TableSourceCategory[]>([]);
@@ -3841,7 +3844,7 @@ function DataSourceHeader({
     };
   }, [diagramOpen, fieldDetailsEditor, fieldMoveMenu, open, relationEditor, supportTarget, groupDetailsEditor]);
   const patchDataSources = (dataSources: DataSource[], dataSourceGroups = config.dataSourceGroups) => {
-    onConfigChange({ ...config, dataSources, dataSourceGroups });
+    onConfigChange({ ...config, dataSources: synchronizeRelationKeyNames(config.dataSources, dataSources, config.tableRelations), dataSourceGroups });
   };
   const patchLookups = (lookups: LookupDefinition[], lookupGroups = config.lookupGroups) =>
     onConfigChange({ ...config, lookups, lookupGroups });
@@ -4370,12 +4373,8 @@ function DataSourceHeader({
       </> : null}
     </div>
   );
-  const relationFieldBaseName = (value: string) => value.trim().replace(/[^\p{L}\p{N}_]+/gu, '') || 'Table';
-  const fallbackPrimaryKeyName = (source: DataSource) => `${relationFieldBaseName(source.name)}ID`;
-  const collectionNameFromKey = (keyName: string) => {
-    const normalized = keyName.trim() || 'Table';
-    return normalized.endsWith('s') ? normalized : `${normalized}s`;
-  };
+  const fallbackPrimaryKeyName = fallbackRelationKeyName;
+  const collectionNameFromKey = collectionRelationName;
   const uniqueFieldName = (source: DataSource, preferred: string) => {
     const names = new Set(source.fields.map((field) => field.name.trim().toLocaleLowerCase()));
     if (!names.has(preferred.toLocaleLowerCase())) return preferred;
@@ -4567,7 +4566,7 @@ function DataSourceHeader({
           removedFieldKeys.add(`${entry.id}\u0000${field.id}`);
           return [];
         }
-        return [{ ...field, dataType: replacement.dataType, collectionItemType: replacement.collectionItemType, generatedRelationRole: replacement.generatedRelationRole }];
+        return [updateRelationFieldRole(field, replacement)];
       });
       const originalIds = new Set(entry.fields.map((field) => field.id));
       fields.push(...updated.fields.filter((field) => !originalIds.has(field.id) && field.id !== replacement?.id));
@@ -6269,7 +6268,8 @@ function DataSourceHeader({
                       <option value="">No spatial unit</option>
                       {configuredSpatialUnits(config).map((unit) => <option value={unit} key={unit}>{unit}</option>)}
                     </select>
-                    {!source.spatialUnit ? <input className="data-source-custom-unit" aria-label="Custom table unit" placeholder="Specify unit" value={source.customUnit ?? ''} onChange={(event) => updateDataSource(sourceIndex, { customUnit: event.target.value })} /> : null}
+                    {!source.spatialUnit ? <CustomTableUnitInput className="data-source-custom-unit" source={source} onRename={customUnitRename.rename} busy={customUnitRename.busyIds.includes(source.id)} /> : null}
+                    {customUnitRename.error ? <small role="alert">{customUnitRename.error}</small> : null}
                     </div>
                     <span className="data-source-header-details">
                       <small>{source.fields.length} {source.fields.length === 1 ? 'field' : 'fields'}</small>
@@ -6560,7 +6560,7 @@ function DataSourceHeader({
           <div className="library-detail-properties">
             <label className="field"><span>Name</span><input aria-label="Table name" value={source.name} onChange={(event) => updateDataSource(index, { name: event.target.value })} /></label>
             <label className="field"><span>Spatial unit</span><select aria-label="Spatial unit" value={source.spatialUnit} onChange={(event) => updateDataSource(index, { spatialUnit: event.target.value as DataSource['spatialUnit'] })}><option value="">No spatial unit</option>{configuredSpatialUnits(config).map((unit) => <option key={unit} value={unit}>{unit}</option>)}</select></label>
-            {!source.spatialUnit ? <label className="field"><span>Unit (LaTeX subscript)</span><input aria-label="Custom table unit" placeholder="Specify unit" value={source.customUnit ?? ''} onChange={(event) => updateDataSource(index, { customUnit: event.target.value })} /></label> : null}
+            {!source.spatialUnit ? <label className="field"><span>Unit (LaTeX subscript)</span><CustomTableUnitInput source={source} onRename={customUnitRename.rename} busy={customUnitRename.busyIds.includes(source.id)} />{customUnitRename.error ? <small role="alert">{customUnitRename.error}</small> : null}</label> : null}
             <label className="field full-width"><span>Description</span><textarea rows={2} aria-label="Table description" value={source.description ?? ''} onChange={(event) => updateDataSource(index, { description: event.target.value })} /></label>
           </div>
           <div className="library-detail-links">{source.fields.map((field) => <button type="button" className="secondary-action tiny" key={field.id} onClick={() => { setSupportTarget(undefined); setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id }); }}>{field.name || 'Untitled field'}</button>)}</div>

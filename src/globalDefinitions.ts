@@ -77,9 +77,9 @@ export const rewriteGlobalNotation = async (
   config: KpiPoolConfig,
   replacements: ReadonlyMap<string, string>,
   units: ReadonlyMap<string, string> = new Map(),
-  yieldTask: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 0))
+  yieldTask: () => Promise<void> = () => new Promise((resolve) => setTimeout(resolve, 0)),
+  replace: (value: string) => string = latexReplacer(replacements)
 ): Promise<KpiPoolConfig> => {
-  const replace = latexReplacer(replacements);
   let visited = 0;
   let deadline = Date.now() + 8;
   const visit = async (value: unknown, key = ''): Promise<unknown> => {
