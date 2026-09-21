@@ -1,5 +1,6 @@
-import { FieldFlags } from './FieldFlagBadges';
+import { FieldFlagBadge, FieldFlags } from './FieldFlagBadges';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
+import { sourceFilterKey, sourceFilterEntry, matchesSourceFilters, sourceFlagOptions, type SourceFlag } from './sourceFilters';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
 import { indexedScaleLatex } from './globalDefinitions';
 import { CustomTableUnitInput, useCustomTableUnitRename } from './CustomTableUnitInput';
@@ -13,7 +14,7 @@ import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
 import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex, scenarioFormulaTokens, scenarioBaseFromLatex, sourceSelectionKey, groupSourceSelections } from './scenarios';
 import { kpiScenarioTypes, kpiStatuses, type KpiStatus } from './types';
 import { tableSourceCategories, type TableSourceCategory } from './types';
-import { memo, useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
+import { memo, useCallback, useDeferredValue, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ComponentProps, type ReactNode } from 'react';
 import { BlockMath, InlineMath } from 'react-katex';
 import katex, { type TrustContext } from 'katex';
 import { createPortal } from 'react-dom';
@@ -142,7 +143,8 @@ type ColumnFilters = {
   status: KpiStatus | '';
   noteLabels: string[];
   formula: string;
-  prerequisite: string;
+  sourceItems: KpiSourceItem[];
+  sourceFlags: SourceFlag[];
   prerequisiteModules: string[];
   scales: SpatialScaleKey[];
   userGroups: string[];
@@ -256,7 +258,8 @@ const emptyFilters = (): ColumnFilters => ({
   status: '',
   noteLabels: [],
   formula: '',
-  prerequisite: '',
+  sourceItems: [],
+  sourceFlags: [],
   prerequisiteModules: [],
   scales: [],
   userGroups: [],
@@ -313,7 +316,7 @@ type KpiSearchEntry = {
   name: string;
   description: string;
   formula: string;
-  prerequisite: string;
+  sources: ReturnType<typeof sourceFilterEntry>;
 };
 
 type AppIndexes = {
@@ -332,7 +335,8 @@ type CompiledFilters = {
   status: KpiStatus | '';
   noteLabels: Set<string>;
   formula: string;
-  prerequisite: string;
+  sourceKeys: Set<string>;
+  sourceFlags: SourceFlag[];
   prerequisiteModules: Set<string>;
   scales: Set<SpatialScaleKey>;
   userGroups: Set<string>;
@@ -400,12 +404,11 @@ const buildAppIndexes = (config: KpiPoolConfig, previousConfig?: KpiPoolConfig, 
       continue;
     }
 
-    const sourceText = kpi.sources.map((source) => `${sourceItemLabel(config, source)} ${source.latex}`).join(' ');
     searchByKpiId.set(kpi.id, {
       name: normalize(kpi.name),
       description: normalize(kpi.description.overview),
       formula: normalize(`${formulaItemsText(kpi.description.formulas)} ${kpi.description.formulaComment}`),
-      prerequisite: normalize(sourceText)
+      sources: sourceFilterEntry(config, kpi)
     });
   }
 
@@ -428,7 +431,8 @@ const compileFilters = (filters: ColumnFilters): CompiledFilters => {
     status: filters.status,
     noteLabels: new Set(filters.noteLabels),
     formula: normalize(filters.formula),
-    prerequisite: normalize(filters.prerequisite),
+    sourceKeys: new Set(filters.sourceItems.map(sourceFilterKey)),
+    sourceFlags: filters.sourceFlags,
     prerequisiteModules: new Set(filters.prerequisiteModules),
     scales: new Set(filters.scales),
     userGroups: new Set(filters.userGroups),
@@ -939,7 +943,7 @@ const activeFilterCount = (filters: ColumnFilters) =>
   (filters.status ? 1 : 0) +
   filters.noteLabels.length +
   (filters.formula ? 1 : 0) +
-  (filters.prerequisite ? 1 : 0) +
+  filters.sourceItems.length + filters.sourceFlags.length +
   filters.prerequisiteModules.length +
   filters.scales.length +
   filters.userGroups.length +
@@ -978,7 +982,7 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
     return false;
   }
 
-  if (filters.prerequisite && !search?.prerequisite.includes(filters.prerequisite)) {
+  if (!matchesSourceFilters(search?.sources, filters.sourceKeys, filters.sourceFlags)) {
     return false;
   }
 
@@ -1018,7 +1022,6 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
   const nameFilter = filters.name.trim();
   const descriptionFilter = filters.description.trim();
   const formulaFilter = filters.formula.trim();
-  const prerequisiteFilter = filters.prerequisite.trim();
   const userGroups =
     filters.userGroups.length > 0
       ? filters.userGroups
@@ -1081,7 +1084,7 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
     prerequisite: {
       modules: [...filters.prerequisiteModules],
       kpis: [],
-      values: prerequisiteFilter
+      values: ''
     },
     spatialScales: {
       ...kpi.spatialScales,
@@ -6762,6 +6765,86 @@ const replaceKpiSourceLatex = (
   return { description, spatialScales };
 };
 
+function SourceFieldQuickPicker({ config, sources, fieldOwner, onToggle }: {
+  config: KpiPoolConfig;
+  sources: KpiSourceItem[];
+  fieldOwner?: { dataSourceId: string; fieldId: string };
+  onToggle: (dataSourceId: string, fieldId: string) => void;
+}) {
+  const listId = useId();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
+  const listRef = useRef<HTMLDivElement>(null);
+  const words = normalize(query).split(/\s+/).filter(Boolean);
+  const options = config.dataSources.flatMap((table) => {
+    const tableLabel = groupedDataSourceLabel(config, table);
+    const category = config.dataSourceGroups.find((group) => group.itemIds.includes(table.id))?.category ?? table.category ?? 'Preprocessed Constants';
+    return table.fields.flatMap((field) => {
+      if (fieldOwner?.dataSourceId === table.id && fieldOwner.fieldId === field.id) return [];
+      const label = dimensionedSourceLabel(field.name, fieldGroupDimensionLabel(table.fieldGroups.find((group) => group.fieldIds.includes(field.id))));
+      const search = normalize(`${label} ${tableLabel} ${category}`);
+      return words.every((word) => search.includes(word)) ? [{ table, field, label, tableLabel, category }] : [];
+    });
+  });
+  const active = Math.min(activeIndex, options.length - 1);
+  const choose = ({ table, field }: typeof options[number]) => onToggle(table.id, field.id);
+  useEffect(() => {
+    if (!open) return;
+    const list = listRef.current;
+    const option = list?.children[active] as HTMLElement | undefined;
+    if (!list || !option) return;
+    if (option.offsetTop < list.scrollTop) list.scrollTop = option.offsetTop;
+    else if (option.offsetTop + option.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = option.offsetTop + option.offsetHeight - list.clientHeight;
+  }, [open, active, query]);
+  return <div className="source-table-quick-picker" onBlur={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+  }}>
+    <label className="source-table-quick-input">
+      <Search size={13} aria-hidden="true" />
+      <input role="combobox" aria-label="Find source field" aria-autocomplete="list" aria-expanded={open}
+        aria-controls={open ? listId : undefined} aria-activedescendant={open && active >= 0 ? `${listId}-${active}` : undefined}
+        placeholder="Find a field across all tables…" value={query}
+        onFocus={() => { setOpen(true); setActiveIndex(0); }} onClick={() => setOpen(true)}
+        onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); setOpen(true); }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape' && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); setQuery(''); }
+          else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault(); setOpen(true);
+            setActiveIndex(!open ? 0 : Math.max(0, Math.min(options.length - 1, active + (event.key === 'ArrowDown' ? 1 : -1))));
+          } else if (event.key === 'Enter' && open) { event.preventDefault(); if (options[active]) choose(options[active]); }
+        }} />
+      <ChevronDown size={12} aria-hidden="true" />
+    </label>
+    {open ? <div className="source-table-quick-options" role="listbox" aria-label="Source fields" aria-multiselectable="true" id={listId} ref={listRef}>
+      {options.length ? options.map((option, index) => {
+        const selected = sources.some((source) => source.type === 'dataField' && source.dataSourceId === option.table.id && source.fieldId === option.field.id);
+        return <div role="option" id={`${listId}-${index}`} aria-selected={selected} key={JSON.stringify([option.table.id, option.field.id])}
+          className={index === active ? 'is-active' : ''} onMouseDown={(event) => event.preventDefault()} onClick={() => choose(option)}>
+          <span className={`source-field-quick-check ${selected ? 'is-selected' : ''}`} aria-hidden="true">{selected ? <Check size={12} /> : null}</span>
+          <span><strong>{option.label}<FieldFlags field={option.field} compact /></strong><small>{option.tableLabel} · {option.category}</small></span>
+        </div>;
+      }) : <div className="empty-option" role="status">No matching fields.</div>}
+    </div> : null}
+  </div>;
+}
+
+function SourceHeaderFilter({ config, filters, onChange }: {
+  config: KpiPoolConfig;
+  filters: ColumnFilters;
+  onChange: (filters: ColumnFilters) => void;
+}) {
+  const context = useMemo(() => ({ ...createBlankKpi(), sources: filters.sourceItems }), [filters.sourceItems]);
+  const count = filters.sourceItems.length + filters.sourceFlags.length;
+  return <div className="header-control source-header-filter">
+    <div className="header-title"><span>Source</span>{count ? <strong>{count}</strong> : null}</div>
+    <KpiSourceEditor config={config} kpi={context}
+      onChange={(sourceItems) => onChange({ ...filters, sourceItems })}
+      onEditLibrarySource={() => {}} onViewKpi={() => {}}
+      filterMode={{ flags: filters.sourceFlags, onFlagsChange: (sourceFlags) => onChange({ ...filters, sourceFlags }), onClear: () => onChange({ ...filters, sourceItems: [], sourceFlags: [] }) }} />
+  </div>;
+}
+
 function KpiSourceEditor({
   config,
   kpi,
@@ -6771,7 +6854,8 @@ function KpiSourceEditor({
   transientHighlightedSource,
   openOnTransientHighlight = true,
   compact = false,
-  fieldOwner
+  fieldOwner,
+  filterMode
 }: {
   config: KpiPoolConfig;
   kpi: KpiMetric;
@@ -6782,6 +6866,7 @@ function KpiSourceEditor({
   openOnTransientHighlight?: boolean;
   compact?: boolean;
   fieldOwner?: { dataSourceId: string; fieldId: string };
+  filterMode?: { flags: SourceFlag[]; onFlagsChange: (flags: SourceFlag[]) => void; onClear: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const [pickerScope, setPickerScope] = useState(fieldOwner ? `data:${fieldOwner.dataSourceId}` : 'tables');
@@ -6914,6 +6999,7 @@ function KpiSourceEditor({
   }, [compact, transientHighlightedSource?.requestId]);
   const transientHighlightedSourceId = transientHighlightedSource?.sourceId;
   const normalizedQuery = normalize(query);
+  const selectSources = (sources: KpiSourceItem[]) => onChange(filterMode ? sources : reconcileKpiScenarios(config, { ...kpi, sources }).sources);
   const toggleDataField = (dataSourceId: string, fieldId: string) => {
     if (fieldOwner?.dataSourceId === dataSourceId && fieldOwner.fieldId === fieldId) return;
     const sameField = (item: KpiSourceItem) => item.type === 'dataField' && item.dataSourceId === dataSourceId && item.fieldId === fieldId;
@@ -6926,13 +7012,13 @@ function KpiSourceEditor({
       return;
     }
     const baseLatex = field?.preferredLatex.trim() || sourceFieldDefaultLatex(field ?? { name: '', dataType: 'text' }, sourceTableUnitLatex(config.spatialScaleDefinitions, dataSource), group?.dimensions);
-    onChange(reconcileKpiScenarios(config, { ...kpi, sources: [...kpi.sources, {
+    selectSources([...kpi.sources, {
           id: createLocalId('kpi-source'),
           type: 'dataField',
           dataSourceId,
           fieldId,
           latex: baseLatex
-        }] }).sources);
+        }]);
   };
   const toggleKpi = (kpiId: string) => {
     if (fieldOwner) return;
@@ -6943,9 +7029,9 @@ function KpiSourceEditor({
     }
     const prerequisiteKpi = config.kpis.find((entry) => entry.id === kpiId);
     if (!prerequisiteKpi) return;
-    onChange(reconcileKpiScenarios(config, { ...kpi, sources: [...kpi.sources, {
+    selectSources([...kpi.sources, {
       id: createLocalId('kpi-source'), type: 'kpi', kpiId, latex: kpiDefaultLatex(prerequisiteKpi)
-    }] }).sources);
+    }]);
   };
   const toggleLookup = (lookupId: string) => {
     const existing = kpi.sources.find((item) => item.type === 'lookup' && item.lookupId === lookupId);
@@ -6988,8 +7074,9 @@ function KpiSourceEditor({
       if (!scroller || !tablePickerPanel) return;
       const scrollerRect = scroller.getBoundingClientRect();
       const tablePickerRect = tablePickerPanel.getBoundingClientRect();
+      const toolbarHeight = filterMode ? scroller.querySelector('.source-picker-toolbar')?.getBoundingClientRect().height ?? 0 : 0;
       scroller.scrollTo({
-        top: Math.max(0, scroller.scrollTop + tablePickerRect.top - scrollerRect.top - 6),
+        top: Math.max(0, scroller.scrollTop + tablePickerRect.top - scrollerRect.top - toolbarHeight - 6),
         behavior: 'smooth'
       });
     });
@@ -7053,6 +7140,8 @@ function KpiSourceEditor({
   const selectedLookupSources = kpi.sources.filter((source) => source.type === 'lookup');
   const selectedVariableSources = kpi.sources.filter((source) => source.type === 'variable');
   const selectedCustomSources = kpi.sources.filter((source) => source.type === 'custom');
+  const customFilterChoices = filterMode ? [...new Map(config.kpis.flatMap((entry) => entry.sources)
+    .filter((source) => source.type === 'custom').map((source) => [sourceFilterKey(source), source])).values()] : [];
   const editSelectedSource = (item: KpiSourceItem) => {
     if (item.type === 'dataField') {
       setOpen(false);
@@ -7210,7 +7299,7 @@ function KpiSourceEditor({
   };
   return (
     <div className={`kpi-source-control ${compact ? 'is-compact' : ''}`} ref={controlRef} onClick={stopSourceControlClick}>
-      <button className="cell-enum-trigger" type="button" onClick={() => {
+      <button className={`cell-enum-trigger ${filterMode ? 'source-filter-trigger' : ''}`} type="button" aria-label={filterMode ? 'Filter by sources and field flags' : undefined} aria-expanded={open} onClick={() => {
         if (!open && fieldOwner) {
           setPickerScope(`data:${fieldOwner.dataSourceId}`);
           setQuery('');
@@ -7218,7 +7307,10 @@ function KpiSourceEditor({
         }
         setOpen((value) => !value);
       }}>
-        {kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={viewSelectedSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
+        {filterMode ? <span>{kpi.sources.length || filterMode.flags.length
+          ? `${kpi.sources.length ? `${kpi.sources.length} source${kpi.sources.length === 1 ? '' : 's'} (OR)` : 'Any source'}${filterMode.flags.length ? ` AND ${filterMode.flags.length} flag${filterMode.flags.length === 1 ? '' : 's'}` : ''}`
+          : 'Filter sources / flags…'}</span>
+          : kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={viewSelectedSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
       {open && popoverPosition ? createPortal(
@@ -7237,10 +7329,10 @@ function KpiSourceEditor({
           />
           <div
             data-preserve-source-library-state={fieldOwner ? true : undefined}
-            className="popup-surface kpi-source-popover"
+            className={`popup-surface kpi-source-popover ${filterMode ? 'source-filter-popover' : ''}`}
             ref={popoverRef}
             role="dialog"
-            aria-label={fieldOwner ? "Field sources" : "KPI sources"}
+            aria-label={filterMode ? 'Source filters' : fieldOwner ? "Field sources" : "KPI sources"}
             style={{ ...popoverPosition, ...(fieldOwner ? { zIndex: 14000 } : {}) }}
             onClick={stopSourceControlClick}
             onMouseDown={stopSourcePopoverMouseEvent}
@@ -7248,13 +7340,34 @@ function KpiSourceEditor({
             onPointerDown={stopSourcePopoverPointerEvent}
             onPointerUp={stopSourcePopoverPointerEvent}
           >
-          <div className="popover-title">{fieldOwner ? 'Field sources' : 'KPI sources'}</div>
+          <div className="popover-title source-filter-heading"><span>{filterMode ? 'Source filters' : fieldOwner ? 'Field sources' : 'KPI sources'}</span>{filterMode ? <>
+            <button className="text-action" type="button" disabled={!kpi.sources.length && !filterMode.flags.length} onClick={filterMode.onClear}>Clear filters</button>
+            <button className="mini-icon-button" type="button" aria-label="Close source filters" onClick={() => setOpen(false)}><X size={14} /></button>
+          </> : null}</div>
           {!fieldOwner && kpi.scenarioType === 'Inter-Scenario' ? <div className="scenario-name-inputs">{kpi.scenarioNames.map((name, slot) => <label className="field" key={slot}><span>Scenario {slot + 1}</span><DebouncedInput value={name} aria-label={`Scenario ${slot + 1} name`} onValueChange={(value) => {
             const names = normalizeScenarioNames(kpi.scenarioNames.map((entry, index) => index === slot ? value : entry));
             const updated = reconcileKpiScenarios(config, { ...kpi, scenarioNames: names });
             onChange(updated.sources, { description: updated.description, spatialScales: updated.spatialScales, scenarioNames: names });
           }} /></label>)}</div> : null}
-          <section className="selected-source-section">
+          {filterMode ? <>
+            <fieldset className="source-filter-flags">
+              <legend>Field flags <span className="source-filter-logic">AND</span></legend>
+              <div>{sourceFlagOptions.map((flag) => <label className={`source-filter-flag flag-${flag.key} ${filterMode.flags.includes(flag.key) ? 'is-selected' : ''}`} key={flag.key}>
+                <input type="checkbox" aria-label={flag.label} checked={filterMode.flags.includes(flag.key)} onChange={() => filterMode.onFlagsChange(filterMode.flags.includes(flag.key) ? filterMode.flags.filter((key) => key !== flag.key) : [...filterMode.flags, flag.key])} />
+                <FieldFlagBadge flag={flag} />
+              </label>)}</div>
+              <p>Require every selected flag across the KPI’s source fields.</p>
+            </fieldset>
+            <section className="source-filter-selection">
+              <div className="source-filter-section-heading"><strong>Selected sources <span className="source-filter-logic">OR</span></strong>{kpi.sources.length ? <button className="text-action" type="button" onClick={() => onChange([])}>Clear sources</button> : null}</div>
+              {kpi.sources.length ? <div className="source-filter-chips">{kpi.sources.map((source) => {
+                const field = source.type === 'dataField' ? config.dataSources.find((table) => table.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId) : undefined;
+                return <button type="button" key={source.id} aria-label={`Remove ${sourceItemLabel(config, source)}`} title={sourceItemTooltip(config, source)} onClick={() => onChange(kpi.sources.filter((item) => item.id !== source.id))}>
+                  <span>{sourceItemLabel(config, source)}</span><FieldFlags field={field} compact /><X size={12} />
+                </button>;
+              })}</div> : <p>Any source. Choose below to narrow the results.</p>}
+            </section>
+          </> : <section className="selected-source-section">
             <div className="popover-title">Selected sources</div>
             {kpi.sources.length ? (
               <div className="selected-source-list">
@@ -7293,9 +7406,10 @@ function KpiSourceEditor({
                 ) : null}
               </div>
             ) : <span className="selected-source-empty">No sources selected. Open a picker below to add one.</span>}
-          </section>
+          </section>}
           <section className="source-picker-section" ref={sourcePickerSectionRef}>
-            <div className="popover-title source-picker-title">Add sources</div>
+            <div className="source-picker-toolbar">
+            <div className="popover-title source-picker-title">{filterMode ? 'Source library' : 'Add sources'}</div>
             <div className="source-scope-buttons" aria-label="Add source from">
               <button className={tablesScopeActive ? 'is-active' : ''} type="button" aria-expanded={tablesScopeActive} onClick={() => { setPickerScope('tables'); setQuery(''); }}><Table2 size={12} aria-hidden="true" />Tables<ChevronDown size={11} className={tablesScopeActive ? 'rotate' : ''} /></button>
               {!fieldOwner ? <button className={!fieldOwner && pickerScope === 'kpis' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'kpis'} onClick={() => { setPickerScope((current) => current === 'kpis' ? 'tables' : 'kpis'); setQuery(''); }}><Gauge size={12} aria-hidden="true" />Other KPIs<ChevronDown size={11} className={!fieldOwner && pickerScope === 'kpis' ? 'rotate' : ''} /></button> : null}
@@ -7303,6 +7417,8 @@ function KpiSourceEditor({
               <button className={pickerScope === 'variables' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'variables'} onClick={() => { setPickerScope((current) => current === 'variables' ? 'tables' : 'variables'); setQuery(''); }}><VariableIcon size={12} aria-hidden="true" />Constants<ChevronDown size={11} className={pickerScope === 'variables' ? 'rotate' : ''} /></button>
               <button className={pickerScope === 'custom' ? 'is-active' : ''} type="button" aria-expanded={pickerScope === 'custom'} onClick={() => { setPickerScope((current) => current === 'custom' ? 'tables' : 'custom'); setQuery(''); }}><Pencil size={12} aria-hidden="true" />Custom source<ChevronDown size={11} className={pickerScope === 'custom' ? 'rotate' : ''} /></button>
             </div>
+            </div>
+            {tablesScopeActive ? <SourceFieldQuickPicker config={config} sources={kpi.sources} fieldOwner={fieldOwner} onToggle={toggleDataField} /> : null}
             {tablesScopeActive ? <div className="source-table-group-picker">
               <div className="source-table-group-picker-title">Source tables <small>Select a table or group</small></div>
               {tableSourceCategories.map((category) => <section className="table-source-category" key={category}>
@@ -7395,13 +7511,21 @@ function KpiSourceEditor({
                 return (
                   <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
                     <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(config, group.dimensions)}` : ''}</small></span>
+                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}{filterMode ? <FieldFlags field={field} compact /> : null}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(config, group.dimensions)}` : ''}</small></span>
                   </label>
                 );
               })}
             </fieldset>
             ) : null}
-            {pickerScope === 'custom' ? (
+            {pickerScope === 'custom' && filterMode ? <fieldset className="source-scope-panel">
+              <legend>Custom sources</legend>
+              {!customFilterChoices.length ? <span className="empty-option">No custom sources in this library.</span> : null}
+              {customFilterChoices.map((source) => {
+                const key = sourceFilterKey(source);
+                const selected = kpi.sources.some((item) => sourceFilterKey(item) === key);
+                return <label className="source-choice-row" key={key}><input type="checkbox" checked={selected} onChange={() => onChange(selected ? kpi.sources.filter((item) => sourceFilterKey(item) !== key) : [...kpi.sources, { ...source, id: createLocalId('source-filter') }])} /><span><strong>{source.name}</strong></span></label>;
+              })}
+            </fieldset> : pickerScope === 'custom' ? (
             <section className="custom-source-panel">
               <label className="field"><span>Name</span><input value={customName} autoFocus placeholder="Source name" onChange={(event) => setCustomName(event.target.value)} /></label>
               <label className="field"><span>LaTeX expression</span><input className="latex-code-editor" value={customLatex} placeholder="x_{custom}" onChange={(event) => setCustomLatex(event.target.value)} /></label>
@@ -10916,7 +11040,7 @@ function KpiTable({
                 {resizeHandle(0, 'Name and description')}
               </th>
               <th className={headerClass(2)}>
-                <TextHeaderFilter label="Source" value={filters.prerequisite} placeholder="Search sources..." onChange={(prerequisite) => onFiltersChange({ ...filters, prerequisite })} />
+                <SourceHeaderFilter config={config} filters={filters} onChange={onFiltersChange} />
                 {resizeHandle(2, 'Source')}
               </th>
               <th className={headerClass(3)}>
