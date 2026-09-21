@@ -1,8 +1,9 @@
+import { fieldFlags } from './fieldFlags';
 import { sourceTableUnit } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { layoutTableRegions } from './tableDiagramLayout';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Download, Eye, Link2, Minus, Plus, RotateCcw, X } from 'lucide-react';
+import { AlertTriangle, Download, Eye, Link2, Minus, Plus, RotateCcw, Sigma, Wrench, X } from 'lucide-react';
 import type {
   DataSource,
   DataSourceField,
@@ -105,6 +106,7 @@ const wrapSourceSummary = (value: string, width: number) => {
 };
 
 const fieldRowHeight = (config: KpiPoolConfig, field: DataSourceField, width: number) => FIELD_ROW_HEIGHT
+  + (fieldFlags(field).length ? 20 : 0)
   + wrapSourceSummary(sourceSummaryText(config, field), width - 32).length * 20;
 
 const buildRows = (source: DataSource, width: number, config: KpiPoolConfig): DiagramRow[] => {
@@ -493,10 +495,12 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
             <text x={CANVAS_PADDING} y="70" fill="#60727a" fontSize="12">Drag a table to untangle joins · hover or click a join to highlight it</text>
             <g transform={`translate(${CANVAS_PADDING}, 88)`} fontFamily="Inter, Segoe UI, Arial, sans-serif" fontSize="10" fill="#435861">
               <g><rect width="31" height="18" rx="4" fill="#f5e9bd" stroke="#b88b13" /><text x="7" y="13" fontWeight="800">PK</text></g>
-              <g transform="translate(47,0)"><rect width="66" height="18" rx="4" fill="#e3f2ee" stroke="#3d7e6c" strokeDasharray="4 2" /><text x="8" y="13" fontWeight="700">VIRTUAL</text></g>
-              <g transform="translate(129,0)"><rect width="91" height="18" rx="4" fill="#fff0ed" stroke="#c85a50" /><circle cx="10" cy="9" r="3" fill="#c85a50" /><text x="18" y="13">Preprocess</text></g>
-              <g transform="translate(236,0)"><rect width="101" height="18" rx="4" fill="#f0eafa" stroke="#8062a8" /><text x="8" y="13">Grouped fields</text></g>
-              <g transform="translate(354,0)"><path d="M0 9H31" stroke="#456c7b" strokeWidth="1.5" /><path d="M1 4V14M5 4V14M30 9L21 4M30 9L21 9M30 9L21 14" stroke="#456c7b" strokeWidth="1.5" fill="none" /><text x="39" y="13">1:N join</text></g>
+              <g transform="translate(47,0)"><rect width="66" height="18" rx="4" fill="#f0f1f3" stroke="#a4a9b0" strokeDasharray="4 2" /><text x="8" y="13" fontWeight="700">VIRTUAL</text></g>
+              <g transform="translate(129,0)" fill="#925315"><Wrench y={3} width={11} height={11} /><text x="16" y="13">P · Preprocessing</text></g>
+              <g transform="translate(243,0)" fill="#275e9a"><Sigma y={3} width={11} height={11} /><text x="16" y="13">D · Derived</text></g>
+              <g transform="translate(330,0)" fill="#a33f46"><AlertTriangle y={3} width={11} height={11} /><text x="16" y="13">U · Potentially unavailable</text></g>
+              <g transform="translate(491,0)"><rect width="101" height="18" rx="4" fill="#f0eafa" stroke="#8062a8" /><text x="8" y="13">Grouped fields</text></g>
+              <g transform="translate(609,0)"><path d="M0 9H31" stroke="#456c7b" strokeWidth="1.5" /><path d="M1 4V14M5 4V14M30 9L21 4M30 9L21 9M30 9L21 14" stroke="#456c7b" strokeWidth="1.5" fill="none" /><text x="39" y="13">1:N join</text></g>
             </g>
             <defs>
               <filter id="table-shadow" x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy="3" stdDeviation="5" floodColor="#17333d" floodOpacity="0.13" /></filter>
@@ -694,25 +698,33 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
                     const field = row.field;
                     const isPrimary = field.id === table.source.primaryKeyFieldId;
                     const isVirtual = Boolean(field.generatedRelationId);
-                    const needsPreprocessing = field.preprocessingNeeded || Boolean(field.details.trim());
-                    const rowFill = needsPreprocessing ? '#fff0ed' : isVirtual ? '#eaf6f2' : row.grouped ? '#fbf9fe' : '#ffffff';
+                    const flagsHeight = fieldFlags(field).length ? 20 : 0;
+                    const summaryTop = FIELD_ROW_HEIGHT + flagsHeight;
+                    const rowFill = isVirtual ? '#f0f1f3' : '#ffffff';
                     const nameX = table.x + 12;
-                    const markerWidth = (isPrimary ? 22 : 0) + (isVirtual ? 15 : 0) + (needsPreprocessing ? 15 : 0);
+                    const markerWidth = (isPrimary ? 22 : 0) + (isVirtual ? 15 : 0);
                     const nameLimit = Math.max(4, Math.floor((table.width * 0.75 - 78 - markerWidth) / 6.2));
                     return <g key={`field:${field.id}`}>
                       <rect x={table.x + 1} y={y} width={table.width - 2} height={row.height} fill={rowFill} />
                       {row.grouped ? <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#b4a0cc" /> : null}
-                      {isVirtual ? <rect x={table.x + 5} y={y + 3} width={table.width - 10} height={row.height - 6} rx="4" fill="none" stroke="#4c927f" strokeDasharray="4 3" /> : null}
-                      {needsPreprocessing ? <rect x={table.x + 1} y={y} width="4" height={row.height} fill="#c85a50" /> : null}
+                      {isVirtual ? <rect x={table.x + 5} y={y + 3} width={table.width - 10} height={row.height - 6} rx="4" fill="none" stroke="#a4a9b0" strokeDasharray="4 3" /> : null}
                       <text x={nameX} y={y + 18} fill="#223d47" fontSize="11" fontWeight={isPrimary ? 750 : 600}>
                         <title>{field.name || 'Untitled field'}</title>
                         <tspan>{shortened(field.name || 'Untitled field', nameLimit)}</tspan>
                         {isPrimary ? <tspan dx="6" fill="#76580b" fontSize="8.5" fontWeight="900"><title>Primary key</title>PK</tspan> : null}
-                        {isVirtual ? <tspan dx="6" fill="#397562" fontSize="8" fontWeight="900"><title>Virtual field</title>V</tspan> : null}
-                        {needsPreprocessing ? <tspan dx="6" fill="#c85a50" fontSize="10"><title>Preprocessing needed</title>{'\u25cf'}</tspan> : null}
+                        {isVirtual ? <tspan dx="6" fill="#68727d" fontSize="8" fontWeight="900"><title>Virtual field</title>V</tspan> : null}
                       </text>
-                      <text x={table.x + table.width - 58} y={y + 18} textAnchor="end" fill={isVirtual ? '#397562' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.25) / 5.5))}</text>
-                      {row.height > FIELD_ROW_HEIGHT ? <foreignObject x={table.x + 20} y={y + FIELD_ROW_HEIGHT} width={table.width - 32} height={row.height - FIELD_ROW_HEIGHT}
+                      <text x={table.x + table.width - 58} y={y + 18} textAnchor="end" fill={isVirtual ? '#68727d' : '#60747d'} fontSize="9.5" fontStyle={isVirtual ? 'italic' : 'normal'}><title>{fieldTypeLabel(field)}</title>{shortened(fieldTypeLabel(field), Math.floor((table.width * 0.25) / 5.5))}</text>
+                      {fieldFlags(field).map(({ key, letter, label, note }, index) => {
+                        const Icon = key === 'preprocessing' ? Wrench : key === 'derived' ? Sigma : AlertTriangle;
+                        const color = key === 'preprocessing' ? '#925315' : key === 'derived' ? '#275e9a' : '#a33f46';
+                        return <g key={key} transform={`translate(${table.x + 12 + index * 36}, ${y + FIELD_ROW_HEIGHT})`}>
+                          <title>{note.trim() ? `${label}: ${note}` : label}</title>
+                          <Icon width={10} height={10} color={color} aria-hidden="true" />
+                          <text x={13} y={9} fill={color} fontSize="9">{letter}</text>
+                        </g>;
+                      })}
+                      {row.height > summaryTop ? <foreignObject x={table.x + 20} y={y + summaryTop} width={table.width - 32} height={row.height - summaryTop}
                         onPointerDown={(event) => event.stopPropagation()}>
                         <div className="diagram-field-summary">{renderFieldSummary(table.source, field)}</div>
                       </foreignObject> : null}

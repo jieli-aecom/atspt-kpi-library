@@ -26,7 +26,7 @@ export type SpatialUnit = string;
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   typeof value === 'string';
 
-export const CURRENT_SCHEMA_VERSION = 49 as const;
+export const CURRENT_SCHEMA_VERSION = 50 as const;
 
 export type SpatialScaleDefinition = { name: string; latex: string };
 export type SpatialScaleDefinitions = Record<SpatialScaleDefinitionKey, SpatialScaleDefinition>;
@@ -81,6 +81,9 @@ export type DataSourceField = {
   meaning: string;
   details: string;
   preprocessingNeeded: boolean;
+  derived?: boolean;
+  potentiallyUnavailable?: boolean;
+  potentiallyUnavailableNote?: string;
   preferredLatex: string;
   sources?: FieldSourceItem[];
   formulas?: KpiFormulaItem[];

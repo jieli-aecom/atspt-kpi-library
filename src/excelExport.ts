@@ -1,3 +1,4 @@
+import { fieldFlagsText, fieldFlagTone } from './fieldFlags';
 import { sourceTableUnit } from './types.js';
 import JSZip from 'jszip';
 import { fieldSourceRows } from './fieldSourceSummary';
@@ -499,7 +500,7 @@ function richMarkdownCell(reference: string, markdown: string, style: number) {
 
 const tableSchemaColumns = [
   'Key', 'Field name', 'Type', 'Unit', 'Item unit', 'Description', 'By',
-  'Preprocessing needed', 'Preprocessing note', 'Sources', 'Supported KPIs'
+  'Flags', 'Sources', 'Supported KPIs'
 ] as const;
 
 const tableSchemaTabColors = {
@@ -542,7 +543,7 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
     .map((label, index) => stringCell(`${columnName(index + 1)}${headerRow}`, label, 3))
     .join('');
   const fieldRow = (field: DataSourceField, rowNumber: number, virtual: boolean) => {
-    const needsPreprocessing = field.preprocessingNeeded || Boolean(field.details.trim());
+    const tone = fieldFlagTone(field);
     const values = [
       field.id === source.primaryKeyFieldId ? 'PK' : '',
       field.name,
@@ -551,18 +552,16 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
       field.dataType === 'collection' ? field.valueUnit.trim() : '',
       markdownToExcelText(field.meaning),
       tableSchemaFieldDimensions(config, source, field.id),
-      needsPreprocessing ? 'Yes' : 'No',
-      markdownToExcelText(field.details),
+      markdownToExcelText(fieldFlagsText(field)),
       fieldSourceRows(config, field).map((row, index) => `${index ? 'and' : 'From:'} ${row.label} ${row.fields.map((entry) => entry.name).join(', ')}`).join(' '),
       traceKpiSupport(config, { dataSourceId: source.id, fieldId: field.id }).map((kpi) => kpi.name).join(', ')
     ];
-    const hasFormula = field.formulas?.some((item) => item.formula.trim());
-    const style = needsPreprocessing ? 7 : hasFormula ? 8 : field.dataType === 'collection' ? 9 : virtual ? 6 : 4;
+    const style = virtual ? 6 : 4;
     return `<row r="${rowNumber}">${values.map((value, index) => {
       for (const line of value.split('\n')) {
         widths[index] = Math.min(64, Math.max(widths[index], Array.from(line).length + 2));
       }
-      const cellStyle = index === 6 && value ? 10 : style;
+      const cellStyle = index === 6 && value ? 10 : index === 7 && tone ? (tone === 'unavailable' ? 7 : tone === 'preprocessing' ? 9 : 8) : style;
       return stringCell(`${columnName(index + 1)}${rowNumber}`, value, cellStyle);
     }).join('')}</row>`;
   };
@@ -691,7 +690,7 @@ const tableSchemaStylesXml = xmlDocument(`<styleSheet xmlns="http://schemas.open
     <fill><patternFill patternType="solid"><fgColor rgb="FFF3F4F6"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFFFC7CE"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFBDD7EE"/><bgColor indexed="64"/></patternFill></fill>
-    <fill><patternFill patternType="solid"><fgColor rgb="FFE2EFDA"/><bgColor indexed="64"/></patternFill></fill>
+    <fill><patternFill patternType="solid"><fgColor rgb="FFFFE0B2"/><bgColor indexed="64"/></patternFill></fill>
     <fill><patternFill patternType="solid"><fgColor rgb="FFB2DFDB"/><bgColor indexed="64"/></patternFill></fill>
   </fills>
   <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFD7DEE3"/></left><right style="thin"><color rgb="FFD7DEE3"/></right><top style="thin"><color rgb="FFD7DEE3"/></top><bottom style="thin"><color rgb="FFD7DEE3"/></bottom><diagonal/></border></borders>

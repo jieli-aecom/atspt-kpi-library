@@ -128,6 +128,9 @@ const dataSourceFieldSchema = z.object({
   meaning: z.string(),
   details: z.string(),
   preprocessingNeeded: z.boolean(),
+  derived: z.boolean().optional(),
+  potentiallyUnavailable: z.boolean().optional(),
+  potentiallyUnavailableNote: z.string().optional(),
   preferredLatex: z.string(),
   sources: z.array(fieldSourceItemSchema).refine((sources) => new Set(sources.map((source) => source.id)).size === sources.length, 'Field source IDs must be unique').optional(),
   formulas: z.array(formulaItemSchema).optional(),
@@ -2019,7 +2022,7 @@ const normalizeDataSourceFieldType = (value: unknown, legacyUnit: string): DataS
   return legacyUnit.trim() ? 'number' : 'text';
 };
 
-const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[], warnings: string[], spatialDefinitions = defaultSpatialScaleDefinitions()): DataSource[] => {
+const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[], warnings: string[], spatialDefinitions = defaultSpatialScaleDefinitions(), legacyFlags = false): DataSource[] => {
   if (rawValue == null) {
     return [];
   }
@@ -2082,7 +2085,10 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
         name: fieldName,
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
         details: stringValue(rawField.details ?? rawField.note ?? rawField.Details),
-        preprocessingNeeded: Boolean(rawField.preprocessingNeeded) || Boolean(stringValue(rawField.details ?? rawField.note ?? rawField.Details).trim()),
+        preprocessingNeeded: Boolean(rawField.preprocessingNeeded) || (legacyFlags && Boolean(stringValue(rawField.details ?? rawField.note ?? rawField.Details).trim())),
+        derived: typeof rawField.derived === 'boolean' ? rawField.derived : legacyFlags && Array.isArray(rawField.formulas) && rawField.formulas.some((item) => isRecord(item) && Boolean(stringValue(item.formula ?? item.rightExpression).trim())),
+        potentiallyUnavailable: rawField.potentiallyUnavailable === true,
+        potentiallyUnavailableNote: stringValue(rawField.potentiallyUnavailableNote),
         preferredLatex: stringValue(rawField.preferredLatex ?? rawField.preferredLaTex),
         sources: repairKpiSources(rawField.sources, warnings, `${name}: ${fieldName}`).filter((source): source is Exclude<KpiSourceItem, { type: 'kpi' }> => {
           if (source.type !== 'kpi') return true;
@@ -2800,7 +2806,7 @@ export const repairConfig = (input: unknown): RepairResult => {
   const enums = repairEnums(rawConfig, warnings);
   const valueEnums = repairValueEnums(rawConfig.valueEnums ?? rawConfig.reusableEnums, warnings);
   const valueEnumGroups = repairDataLibraryGroups(rawConfig.valueEnumGroups ?? rawConfig.enumGroups, valueEnums, 'enum', warnings);
-  const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, valueEnums, warnings, spatialScaleDefinitions);
+  const repairedDataSources = repairDataSources(rawConfig.dataSources ?? rawConfig.sources, valueEnums, warnings, spatialScaleDefinitions, !Number.isFinite(inputSchemaVersion) || inputSchemaVersion < 50);
   const tableRelations = repairTableRelations(rawConfig.tableRelations ?? rawConfig.relations, repairedDataSources, warnings);
   const dataSources = reconcileRelationFields(repairedDataSources, tableRelations);
   const dataSourceGroups = repairDataLibraryGroups(rawConfig.dataSourceGroups ?? rawConfig.sourceGroups, dataSources, 'dataSource', warnings);

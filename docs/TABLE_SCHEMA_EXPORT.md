@@ -26,3 +26,9 @@ Joins without existing endpoint fields are omitted. Export does not modify the l
 node --test --test-isolation=none tests/tableSchemaJsonExport.test.ts
 npm run build
 ```
+
+## Flags and Excel formatting (schema 50)
+
+JSON retains all existing category, table, field, dimension-expansion, and join conventions. Flagged fields additionally include `Flags`, an array of `{ "Name": "Preprocessing Needed" | "Derived" | "Potentially Unavailable", "Note"?: "..." }` in P/D/U order. Notes are included when populated for an active flag; unflagged fields omit `Flags`. Every expanded field inherits its source field flags. Consumers that ignore unknown keys continue to work.
+
+Excel replaces the two preprocessing columns with one `Flags` column, with semicolon-separated labels and optional notes after a colon. Ordinary rows have no fill, virtual rows use gray, populated `By` cells retain their fill, and populated `Flags` cells use red/orange/blue in U/P/D priority. Collection type and formula presence no longer color rows.

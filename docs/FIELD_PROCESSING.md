@@ -24,3 +24,11 @@ node node_modules/typescript/bin/tsc tests/fieldProcessing.test.ts tests/tableFi
 node --test --test-isolation=none tmp-schema-check/field-processing-tests/tests/fieldProcessing.test.js tmp-schema-check/field-processing-tests/tests/tableFieldMove.test.js
 npm run build
 ```
+
+## Field flags (schema 50)
+
+Fields retain `preprocessingNeeded` and its existing Markdown note in `details`. New optional keys are `derived` (boolean), `potentiallyUnavailable` (boolean), and `potentiallyUnavailableNote` (string). Missing new keys mean false/empty. Each flag is independent; switching one off retains its note or formulae and does not re-enable it on save or import.
+
+The one-time upgrade from schema 49 and earlier preserves the previous preprocessing state (including notes that implied preprocessing), and initializes Derived for populated field formulae unless an explicit `derived` boolean exists. Potentially Unavailable defaults to false. Current-schema repair never infers flags from retained notes/formulae; future schemas remain rejected.
+
+Library rows and diagram fields use gray backgrounds only for relationship-generated virtual fields. Active flags appear beneath the field. Selected KPI source badges show icon + P/D/U indicators and prioritize unavailable (red), preprocessing (orange), then derived (blue).

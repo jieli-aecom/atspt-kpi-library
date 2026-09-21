@@ -1,4 +1,5 @@
 import type { DataSource, DataSourceField, KpiPoolConfig, TableSourceCategory } from './types.js';
+import { fieldFlags } from './fieldFlags.js';
 
 type SchemaJoin = {
   With: string;
@@ -9,7 +10,7 @@ type SchemaJoin = {
 
 type SchemaTable = {
   PK: string | null;
-  Fields: { Name: string; Type: string; ElementType?: string; Virtual?: true }[];
+  Fields: { Name: string; Type: string; ElementType?: string; Virtual?: true; Flags?: { Name: string; Note?: string }[] }[];
   Joins: SchemaJoin[];
 };
 
@@ -57,6 +58,7 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
       return expandedNames.map((name) => ({
         Name: name,
         Type: field.dataType,
+        ...(fieldFlags(field).length ? { Flags: fieldFlags(field).map(({ label, note }) => ({ Name: label, ...(note.trim() ? { Note: note } : {}) })) } : {}),
         ...(field.generatedRelationId ? { Virtual: true as const } : {}),
         ...(field.dataType === 'collection' ? { ElementType: field.collectionItemType ?? (field.enumId ? 'enum' : field.generatedRelationId ? 'id' : 'number') } : {})
       }));

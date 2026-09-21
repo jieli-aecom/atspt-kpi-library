@@ -110,7 +110,7 @@ test('includes the source-table group in schema workbook metadata', async () => 
 test('table sheets include category, units, descriptions, sources and direct/indirect KPI names', async () => {
   const config = createBlankConfig();
   const raw: DataSourceField = { id: 'raw', name: 'Raw speed', meaning: '**Observed** speed', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'number', valueUnit: 'mph', options: [] };
-  const processed: DataSourceField = { ...raw, id: 'processed', name: 'Speed samples', dataType: 'collection', collectionItemType: 'number', details: 'Clean missing values', sources: [{ id: 'input', type: 'dataField', dataSourceId: 'traffic', fieldId: 'raw', latex: 'x' }] };
+  const processed: DataSourceField = { ...raw, id: 'processed', name: 'Speed samples', dataType: 'collection', collectionItemType: 'number', details: 'Clean missing values', preprocessingNeeded: true, sources: [{ id: 'input', type: 'dataField', dataSourceId: 'traffic', fieldId: 'raw', latex: 'x' }] };
   config.dataSources = [
     { id: 'traffic', name: 'Traffic', category: 'Preprocessed Constants', spatialUnit: 'Link', fields: [raw, processed], fieldGroups: [] },
     { id: 'other', name: 'Other', category: 'KPI Preparation', spatialUnit: '', fields: [{ ...raw, id: 'unused', valueUnit: '', meaning: '' }], fieldGroups: [] }
@@ -131,14 +131,14 @@ test('table sheets include category, units, descriptions, sources and direct/ind
   assert.doesNotMatch(cell(sheet, 'D5'), /mph/);
   assert.match(cell(sheet, 'E5'), />mph</);
   assert.match(cell(sheet, 'F4'), />Observed speed</);
-  assert.match(cell(sheet, 'H4'), />No</);
-  assert.match(cell(sheet, 'H5'), />Yes</);
-  assert.match(cell(sheet, 'J5'), /From: Operations · Traffic Raw speed/);
-  assert.match(cell(sheet, 'K4'), />Travel speed, Accessibility</);
-  assert.match(cell(sheet, 'K5'), />Travel speed, Accessibility</);
-  assert.doesNotMatch(cell(other, 'K4'), /Travel speed|Accessibility/);
-  assert.match(sheet, /dimension ref="A1:K5"/);
-  assert.match(cell(sheet, 'K3'), />Supported KPIs</);
+  assert.doesNotMatch(cell(sheet, 'H4'), /Preprocessing|Derived|Unavailable/);
+  assert.match(cell(sheet, 'H5'), />Preprocessing Needed: Clean missing values</);
+  assert.match(cell(sheet, 'I5'), /From: Operations · Traffic Raw speed/);
+  assert.match(cell(sheet, 'J4'), />Travel speed, Accessibility</);
+  assert.match(cell(sheet, 'J5'), />Travel speed, Accessibility</);
+  assert.doesNotMatch(cell(other, 'J4'), /Travel speed|Accessibility/);
+  assert.match(sheet, /dimension ref="A1:J5"/);
+  assert.match(cell(sheet, 'J3'), />Supported KPIs</);
 });
 
 test('schema formatting uses category tabs, compact sizing and semantic cell fills', async () => {
@@ -148,9 +148,9 @@ test('schema formatting uses category tabs, compact sizing and semantic cell fil
   config.dataSources = [{
     id: 'table', name: 'Table', spatialUnit: '', category: 'KPI Preparation',
     fields: [base,
-      { ...base, id: 'red', details: 'Needs cleaning', formulas: [formula], dataType: 'collection' },
-      { ...base, id: 'blue', formulas: [formula], dataType: 'collection' },
-      { ...base, id: 'green', dataType: 'collection', generatedRelationId: 'join' },
+      { ...base, id: 'red', details: 'Needs cleaning', preprocessingNeeded: true, derived: true, potentiallyUnavailable: true, potentiallyUnavailableNote: 'Coverage varies', formulas: [formula], dataType: 'collection' },
+      { ...base, id: 'blue', derived: true, formulas: [formula], dataType: 'collection' },
+      { ...base, id: 'green', preprocessingNeeded: true, dataType: 'collection', generatedRelationId: 'join' },
       { ...base, id: 'long', meaning: 'x'.repeat(200) }
     ],
     fieldGroups: [{ id: 'dimensions', position: 0, fieldIds: ['red'], dimensions: [{ id: 'dim', name: 'Period', options: ['AM', 'PM'] }] }]
@@ -164,9 +164,13 @@ test('schema formatting uses category tabs, compact sizing and semantic cell fil
   const xfs = [...styles.match(/<cellXfs[^>]*>(.*?)<\/cellXfs>/s)![1].matchAll(/<xf\b[^>]*fillId="(\d+)"/g)].map((match) => Number(match[1]));
   const sheet = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
   const colorAt = (address: string) => fills[xfs[Number(sheet.match(new RegExp(`<c r="${address}" s="(\\d+)"`))![1])]];
-  assert.match(colorAt('B5'), /FFFFC7CE/);
-  assert.match(colorAt('B6'), /FFBDD7EE/);
-  assert.match(colorAt('B9'), /FFE2EFDA/);
+  assert.match(colorAt('B5'), /patternType="none"/);
+  assert.match(colorAt('B6'), /patternType="none"/);
+  assert.match(colorAt('B9'), /FFF3F4F6/);
+  assert.match(colorAt('H5'), /FFFFC7CE/);
+  assert.match(colorAt('H6'), /FFBDD7EE/);
+  assert.match(colorAt('H9'), /FFFFE0B2/);
+  assert.match(sheet, /Preprocessing Needed: Needs cleaning; Derived; Potentially Unavailable: Coverage varies/);
   assert.match(colorAt('G5'), /FFB2DFDB/);
   assert.doesNotMatch(styles, /wrapText="1"/);
   assert.doesNotMatch(sheet, /customHeight=|\bht=/);

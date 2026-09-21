@@ -1971,7 +1971,8 @@ h1 {
   color: #3f4d67;
 }
 
-.lookup-details-mode input {
+.lookup-details-mode input,
+.field-flag-toggle input {
   position: relative;
   width: 24px;
   height: 14px;
@@ -1984,7 +1985,8 @@ h1 {
   transition: border-color 120ms ease, background 120ms ease;
 }
 
-.lookup-details-mode input::after {
+.lookup-details-mode input::after,
+.field-flag-toggle input::after {
   position: absolute;
   top: 2px;
   left: 2px;
@@ -2002,7 +2004,8 @@ h1 {
   background: #777cad;
 }
 
-.lookup-details-mode input:checked::after {
+.lookup-details-mode input:checked::after,
+.field-flag-toggle input:checked::after {
   transform: translateX(10px);
 }
 
@@ -2735,24 +2738,10 @@ h1 {
   grid-column: 5 / 7;
 }
 
-.data-source-field-row.is-collection {
-  border-radius: 5px;
-  background: #e2f0e7;
-}
-
 .data-source-field-row.is-relation-field {
-  box-shadow: inset 3px 0 #347862;
-}
-
-.data-source-field-row.has-formula:not(.needs-preprocessing) {
   border-radius: 5px;
-  background: #e5effb;
-}
-
-.data-source-field-row.needs-preprocessing {
-  border-radius: 5px;
-  background: #fae9e7;
-  box-shadow: inset 3px 0 #bd5148;
+  background: #f0f1f3;
+  box-shadow: inset 3px 0 #a4a9b0;
 }
 
 .table-diagram-backdrop {
@@ -7567,3 +7556,43 @@ h1 {
 .kpi-scenario-unit-row { display: flex; align-items: flex-start; gap: 6px; margin-top: 5px; }
 .kpi-scenario-unit-row .kpi-scenario-tag { flex: 1 1 100px; min-width: 0; }
 .kpi-unit-input { flex: 0 1 90px; width: 90px; min-width: 0; min-height: 21px; padding: 2px 5px; border: 1px solid #cbd5e1; border-radius: 5px; background: #fff; color: #475569; font: inherit; font-size: 11px; line-height: 16px; resize: none; overflow: hidden; overflow-wrap: anywhere; white-space: pre-wrap; }
+
+/* Field status is explicit; only virtual library rows have a background. */
+.data-source-field-flags { grid-column: 3 / -1; grid-row: 2; line-height: 1; padding: 0 0 3px; }
+.field-flags { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 9px; vertical-align: middle; }
+.field-flag { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 600; white-space: nowrap; }
+.flag-preprocessing { color: #925315; }
+.flag-derived { color: #275e9a; }
+.flag-unavailable { color: #a33f46; }
+.field-flags.is-compact { gap: 5px; margin-left: 5px; }
+.field-flags.is-compact .field-flag { font-size: 9px; gap: 1px; }
+.field-flags-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.field-flag-card { min-width: 0; border: 1px solid #d7dfe4; border-radius: 7px; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
+.field-flag-card.is-enabled { border-color: currentColor; }
+.field-flag-toggle { display: flex; gap: 6px; align-items: center; cursor: pointer; font-size: 12px; }
+.field-flag-toggle strong { font-weight: 650; }
+.field-flag-toggle input { margin-left: auto; flex: 0 0 24px; width: 24px; cursor: pointer; color: inherit; }
+.field-flag-toggle input:checked { background: currentColor; border-color: currentColor; }
+.field-flag-toggle > svg { flex: 0 0 14px; }
+.field-flag-toggle strong, .field-flag-hint { white-space: nowrap; }
+.field-preprocessing-dialog .kpi-note-dialog-body > * { min-width: 0; }
+.field-preferred-latex-editor input { min-width: 0; }
+.data-source-field-flags ~ .relation-field-summary,
+.data-source-field-flags ~ .field-formula-summary { grid-row: auto; }
+.field-flag-card .markdown-source-textarea { min-height: 54px; }
+.field-flag-card .markdown-content { min-height: 40px; }
+.field-flag-card textarea { width: 100%; resize: vertical; }
+.field-derived-card { grid-column: 1 / -1; }
+.field-flag-hint { color: #687985; font-size: 10px; }
+.field-derived-card .field-processing-editor { border: 0; padding: 0; margin: 0; }
+:is(.source-summary-item, .selected-source-row).flag-tone-derived { background: #e5effb; color: #275e9a; }
+:is(.source-summary-item, .selected-source-row).flag-tone-preprocessing { background: #fff0dc; color: #925315; }
+:is(.source-summary-item, .selected-source-row).flag-tone-unavailable { background: #fbe6e8; color: #a33f46; }
+@media (max-width: 650px) {
+  .field-flags-editor { grid-template-columns: minmax(0, 1fr); }
+  .field-flag-hint { display: none; }
+}
+
+.source-summary-item.is-data-field { display: inline-flex; align-items: center; gap: 3px; }
+.source-summary-field-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.source-summary-item .field-flags { flex-shrink: 0; }

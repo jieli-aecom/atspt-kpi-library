@@ -1,3 +1,5 @@
+import { FieldFlags } from './FieldFlagBadges';
+import { fieldFlagTone, fieldFlags } from './fieldFlags';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
 import { indexedScaleLatex } from './globalDefinitions';
 import { configuredSpatialUnits } from './types';
@@ -15,6 +17,8 @@ import katex, { type TrustContext } from 'katex';
 import { createPortal } from 'react-dom';
 import {
   AlertTriangle,
+  Sigma,
+  Wrench,
   BookOpen,
   Check,
   ChevronDown,
@@ -4697,6 +4701,9 @@ function DataSourceHeader({
           ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}),
           ...(partial.details !== undefined ? { details: partial.details } : {}),
           ...(partial.preprocessingNeeded !== undefined ? { preprocessingNeeded: partial.preprocessingNeeded } : {}),
+          ...(partial.derived !== undefined ? { derived: partial.derived } : {}),
+          ...(partial.potentiallyUnavailable !== undefined ? { potentiallyUnavailable: partial.potentiallyUnavailable } : {}),
+          ...(partial.potentiallyUnavailableNote !== undefined ? { potentiallyUnavailableNote: partial.potentiallyUnavailableNote } : {}),
           ...(partial.preferredLatex !== undefined ? { preferredLatex: partial.preferredLatex } : {}),
           ...(partial.sources !== undefined ? { sources: partial.sources } : {}),
           ...(partial.formulas !== undefined ? { formulas: partial.formulas } : {})
@@ -5909,8 +5916,6 @@ function DataSourceHeader({
               );
               const renderFieldRow = (field: DataSourceField, fieldIndex: number, groupId?: string) => {
                 const isPrimaryKey = source.primaryKeyFieldId === field.id;
-                const preprocessingNeeded = field.preprocessingNeeded || Boolean(field.details.trim());
-                const hasFormula = field.formulas?.some((item) => item.formula.trim());
                 const primaryKeyRelations = isPrimaryKey ? sourceRelations : [];
                 const linkedRelation = sourceRelations.find((relation) => relation.id === field.generatedRelationId);
                 const linkedTable = linkedRelation ? config.dataSources.find((entry) => entry.id === (
@@ -5922,7 +5927,7 @@ function DataSourceHeader({
                 const editorOpen = relationEditor?.sourceDataSourceId === source.id && relationEditor.anchor === 'primaryKey' && isPrimaryKey;
                 return (
                 <div
-                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${hasFormula ? 'has-formula' : ''} ${preprocessingNeeded ? 'needs-preprocessing' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
+                  className={`data-source-field-row ${field.dataType === 'collection' ? 'is-collection' : ''} ${field.generatedRelationId ? 'is-relation-field' : ''} ${fieldDragOver?.sourceIndex === sourceIndex && fieldDragOver.fieldIndex === fieldIndex ? `is-drag-over-${fieldDragOver.position}` : ''} ${focusedEditRequest?.kind === 'dataField' && focusedEditRequest.fieldId === field.id ? 'is-library-edit-target' : ''}`}
                   data-library-target={`field:${field.id}`}
                   key={field.id}
                   onDragOver={(event) => {
@@ -6019,13 +6024,13 @@ function DataSourceHeader({
                     : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
                     <button
-                      className={`mini-icon-button field-details-button ${preprocessingNeeded ? 'needs-preprocessing' : ''}`}
+                      className="mini-icon-button field-details-button"
                       type="button"
-                      title={preprocessingNeeded ? 'View field details — preprocessing required' : 'View field details and supported KPIs'}
+                      title="Edit field details, flags, formulae and supported KPIs"
                       aria-label={`View field details and supported KPIs for ${field.name || 'field'}`}
                       aria-haspopup="dialog"
                       onClick={() => setFieldDetailsEditor({ dataSourceId: source.id, fieldId: field.id })}
-                    ><Eye size={12} aria-hidden="true" /></button>
+                    ><Ellipsis size={14} aria-hidden="true" /></button>
                     {field.generatedRelationId ? <button className="mini-icon-button danger" type="button" title="Delete both linked fields and their relation" onClick={() => deleteField(sourceIndex, fieldIndex)}><Trash2 size={12} /></button> : <button
                       className="mini-icon-button danger"
                       type="button"
@@ -6034,6 +6039,7 @@ function DataSourceHeader({
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
                     ><Trash2 size={12} /></button>}
                   </div>
+                  {fieldFlags(field).length > 0 ? <div className="data-source-field-flags"><FieldFlags field={field} /></div> : null}
                   {field.generatedRelationId ? <small className="relation-field-summary">
                     <button className="relation-field-badge" type="button" title="Edit link" aria-label={`Edit link for ${field.name || 'linked field'}`} aria-haspopup="dialog" aria-expanded={sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId} onClick={() => editTableRelation(field.generatedRelationId!, source.id, 'linkedField')}>Edit Link</button>
                     <span>to <strong>{linkedTable ? linkedTable.name || 'Untitled table' : 'Missing table'}</strong> · {linkedRelation ? linkedDirection : 'Missing relationship'}</span>
@@ -6632,7 +6638,7 @@ function KpiSourceGroupedSummary({
                   <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}{isScenarioTable(config, dataSource) ? <> <span className="source-summary-dimension-badge">scenario</span></> : null}{sourceTableUnit(dataSource).trim() ? <> <span className="source-summary-dimension-badge">by {sourceTableUnit(dataSource).trim()}</span></> : null}</span></span>
                   <span className="source-summary-items">{items.map(({ source, field }) => {
                     const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-                    return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{field.name}{source.type === 'dataField' && source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
+                    return <span className={`${sourceSummaryItemClassName(source.id)} is-data-field flag-tone-${fieldFlagTone(field)}`} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}><span className="source-summary-field-name">{field.name}</span><FieldFlags field={field} compact />{source.type === 'dataField' && source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
                   })}</span>
                 </span>
               ))}
@@ -7088,14 +7094,14 @@ function KpiSourceEditor({
     if (variants[0].id !== item.id) return null;
     const paired = variants.length > 1;
 
-    const isCollection = item.type === 'dataField' && config.dataSources
+    const selectedField = item.type === 'dataField' ? config.dataSources
       .find((source) => source.id === item.dataSourceId)?.fields
-      .find((field) => field.id === item.fieldId)?.dataType === 'collection';
+      .find((field) => field.id === item.fieldId) : undefined;
     const fieldDomain = sourceItemFieldDomain(config, item);
     const dimensions = sourceItemDimensions(config, item);
     return (
     <div
-      className={`selected-source-row ${paired ? 'is-scenario-pair' : ''} ${item.type === 'custom' ? 'is-custom' : ''} ${isCollection ? 'is-collection' : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${variants.some((variant) => variant.id === transientHighlightedSourceId) ? 'is-kpi-source-highlighted' : ''}`}
+      className={`selected-source-row ${paired ? 'is-scenario-pair' : ''} ${item.type === 'custom' ? 'is-custom' : ''} ${selectedField ? `flag-tone-${fieldFlagTone(selectedField)}` : ''} ${item.type === 'lookup' ? 'is-lookup' : ''} ${variants.some((variant) => variant.id === transientHighlightedSourceId) ? 'is-kpi-source-highlighted' : ''}`}
       data-kpi-source-id={item.id}
       key={item.id}
       onClick={(event) => {
@@ -7107,7 +7113,7 @@ function KpiSourceEditor({
       {item.type === 'custom'
         ? <DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />
         : <div className="selected-source-term" title={sourceItemTooltip(config, item)}>
-          <strong>{label}</strong>
+          <strong>{label}<FieldFlags field={selectedField} compact /></strong>
           {fieldDomain ? <div className={`selected-source-domain ${fieldDomain.enumId ? 'is-global' : 'is-custom'}`}>
             <span>
               <b>{fieldDomain.name}</b>
@@ -7565,7 +7571,7 @@ function FieldDetailsDialog({
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const dialogRef = useRef<HTMLElement | null>(null);
   const titleId = `field-details-dialog-title-${field.id}`;
-  const preprocessingNeeded = field.preprocessingNeeded || Boolean(field.details.trim());
+  const preprocessingNeeded = field.preprocessingNeeded;
   const closeDialog = useCallback(() => {
     if (isApplyingGlobally) return;
     const activeElement = document.activeElement;
@@ -7593,10 +7599,7 @@ function FieldDetailsDialog({
     };
   }, [closeDialog]);
 
-  const changeDetails = (details: string) => onChange({
-    details,
-    preprocessingNeeded: field.preprocessingNeeded || Boolean(details.trim())
-  });
+  const changeDetails = (details: string) => onChange({ details });
   const changePreferredLatex = (latex: string) => {
     setPreferredLatex(latex);
     setGlobalResult('');
@@ -7639,40 +7642,33 @@ function FieldDetailsDialog({
             {field.dataType === 'enum' || (field.dataType === 'collection' && field.collectionItemType === 'enum') ? <div className="full-width">{enumEditor}</div> : null}
           </div>
           <KpiSupportSummary config={config} target={{ dataSourceId: table.id, fieldId: field.id }} />
-          <section className={`field-preprocessing-setting ${preprocessingNeeded ? 'is-needed' : ''}`}>
-            <div>
-              <strong>Preprocessing needed</strong>
-              <small>Mark this field when it must be cleaned, transformed, joined, or otherwise prepared before use.</small>
-            </div>
-            <label className="lookup-details-mode preprocessing-toggle">
-              <span className={!preprocessingNeeded ? 'is-active' : ''}>No</span>
-              <input type="checkbox" role="switch" aria-label={`Preprocessing needed for ${field.name || 'untitled field'}`} checked={preprocessingNeeded} onChange={(event) => onChange({ preprocessingNeeded: event.target.checked || Boolean(field.details.trim()) })} />
-              <span className={preprocessingNeeded ? 'is-active' : ''}>Yes</span>
-            </label>
-          </section>
-          <section className="field-preprocessing-notes">
-            <div className="lookup-details-heading">
-              <span>Preprocessing notes</span>
-              <label className="lookup-details-mode">
+          <div className="field-flags-editor">
+            <section className={`field-flag-card flag-preprocessing ${preprocessingNeeded ? 'is-enabled' : ''}`}>
+              <label className="field-flag-toggle"><Wrench size={14} aria-hidden="true" /><strong>Preprocessing Needed</strong>
+                <input type="checkbox" role="switch" aria-label={`Preprocessing needed for ${field.name || 'untitled field'}`} checked={preprocessingNeeded} onChange={(event) => onChange({ preprocessingNeeded: event.target.checked })} />
+              </label>
+              <div className="lookup-details-heading"><span>Preparation note</span><label className="lookup-details-mode">
                 <span className={!showRawMarkdown ? 'is-active' : ''}>Styled</span>
                 <input type="checkbox" role="switch" aria-label={`Show raw Markdown for ${field.name || 'untitled field'} preprocessing notes`} checked={showRawMarkdown} onChange={(event) => setShowRawMarkdown(event.target.checked)} />
                 <span className={showRawMarkdown ? 'is-active' : ''}>Raw</span>
+              </label></div>
+              {showRawMarkdown ? <textarea className="markdown-source-textarea" value={field.details} rows={2} aria-label={`Raw Markdown preprocessing notes for ${field.name || 'untitled field'}`} placeholder="Cleaning, transformation, joining…" onChange={(event) => changeDetails(event.target.value)} />
+                : <MarkdownContent value={field.details} placeholder="Add a preparation note…" onValueChange={changeDetails} />}
+            </section>
+            <section className={`field-flag-card flag-unavailable ${field.potentiallyUnavailable ? 'is-enabled' : ''}`}>
+              <label className="field-flag-toggle"><AlertTriangle size={14} aria-hidden="true" /><strong>Potentially Unavailable</strong>
+                <input type="checkbox" role="switch" aria-label={`Potentially unavailable for ${field.name || 'untitled field'}`} checked={Boolean(field.potentiallyUnavailable)} onChange={(event) => onChange({ potentiallyUnavailable: event.target.checked })} />
               </label>
-            </div>
-            {showRawMarkdown ? (
-              <textarea
-                className="markdown-source-textarea kpi-note-source field-preprocessing-note"
-                value={field.details}
-                rows={9}
-                aria-label={`Raw Markdown preprocessing notes for ${field.name || 'untitled field'}`}
-                placeholder="Describe cleaning, transformation, joining, assumptions, or other preparation."
-                onChange={(event) => changeDetails(event.target.value)}
-              />
-            ) : (
-              <MarkdownContent value={field.details} placeholder="Click to add preprocessing notes" onValueChange={changeDetails} />
-            )}
-          </section>
-          <FieldProcessingEditor config={config} table={table} field={field} onChange={onChange} onEditLibrarySource={onEditLibrarySource} />
+              <label className="field"><span>Availability note</span><textarea rows={2} value={field.potentiallyUnavailableNote ?? ''} aria-label={`Availability note for ${field.name || 'untitled field'}`} placeholder="Availability gaps or limitations…" onChange={(event) => onChange({ potentiallyUnavailableNote: event.target.value })} /></label>
+            </section>
+            <section className={`field-flag-card field-derived-card flag-derived ${field.derived ? 'is-enabled' : ''}`}>
+              <label className="field-flag-toggle"><Sigma size={14} aria-hidden="true" /><strong>Derived</strong>
+                <span className="field-flag-hint">Calculated from other inputs</span>
+                <input type="checkbox" role="switch" aria-label={`Derived for ${field.name || 'untitled field'}`} checked={Boolean(field.derived)} onChange={(event) => onChange({ derived: event.target.checked })} />
+              </label>
+              <FieldProcessingEditor config={config} table={table} field={field} onChange={onChange} onEditLibrarySource={onEditLibrarySource} />
+            </section>
+          </div>
           <section className="field-preferred-latex">
             <div>
               <strong>Preferred LaTeX expression</strong>
