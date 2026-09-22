@@ -26,7 +26,7 @@ export type SpatialUnit = string;
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   typeof value === 'string';
 
-export const CURRENT_SCHEMA_VERSION = 53 as const;
+export const CURRENT_SCHEMA_VERSION = 54 as const;
 
 export type SpatialScaleDefinition = { name: string; latex: string };
 export type SpatialScaleDefinitions = Record<SpatialScaleDefinitionKey, SpatialScaleDefinition>;
@@ -93,7 +93,7 @@ export type DataSourceField = {
   options: string[];
   enumId?: string;
   generatedRelationId?: string;
-  generatedRelationRole?: 'oneCollection' | 'manyForeignKey' | 'sourceCollection' | 'targetCollection';
+  generatedRelationRole?: 'oneCollection' | 'manyForeignKey' | 'sourceCollection' | 'targetCollection' | 'secondaryForeignKey';
 };
 
 export const dataSourceFieldTypes = ['id', 'number', 'boolean', 'text', 'enum', 'collection'] as const;
@@ -145,6 +145,7 @@ export type TableRelation = {
   sourceDataSourceId: string;
   targetDataSourceId: string;
   cardinality: 'oneToOne' | 'oneToMany' | 'manyToMany';
+  principalDataSourceId?: string;
 };
 
 export const lookupValueTypes = ['number', 'enum'] as const;

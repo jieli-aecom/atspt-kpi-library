@@ -17,35 +17,37 @@ const linkedTables = (cardinality: TableRelation['cardinality'], targetKey = 'Ro
   tableRelations: [{ id: 'relation', sourceDataSourceId: 'table-0', targetDataSourceId: 'table-1', cardinality }]
 }).config;
 
-test('one-to-many virtual fields preserve PK spaces and pluralize only the collection', () => {
+test('one-to-many keeps only the singular foreign key on the many side', () => {
   const config = linkedTables('oneToMany');
-  assert.equal(config.dataSources[0].fields.find((field) => field.generatedRelationId)?.name, 'Road Link IDs');
+  assert.equal(config.dataSources[0].fields.length, 1);
   assert.equal(config.dataSources[1].fields.find((field) => field.generatedRelationId)?.name, 'Zone ID');
 });
 
 test('many-to-many collections preserve punctuation and do not append a second s', () => {
-  const config = linkedTables('manyToMany', 'Road-Link IDs');
+  const original = linkedTables('manyToMany', 'Road-Link IDs');
+  const config = repairConfig({ ...original, tableRelations: original.tableRelations.map((relation) => ({ ...relation, principalDataSourceId: 'table-1' })) }).config;
+  assert.equal(config.dataSources[1].fields.length, 1);
   assert.equal(config.dataSources[0].fields.find((field) => field.generatedRelationId)?.name, 'Road-Link IDs');
-  assert.equal(config.dataSources[1].fields.find((field) => field.generatedRelationId)?.name, 'Zone IDs');
 });
 
-test('one-to-one links do not create virtual fields', () => {
+test('one-to-one creates a singular principal ID only on the secondary table', () => {
   const config = linkedTables('oneToOne');
   assert.equal(config.tableRelations.length, 1);
-  assert.ok(config.dataSources.every((table) => table.fields.length === 1));
+  assert.equal(config.dataSources[0].fields.length, 1);
+  assert.equal(config.dataSources[1].fields[1].name, 'Zone ID');
+  assert.equal(config.dataSources[1].fields[1].dataType, 'id');
 });
 
-test('primary key renames propagate in both directions without changing IDs or metadata', () => {
-  for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
+test('principal primary key renames propagate without changing field IDs or metadata', () => {
+  for (const cardinality of ['oneToOne', 'oneToMany', 'manyToMany'] as const) {
     const config = linkedTables(cardinality);
     const after = config.dataSources.map((table, index) => ({ ...table, fields: table.fields.map((field) =>
       field.id === table.primaryKeyFieldId ? { ...field, name: index ? 'Road Segment ID' : 'District ID' } : field) }));
     const result = synchronizeRelationKeyNames(config.dataSources, after, config.tableRelations);
-    const left = result[0].fields.find((field) => field.generatedRelationId)!;
+    assert.equal(result[0].fields.length, 1);
     const right = result[1].fields.find((field) => field.generatedRelationId)!;
-    assert.equal(left.name, 'Road Segment IDs');
-    assert.equal(right.name, cardinality === 'oneToMany' ? 'District ID' : 'District IDs');
-    assert.deepEqual({ ...left, name: config.dataSources[0].fields[1].name }, config.dataSources[0].fields[1]);
+    assert.equal(right.name, cardinality === 'manyToMany' ? 'District IDs' : 'District ID');
+    assert.deepEqual({ ...right, name: config.dataSources[1].fields[1].name }, config.dataSources[1].fields[1]);
     assert.equal(synchronizeRelationKeyNames(result, result, config.tableRelations), result);
   }
 });

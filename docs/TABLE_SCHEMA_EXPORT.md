@@ -14,16 +14,18 @@ Dimensioned fields expand to one field per option combination, preserving field,
 
 Each relationship appears from both tables' perspectives:
 
-- `1:1`: each table's primary key joins to the other's primary key.
-- `1:N`: the source primary key joins to the generated foreign key in the target. The reverse entry is `N:1`.
-- `N:N`: each table's generated collection of related IDs joins to the other table's primary key, using collection membership.
+- `1:1`: the principal table's primary key joins to a singular virtual ID field on the secondary table.
+- `1:N`: the source primary key joins to the generated foreign key on the many side. The reverse entry is `N:1`. No virtual field is generated on the one side.
+- `N:N`: the secondary table's generated collection of principal IDs joins to the principal table's primary key, using collection membership.
+
+New `1:1` and `N:N` joins require an explicit Principal / Secondary toggle choice for the current table; the other table takes the opposite role. Principal and one-side joins remain editable through entries below all table fields. Only the secondary table receives a virtual field, including in Excel. Schema 54 migrates existing joins using the library display order: Preprocessed Constants, Scenario Upstream, then KPI Preparation, including group placement and order within each category. Saved principal choices remain unchanged when tables are reordered. Removed virtual fields are also removed from KPI sources, field sources, and field groups.
 
 Joins without existing endpoint fields are omitted. Export does not modify the library configuration.
 
 ## Verification
 
 ```powershell
-node --test --test-isolation=none tests/tableSchemaJsonExport.test.ts
+node --import ./tests/register-ts.mjs --test --test-isolation=none tests/tableSchemaJsonExport.test.ts tests/tableRelations.test.ts
 npm run build
 ```
 

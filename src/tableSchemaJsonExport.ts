@@ -1,3 +1,4 @@
+import { relationPrincipalId, visibleRelationFields } from './tableRelations.js';
 import type { DataSource, DataSourceField, KpiPoolConfig, TableSourceCategory } from './types.js';
 import { fieldFlags } from './fieldFlags.js';
 
@@ -48,7 +49,7 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
   for (const table of config.dataSources) {
     const names = new Map<string, string[]>();
     const allocateFieldName = nameAllocator('Field');
-    const fields = table.fields.flatMap((field) => {
+    const fields = visibleRelationFields(table, config.dataSources, config.tableRelations).flatMap((field) => {
       const dimensions = table.fieldGroups.find((group) => group.fieldIds.includes(field.id))?.dimensions ?? [];
       // Cartesian product, preserving dimension and option order. A dimension
       // with no options contributes no concrete fields to the schema.
@@ -96,17 +97,18 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
     const source = tablesById.get(relation.sourceDataSourceId);
     const target = tablesById.get(relation.targetDataSourceId);
     if (!source || !target) continue;
-    if (relation.cardinality === 'oneToOne') {
-      addJoin(source, target, '1:1', primaryKey(source), primaryKey(target));
-      addJoin(target, source, '1:1', primaryKey(target), primaryKey(source));
-    } else if (relation.cardinality === 'oneToMany') {
+    if (relation.cardinality === 'oneToMany') {
       const foreignKey = relationField(target, relation.id, 'manyForeignKey');
       addJoin(source, target, '1:N', primaryKey(source), foreignKey);
       addJoin(target, source, 'N:1', foreignKey, primaryKey(source));
     } else {
-      // Each collection contains IDs of records in the other table.
-      addJoin(source, target, 'N:N', relationField(source, relation.id, 'sourceCollection'), primaryKey(target));
-      addJoin(target, source, 'N:N', relationField(target, relation.id, 'targetCollection'), primaryKey(source));
+      const principal = relationPrincipalId(relation, config.dataSources) === source.id ? source : target;
+      const secondary = principal === source ? target : source;
+      const foreignKey = relationField(secondary, relation.id, relation.cardinality === 'oneToOne'
+        ? 'secondaryForeignKey' : secondary === source ? 'sourceCollection' : 'targetCollection');
+      const type = relation.cardinality === 'oneToOne' ? '1:1' : 'N:N';
+      addJoin(principal, secondary, type, primaryKey(principal), foreignKey);
+      addJoin(secondary, principal, type, foreignKey, primaryKey(principal));
     }
   }
 

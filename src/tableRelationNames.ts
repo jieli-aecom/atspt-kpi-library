@@ -34,7 +34,7 @@ export const synchronizeRelationKeyNames = (
     const desired = new Map<string, string>();
     for (const field of source.fields) {
       const relation = field.generatedRelationId && relationById.get(field.generatedRelationId);
-      if (!relation || relation.cardinality === 'oneToOne') continue;
+      if (!relation) continue;
       const ownerId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
       const keyName = renamedKeys.get(ownerId);
       if (keyName !== undefined) desired.set(field.id, field.dataType === 'collection' ? collectionRelationName(keyName) : keyName.trim());

@@ -36,13 +36,14 @@ test('exports categories without groups, normalized keys and fields, and collect
 test('keeps colliding names and join references unique even across categories', () => {
   const result = exportJson([
     table('a', 'Road Network', { fields: [field('a-pk', 'Road ID'), field('other', 'Road-ID')] }),
-    table('b', 'Road-Network', { category: 'Scenario Upstream' }),
+    table('b', 'Road-Network', { category: 'Scenario Upstream', fields: [field('b-pk', 'Road-Network ID'),
+      field('a-fk', 'Road ID', { generatedRelationId: 'r', generatedRelationRole: 'secondaryForeignKey' })] }),
     table('c', 'RoadNetwork_2')
   ], [{ id: 'r', sourceDataSourceId: 'a', targetDataSourceId: 'b', cardinality: 'oneToOne' }]);
   assert.equal(result.PreprocessedConstants.RoadNetwork.Fields[1].Name, 'RoadID_2');
   assert.ok(result.PreprocessedConstants.RoadNetwork_2_2);
   assert.deepEqual(result.PreprocessedConstants.RoadNetwork.Joins, [
-    { With: 'RoadNetwork_2', Type: '1:1', LeftOn: 'RoadID', RightOn: 'RoadNetworkID' }
+    { With: 'RoadNetwork_2', Type: '1:1', LeftOn: 'RoadID', RightOn: 'RoadID' }
   ]);
   assert.equal(result.ScenarioUpstream.RoadNetwork_2.Joins[0].With, 'RoadNetwork');
 });
@@ -69,8 +70,7 @@ test('exports 1:N using the primary and foreign key with reversed N:1 on the oth
   assert.deepEqual(result.Parent.Joins, [{ With: 'Child', Type: '1:N', LeftOn: 'ParentID', RightOn: 'ParentID' }]);
   assert.deepEqual(result.Child.Joins, [{ With: 'Parent', Type: 'N:1', LeftOn: 'ParentID', RightOn: 'ParentID' }]);
   assert.deepEqual(result.Parent.Fields, [
-    { Name: 'ParentID', Type: 'id' },
-    { Name: 'ChildIDs', Type: 'collection', ElementType: 'id', Virtual: true }
+    { Name: 'ParentID', Type: 'id' }
   ]);
   assert.deepEqual(result.Child.Fields, [
     { Name: 'ChildID', Type: 'id' },
@@ -78,16 +78,17 @@ test('exports 1:N using the primary and foreign key with reversed N:1 on the oth
   ]);
 });
 
-test('exports N:N using each local collection of IDs and the other table primary key', () => {
+test('exports N:N using only the secondary collection and the principal primary key', () => {
   const sources = [table('a', 'Road', { fields: [field('a-pk', 'Road ID'),
     field('bs', 'Route IDs', { dataType: 'collection', collectionItemType: 'id', generatedRelationId: 'r', generatedRelationRole: 'sourceCollection' })] }),
   table('b', 'Route', { fields: [field('b-pk', 'Route ID'),
     field('as', 'Road IDs', { dataType: 'collection', collectionItemType: 'id', generatedRelationId: 'r', generatedRelationRole: 'targetCollection' })] })];
   const result = exportJson(sources, [{ id: 'r', sourceDataSourceId: 'a', targetDataSourceId: 'b', cardinality: 'manyToMany' }]).PreprocessedConstants;
-  assert.deepEqual(result.Road.Joins, [{ With: 'Route', Type: 'N:N', LeftOn: 'RouteIDs', RightOn: 'RouteID' }]);
+  assert.deepEqual(result.Road.Joins, [{ With: 'Route', Type: 'N:N', LeftOn: 'RoadID', RightOn: 'RoadIDs' }]);
   assert.deepEqual(result.Route.Joins, [{ With: 'Road', Type: 'N:N', LeftOn: 'RoadIDs', RightOn: 'RoadID' }]);
+  assert.equal(result.Road.Fields.length, 1);
+  assert.equal(result.Route.Fields[1].Virtual, true);
   for (const own of Object.values(result) as any[]) {
-    assert.equal(own.Fields[1].Virtual, true);
     assert.equal(Object.hasOwn(own.Fields[0], 'Virtual'), false);
     for (const join of own.Joins) {
       assert.ok(own.Fields.some((entry: any) => entry.Name === join.LeftOn));

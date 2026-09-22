@@ -195,12 +195,8 @@ const relationLabel = (relation: TableRelation) => relation.cardinality === 'one
     ? 'N : N'
     : '1 : N';
 
-const relationField = (table: DiagramTable, relation: TableRelation, sourceEnd: boolean) => {
-  const generated = table.source.fields.find((field) => field.generatedRelationId === relation.id && (
-    sourceEnd
-      ? field.generatedRelationRole === 'oneCollection' || field.generatedRelationRole === 'sourceCollection'
-      : field.generatedRelationRole === 'manyForeignKey' || field.generatedRelationRole === 'targetCollection'
-  ));
+const relationField = (table: DiagramTable, relation: TableRelation) => {
+  const generated = table.source.fields.find((field) => field.generatedRelationId === relation.id);
   return generated ?? table.source.fields.find((field) => field.id === table.source.primaryKeyFieldId);
 };
 
@@ -529,8 +525,8 @@ export function TableDiagram({ config, onClose, onViewSupport, renderFieldSummar
                 const targetPosition = tablePositions[target.source.id] ?? { x: target.x, y: target.y };
                 const sourceDeltaY = sourcePosition.y - source.y;
                 const targetDeltaY = targetPosition.y - target.y;
-                const sourceField = relationField(source, relation, true);
-                const targetField = relationField(target, relation, false);
+                const sourceField = relationField(source, relation);
+                const targetField = relationField(target, relation);
                 const sourceY = (sourceField ? source.fieldY.get(sourceField.id) ?? source.y + CARD_HEADER_HEIGHT : source.y + CARD_HEADER_HEIGHT) + sourceDeltaY;
                 const targetY = (targetField ? target.fieldY.get(targetField.id) ?? target.y + CARD_HEADER_HEIGHT : target.y + CARD_HEADER_HEIGHT) + targetDeltaY;
                 const targetToRight = targetPosition.x >= sourcePosition.x + source.width / 2;

@@ -1,3 +1,4 @@
+import { visibleRelationFields } from './tableRelations.js';
 import { fieldFlagsText, fieldFlagTone } from './fieldFlags';
 import { sourceTableUnit } from './types.js';
 import JSZip from 'jszip';
@@ -530,12 +531,13 @@ const tableSchemaFieldDimensions = (config: KpiPoolConfig, source: DataSource, f
   .join('; ');
 
 function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
-  const ordinaryFields = source.fields.filter((field) => !field.generatedRelationId);
-  const virtualFields = source.fields.filter((field) => field.generatedRelationId);
+  const fields = visibleRelationFields(source, config.dataSources, config.tableRelations);
+  const ordinaryFields = fields.filter((field) => !field.generatedRelationId);
+  const virtualFields = fields.filter((field) => field.generatedRelationId);
   const headerRow = 3;
   const firstDataRow = headerRow + 1;
   const joinRow = virtualFields.length ? firstDataRow + ordinaryFields.length : undefined;
-  const lastRow = headerRow + source.fields.length + (joinRow ? 1 : 0);
+  const lastRow = headerRow + fields.length + (joinRow ? 1 : 0);
   const lastColumnName = columnName(tableSchemaColumns.length);
   // Size columns from headers and field values, excluding merged title/section rows.
   const widths = tableSchemaColumns.map((label) => label.length + 2);
@@ -575,7 +577,7 @@ function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
     .join('');
   const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`, ...(joinRow ? [`A${joinRow}:${lastColumnName}${joinRow}`] : [])];
   const spatialUnit = sourceTableUnit(source) || 'Not specified';
-  const fieldCount = `${source.fields.length} field${source.fields.length === 1 ? '' : 's'}`;
+  const fieldCount = `${fields.length} field${fields.length === 1 ? '' : 's'}`;
   const sourceGroup = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id));
   const sourceGroupName = sourceGroup?.name.trim();
   const category = sourceGroup?.category ?? source.category ?? 'Preprocessed Constants';

@@ -150,13 +150,14 @@ test('schema formatting uses category tabs, compact sizing and semantic cell fil
     fields: [base,
       { ...base, id: 'red', details: 'Needs cleaning', preprocessingNeeded: true, derived: true, potentiallyUnavailable: true, potentiallyUnavailableNote: 'Coverage varies', formulas: [formula], dataType: 'collection' },
       { ...base, id: 'blue', derived: true, formulas: [formula], dataType: 'collection' },
-      { ...base, id: 'green', preprocessingNeeded: true, dataType: 'collection', generatedRelationId: 'join' },
+      { ...base, id: 'green', preprocessingNeeded: true, dataType: 'collection', generatedRelationId: 'join', generatedRelationRole: 'sourceCollection' },
       { ...base, id: 'long', meaning: 'x'.repeat(200) }
     ],
     fieldGroups: [{ id: 'dimensions', position: 0, fieldIds: ['red'], dimensions: [{ id: 'dim', name: 'Period', options: ['AM', 'PM'] }] }]
   },
   { id: 'upstream', name: 'Upstream', spatialUnit: '', category: 'Scenario Upstream', fields: [], fieldGroups: [] },
   { id: 'prep', name: 'Prep', spatialUnit: '', category: 'KPI Preparation', fields: [], fieldGroups: [] }];
+  config.tableRelations = [{ id: 'join', sourceDataSourceId: 'table', targetDataSourceId: 'upstream', cardinality: 'manyToMany', principalDataSourceId: 'upstream' }];
   config.dataSourceGroups = [{ id: 'group', name: 'Constants', category: 'Preprocessed Constants', itemIds: ['table'], position: 0 }];
   const zip = await JSZip.loadAsync(await createTableSchemaExcelWorkbook(config));
   const styles = await zip.file('xl/styles.xml')!.async('string');
