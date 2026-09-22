@@ -6292,7 +6292,7 @@ function DataSourceHeader({
                       </span> : null}
                     </span>
                     <div className="data-source-expander-actions">
-                      <button className="mini-icon-button" type="button" title="Edit table details and view supported KPIs" aria-label={`View KPIs supported by ${source.name || 'table'}`} onClick={() => setSupportTarget({ dataSourceId: source.id })}><Eye size={13} /></button>
+                      <button className="mini-icon-button" type="button" title="Edit table details and view supported KPIs" aria-label={`View KPIs supported by ${source.name || 'table'}`} onClick={() => setSupportTarget({ dataSourceId: source.id })}><Ellipsis size={14} aria-hidden="true" /></button>
                       <button className="mini-icon-button" type="button" title="Copy data source" aria-label={`Copy ${source.name || 'data source'}`} onClick={() => duplicateDataSource(sourceIndex)}><Copy size={12} /></button>
                       <button className="mini-icon-button danger" type="button" title="Delete data source" aria-label={`Delete ${source.name || 'data source'}`} onClick={() => deleteDataSource(sourceIndex)}><Trash2 size={13} /></button>
                     </div>
