@@ -10,6 +10,7 @@ import { filteredUseCaseIds, matchesUseCaseSelection, reorderEnumOption, compare
 import { sourceTableUnit, sourceTableUnitLatex } from './types.js';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { installPopupDragGuard } from './popupDragGuard';
+import { installVerticalScrollChaining } from './scrollChaining';
 import { sameKpiMaterial, sameStructuredValue } from './kpiEquality';
 import { isScenarioTable, normalizeScenarioNames, reconcileKpiScenarios, scenarioLatex, scenarioFormulaTokens, scenarioBaseFromLatex, sourceSelectionKey, groupSourceSelections } from './scenarios';
 import { kpiScenarioTypes, kpiStatuses, type KpiStatus } from './types';
@@ -2226,6 +2227,11 @@ function FormulaDisplay({
   const comment = kpi.description.formulaComment;
   const hasFormula = formulas.some((group) => group.items.some((item) => item.formula.trim()));
   const displayRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const element = displayRef.current;
+    if (element) return installVerticalScrollChaining(element);
+  }, []);
 
   useEffect(() => {
     const element = displayRef.current;
@@ -6894,6 +6900,10 @@ function KpiSourceEditor({
   const sourcePickerSectionRef = useRef<HTMLElement | null>(null);
   const sourceTablePickerPanelRef = useRef<HTMLFieldSetElement | null>(null);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
+  useEffect(() => {
+    const trigger = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
+    if (compact && trigger) return installVerticalScrollChaining(trigger);
+  }, [compact, controlRef]);
   const stopSourceControlClick = (event: React.MouseEvent) => event.stopPropagation();
   const stopSourcePopoverPointerEvent = (event: React.PointerEvent) => event.stopPropagation();
   const stopSourcePopoverMouseEvent = (event: React.MouseEvent) => event.stopPropagation();

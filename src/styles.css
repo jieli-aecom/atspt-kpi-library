@@ -5010,7 +5010,8 @@ h1 {
   max-height: 190px;
   overflow-x: hidden;
   overflow-y: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
 }
 
 .kpi-source-summary {
