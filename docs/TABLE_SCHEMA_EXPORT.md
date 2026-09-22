@@ -34,3 +34,9 @@ npm run build
 JSON retains all existing category, table, field, dimension-expansion, and join conventions. Flagged fields additionally include `Flags`, an array of `{ "Name": "Preprocessing Needed" | "Derived" | "Potentially Unavailable", "Note"?: "..." }` in P/D/U order. Notes are included when populated for an active flag; unflagged fields omit `Flags`. Every expanded field inherits its source field flags. Consumers that ignore unknown keys continue to work.
 
 Excel replaces the two preprocessing columns with one `Flags` column, with semicolon-separated labels and optional notes after a colon. Ordinary rows have no fill, virtual rows use gray, populated `By` cells retain their fill, and populated `Flags` cells use red/orange/blue in U/P/D priority. Collection type and formula presence no longer color rows.
+
+## Optional principal fields (schema 55)
+
+Principal and one-side join entries below the fields offer **Expand field** and **Collapse field**. Expansion adds the related table's ID (1:1) or collection of IDs (1:N and N:N) to that table and includes it in Excel and table-schema JSON. The choice survives save, reload, and HTML export/import. Fields remain collapsed by default when migrating existing joins.
+
+Collapsing removes the optional field from the table and exports, retaining the join entry and the other side's field. Field names and notes are retained for re-expansion. References to the collapsed field are removed from KPI sources, field sources, and field groups. Expanding a one-side collection establishes a primary key on the many table if it does not already have one.

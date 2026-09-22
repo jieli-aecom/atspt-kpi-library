@@ -23,11 +23,14 @@ export const relationPrincipalId = (relation: TableRelation, tables: DataSource[
 
 export const relationFieldRole = (relation: TableRelation, tableId: string): DataSourceField['generatedRelationRole'] => {
   if (tableId !== relation.sourceDataSourceId && tableId !== relation.targetDataSourceId) return undefined;
-  if (relation.cardinality === 'oneToMany') return tableId === relation.targetDataSourceId ? 'manyForeignKey' : undefined;
-  if (tableId === relation.principalDataSourceId) return undefined;
-  if (relation.cardinality === 'oneToOne') return 'secondaryForeignKey';
+  if (relation.cardinality === 'oneToMany') return tableId === relation.targetDataSourceId ? 'manyForeignKey' : relation.principalFieldExpanded ? 'oneCollection' : undefined;
+  if (tableId === relation.principalDataSourceId && !relation.principalFieldExpanded) return undefined;
+  if (relation.cardinality === 'oneToOne') return tableId === relation.principalDataSourceId ? 'principalForeignKey' : 'secondaryForeignKey';
   return tableId === relation.sourceDataSourceId ? 'sourceCollection' : 'targetCollection';
 };
+
+export const relationFieldIsCollection = (role: DataSourceField['generatedRelationRole']) =>
+  role === 'oneCollection' || role === 'sourceCollection' || role === 'targetCollection';
 
 export const visibleRelationFields = (table: DataSource, tables: DataSource[], relations: TableRelation[]) =>
   table.fields.filter((field) => {

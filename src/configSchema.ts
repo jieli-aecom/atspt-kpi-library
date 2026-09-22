@@ -1,4 +1,4 @@
-import { relationPrincipalId, relationFieldRole, relationTableOrder } from './tableRelations.js';
+import { relationPrincipalId, relationFieldRole, relationFieldIsCollection, relationTableOrder } from './tableRelations.js';
 import { uniqueRelationName } from './tableRelationNames.js';
 import { migrateCellTerminology } from './globalDefinitions.js';
 import { hasUniqueKpiNumbers, isKpiNumber, reconcileKpiNumbers } from './kpiNumbers.js';
@@ -143,7 +143,7 @@ const dataSourceFieldSchema = z.object({
   options: z.array(z.string()),
   enumId: z.string().min(1).optional(),
   generatedRelationId: z.string().min(1).optional(),
-  generatedRelationRole: z.enum(['oneCollection', 'manyForeignKey', 'sourceCollection', 'targetCollection', 'secondaryForeignKey']).optional()
+  generatedRelationRole: z.enum(['oneCollection', 'manyForeignKey', 'sourceCollection', 'targetCollection', 'secondaryForeignKey', 'principalForeignKey']).optional()
 });
 
 const dataSourceFieldDimensionSchema = z.object({
@@ -179,7 +179,9 @@ const tableRelationSchema = z.object({
   sourceDataSourceId: z.string().min(1),
   targetDataSourceId: z.string().min(1),
   cardinality: z.enum(['oneToOne', 'oneToMany', 'manyToMany']),
-  principalDataSourceId: z.string().min(1).optional()
+  principalDataSourceId: z.string().min(1).optional(),
+  principalFieldExpanded: z.boolean().optional(),
+  collapsedPrincipalField: dataSourceFieldSchema.optional()
 });
 
 const lookupSchema = z.object({
@@ -530,7 +532,8 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
               field.generatedRelationRole === 'manyForeignKey' ||
               field.generatedRelationRole === 'sourceCollection' ||
               field.generatedRelationRole === 'targetCollection' ||
-              field.generatedRelationRole === 'secondaryForeignKey')
+              field.generatedRelationRole === 'secondaryForeignKey' ||
+              field.generatedRelationRole === 'principalForeignKey')
         )
     )
   ) {
@@ -719,6 +722,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       const source = dataSourceById.get(relation.sourceDataSourceId);
       const target = dataSourceById.get(relation.targetDataSourceId);
       return !source || !target || source.id === target.id || !source.primaryKeyFieldId ||
+        (relation.principalFieldExpanded && !target.primaryKeyFieldId) ||
         (relation.cardinality !== 'oneToMany' && (!target.primaryKeyFieldId ||
           ![source.id, target.id].includes(relation.principalDataSourceId ?? '')));
     }) ||
@@ -728,7 +732,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       if (!relation) return true;
       const role = relationFieldRole(relation, source.id);
       return !role || field.generatedRelationRole !== role ||
-        field.dataType !== (relation.cardinality === 'manyToMany' ? 'collection' : 'id');
+        field.dataType !== (relationFieldIsCollection(role) ? 'collection' : 'id');
     })) ||
     currentRelations.some((relation) => currentDataSources.some((source) => {
       const role = relationFieldRole(relation, source.id);
@@ -2063,7 +2067,8 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
         rawField.generatedRelationRole === 'manyForeignKey' ||
         rawField.generatedRelationRole === 'sourceCollection' ||
         rawField.generatedRelationRole === 'targetCollection' ||
-        rawField.generatedRelationRole === 'secondaryForeignKey'
+        rawField.generatedRelationRole === 'secondaryForeignKey' ||
+        rawField.generatedRelationRole === 'principalForeignKey'
         ? rawField.generatedRelationRole
         : undefined;
       const enumId = stringValue(rawField.enumId).trim();
@@ -2244,6 +2249,11 @@ const repairTableRelations = (rawValue: unknown, dataSources: DataSource[], warn
       sourceDataSourceId: source.id,
       targetDataSourceId: target.id,
       cardinality,
+      ...(rawRelation.principalFieldExpanded === true ? { principalFieldExpanded: true } : {}),
+      ...(() => {
+        const cached = dataSourceFieldSchema.safeParse(rawRelation.collapsedPrincipalField);
+        return cached.success ? { collapsedPrincipalField: cached.data as DataSourceField } : {};
+      })(),
       ...(cardinality !== 'oneToMany' ? { principalDataSourceId: relationPrincipalId({
         id: '', sourceDataSourceId, targetDataSourceId, cardinality,
         principalDataSourceId: stringValue(rawRelation.principalDataSourceId)
@@ -2254,6 +2264,18 @@ const repairTableRelations = (rawValue: unknown, dataSources: DataSource[], warn
 
 export const reconcileRelationFields = (dataSources: DataSource[], relations: TableRelation[]): DataSource[] => {
   const relationById = new Map(relations.map((relation) => [relation.id, relation]));
+  // An expanded one-side collection needs actual record IDs on the many table.
+  dataSources = dataSources.map((source) => {
+    if (source.primaryKeyFieldId || !relations.some((relation) => relation.cardinality === 'oneToMany' && relation.principalFieldExpanded && relation.targetDataSourceId === source.id)) return source;
+    const grouped = new Set(source.fieldGroups.flatMap((group) => group.fieldIds));
+    const existing = source.fields.find((field) => field.dataType === 'id' && !field.generatedRelationId && !grouped.has(field.id));
+    if (existing) return { ...source, primaryKeyFieldId: existing.id };
+    const key: DataSourceField = {
+      id: createId('field'), name: uniqueRelationName(new Set(source.fields.map((field) => field.name.toLocaleLowerCase())), fallbackRelationKeyName(source)),
+      meaning: `Primary key for ${source.name}`, details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: []
+    };
+    return { ...source, primaryKeyFieldId: key.id, fields: [...source.fields, key] };
+  });
   const sourceById = new Map(dataSources.map((source) => [source.id, source]));
   return dataSources.map((source) => {
     const seenRelations = new Set<string>();
@@ -2263,8 +2285,8 @@ export const reconcileRelationFields = (dataSources: DataSource[], relations: Ta
       const role = relation && relationFieldRole(relation, source.id);
       if (!relation || !role || field.generatedRelationRole !== role || seenRelations.has(relation.id)) return [];
       seenRelations.add(relation.id);
-      return [{ ...field, dataType: relation.cardinality === 'manyToMany' ? 'collection' : 'id',
-        collectionItemType: relation.cardinality === 'manyToMany' ? 'id' : undefined,
+      return [{ ...field, dataType: relationFieldIsCollection(role) ? 'collection' : 'id',
+        collectionItemType: relationFieldIsCollection(role) ? 'id' : undefined,
         valueUnit: '', enumId: undefined, options: [] }];
     });
     const names = new Set(fields.map((field) => field.name.trim().toLocaleLowerCase()));
@@ -2274,15 +2296,16 @@ export const reconcileRelationFields = (dataSources: DataSource[], relations: Ta
       const other = sourceById.get(source.id === relation.sourceDataSourceId ? relation.targetDataSourceId : relation.sourceDataSourceId);
       const key = other?.fields.find((field) => field.id === other.primaryKeyFieldId);
       const keyName = key?.name.trim() || fallbackRelationKeyName(other);
-      const collection = relation.cardinality === 'manyToMany';
+      const collection = relationFieldIsCollection(role);
+      const cached = source.id === relationPrincipalId(relation, dataSources) ? relation.collapsedPrincipalField : undefined;
       fields.push({
-        id: createId('field'),
-        name: uniqueRelationName(names, collection ? collectionRelationFieldName(keyName) : keyName),
         meaning: collection ? `Related ${other?.name ?? 'table'} record IDs` : `ID of the related ${other?.name ?? 'table'} record`,
         details: '', preprocessingNeeded: false, preferredLatex: '',
-        dataType: collection ? 'collection' : 'id',
-        ...(collection ? { collectionItemType: 'id' as const } : {}),
-        valueUnit: '', options: [], generatedRelationId: relation.id, generatedRelationRole: role
+        ...cached,
+        id: cached && !fields.some((field) => field.id === cached.id) ? cached.id : createId('field'),
+        name: uniqueRelationName(names, cached?.name || (collection ? collectionRelationFieldName(keyName) : keyName)),
+        dataType: collection ? 'collection' : 'id', collectionItemType: collection ? 'id' : undefined,
+        valueUnit: '', enumId: undefined, options: [], generatedRelationId: relation.id, generatedRelationRole: role
       });
     }
     const fieldIds = new Set(fields.map((field) => field.id));
@@ -3002,6 +3025,22 @@ export const repairConfig = (input: unknown): RepairResult => {
   }
 
   return { config: parsed.data as KpiPoolConfig, warnings };
+};
+
+/** Materialize or collapse the optional field while retaining its edits for re-expansion. */
+export const setPrincipalFieldExpanded = (config: KpiPoolConfig, relationId: string, expanded: boolean): KpiPoolConfig => {
+  const relation = config.tableRelations.find((entry) => entry.id === relationId);
+  if (!relation || Boolean(relation.principalFieldExpanded) === expanded) return config;
+  const principal = config.dataSources.find((source) => source.id === relationPrincipalId(relation, config.dataSources));
+  const field = principal?.fields.find((entry) => entry.generatedRelationId === relation.id);
+  const next = {
+    ...config,
+    tableRelations: config.tableRelations.map((entry) => entry.id === relation.id ? {
+      ...entry, principalFieldExpanded: expanded,
+      ...(field && !expanded ? { collapsedPrincipalField: field } : {})
+    } : entry)
+  };
+  return repairConfig(next).config;
 };
 
 export const prepareForExport = (config: KpiPoolConfig): KpiPoolConfig => {

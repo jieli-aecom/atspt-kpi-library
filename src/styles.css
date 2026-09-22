@@ -7738,3 +7738,7 @@ h1 {
 }
 .table-principal-relation > span { min-width: 0; overflow-wrap: anywhere; }
 .relation-role-toggle button { display: block; text-align: center; }
+
+.table-principal-relation { flex-wrap: wrap; }
+.relation-expand-toggle svg { transform: rotate(-90deg); }
+.relation-expand-toggle svg.is-expanded { transform: rotate(0deg); }
