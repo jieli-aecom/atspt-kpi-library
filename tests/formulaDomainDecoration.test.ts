@@ -6,6 +6,8 @@ import ts from 'typescript';
 import katex from 'katex';
 import { defaultSpatialScaleDefinitions, spatialScaleDefinitionKeys, genericSpatialUnits } from '../src/types.ts';
 import { indexedScaleLatex } from '../src/globalDefinitions.ts';
+import { createBlankConfig } from '../src/configSchema.ts';
+import { kpiCatalogChangeAffectsRow } from '../src/kpiCatalogChanges.ts';
 
 // Exercise the actual renderer without mounting the application's browser UI.
 const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
@@ -130,14 +132,10 @@ test('logic commands decorate without sources, including inside source/result ex
 });
 
 test('catalog changes invalidate visible rows for scale names and new logic without editing the KPI', () => {
-  const start = app.indexOf('const kpiCatalogChangeAffectsRow =');
-  const end = app.indexOf('const sameMeasuredKpiRowProps =', start);
-  const compiled = ts.transpileModule(`${app.slice(start, end)}; kpiCatalogChangeAffectsRow`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const affects = runInNewContext(compiled);
-  const config = { spatialScaleDefinitions: {}, logic: [], kpis: [] };
-  assert.equal(affects(config, { ...config, logic: [{ latex: '\\max' }] }, 'kpi'), true);
-  assert.equal(affects(config, { ...config, spatialScaleDefinitions: {} }, 'kpi'), true);
-  assert.equal(affects(config, { ...config }, 'kpi'), false);
+  const config = createBlankConfig();
+  assert.equal(kpiCatalogChangeAffectsRow(config, { ...config, logic: [{ id: 'max', latex: '\\max', explanation: '' }] }, 'kpi'), true);
+  assert.equal(kpiCatalogChangeAffectsRow(config, { ...config, spatialScaleDefinitions: { ...config.spatialScaleDefinitions } }, 'kpi'), true);
+  assert.equal(kpiCatalogChangeAffectsRow(config, { ...config }, 'kpi'), false);
 });
 
 const cellIdSource = (latex = 'CellID_{Cell}', bases = ['Cell']) => ({

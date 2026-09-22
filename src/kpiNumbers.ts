@@ -25,8 +25,8 @@ export const kpiNumberError = (text: string, kpiId: string, kpis: readonly KpiMe
   if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(text.trim()) || !isKpiNumber(Number(text))) {
     return 'Enter a valid number.';
   }
-  return kpis.some((kpi) => kpi.id !== kpiId && kpi.displayNumber === Number(text))
-    ? `Number ${Number(text)} is already taken.` : '';
+  const owner = kpis.find((kpi) => kpi.id !== kpiId && kpi.displayNumber === Number(text));
+  return owner ? `Number ${Number(text)} is already taken by "${owner.name || 'Untitled KPI'}".` : '';
 };
 
 export const sortKpisByNumber = (

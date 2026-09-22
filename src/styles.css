@@ -5445,6 +5445,13 @@ h1 {
   margin-bottom: 8px;
 }
 
+.source-category-details {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 6px 6px;
+}
+
 .source-table-group-picker-title {
   display: flex;
   align-items: baseline;

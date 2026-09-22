@@ -8,15 +8,16 @@ export function KpiNumberInput({ kpi, kpis, onChange }: {
   onChange: (number: number | null) => void;
 }) {
   const [draft, setDraft] = useState(String(kpi.displayNumber ?? ''));
-  const [error, setError] = useState('');
+  const [validated, setValidated] = useState(false);
+  const error = validated ? kpiNumberError(draft, kpi.id, kpis) : '';
   const errorId = useId();
   useEffect(() => {
     setDraft(String(kpi.displayNumber ?? ''));
-    setError('');
+    setValidated(false);
   }, [kpi.displayNumber]);
   const commit = () => {
     const message = kpiNumberError(draft, kpi.id, kpis);
-    setError(message);
+    setValidated(true);
     if (!message) {
       const number = draft.trim() ? Number(draft) : null;
       setDraft(String(number ?? ''));
@@ -33,12 +34,12 @@ export function KpiNumberInput({ kpi, kpis, onChange }: {
       aria-describedby={error ? errorId : undefined}
       title={error || `KPI number: ${kpi.displayNumber ?? 'unassigned'}. Enter an unused number or leave blank.`}
       value={draft}
-      onChange={(event) => { setDraft(event.target.value); setError(''); }}
+      onChange={(event) => { setDraft(event.target.value); setValidated(false); }}
       onBlur={commit}
       onKeyDown={(event) => {
         event.stopPropagation();
         if (event.key === 'Enter') { event.preventDefault(); commit(); }
-        if (event.key === 'Escape') { setDraft(String(kpi.displayNumber ?? '')); setError(''); }
+        if (event.key === 'Escape') { setDraft(String(kpi.displayNumber ?? '')); setValidated(false); }
       }}
     />
     {error ? <span id={errorId} className="kpi-number-error" role="alert">{error}</span> : null}

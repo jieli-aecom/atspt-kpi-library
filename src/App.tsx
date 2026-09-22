@@ -4,6 +4,7 @@ import { FieldFlagBadge, FieldFlags, TableAvailabilityFlag } from './FieldFlagBa
 import { KpiNumberInput } from './KpiNumberInput';
 import { matchesKpiNumberAndScenario } from './kpiNameFilters';
 import { sortKpisByNumber } from './kpiNumbers';
+import { kpiCatalogChangeAffectsRow } from './kpiCatalogChanges';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
 import { sourceFilterKey, sourceTableFilterKey, sourceFilterEntry, matchesSourceFilters, sourceFlagOptions, type SourceFlag } from './sourceFilters';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
@@ -6930,7 +6931,7 @@ function KpiSourceEditor({
   const [popoverPosition, setPopoverPosition] = useState<{ top: number; left: number; width: number; maxHeight: number }>();
   const popoverRef = useRef<HTMLDivElement | null>(null);
   const sourcePickerSectionRef = useRef<HTMLElement | null>(null);
-  const sourceTablePickerPanelRef = useRef<HTMLFieldSetElement | null>(null);
+  const sourceTablePickerPanelRef = useRef<HTMLDivElement | null>(null);
   const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false), popoverRef);
   useEffect(() => {
     const trigger = controlRef.current?.querySelector<HTMLElement>(':scope > .cell-enum-trigger');
@@ -7488,7 +7489,7 @@ function KpiSourceEditor({
               <div className="source-table-group-picker-title">Source tables <small>Select a table or group</small></div>
               {tableSourceCategories.map((category) => <section className="table-source-category" key={category}>
                 <button className="table-source-category-heading" type="button" aria-expanded={!collapsedPickerCategories.includes(category)} onClick={() => { setCollapsedPickerCategories((current) => current.includes(category) ? current.filter((entry) => entry !== category) : [...current, category]); if ((selectedPickerDataSourceGroup?.category ?? (selectedDataSource ? selectedDataSource.category ?? 'Preprocessed Constants' : undefined)) === category) setPickerScope('tables'); }}><ChevronDown size={13} className={collapsedPickerCategories.includes(category) ? '' : 'is-expanded'} /><strong>{category}</strong></button>
-                {!collapsedPickerCategories.includes(category) ? <div className="source-table-group-buttons" aria-label={`Source tables and groups in ${category}`}>
+                {!collapsedPickerCategories.includes(category) ? <><div className="source-table-group-buttons" aria-label={`Source tables and groups in ${category}`}>
                 {!pickerDataSourceGroups.some((group) => group.category === category) && !ungroupedPickerDataSources.some((source) => (source.category ?? 'Preprocessed Constants') === category) ? <span className="empty-option">No source tables.</span> : null}
                 {pickerDataSourceGroups.filter((group) => group.category === category).map((group) => {
                   const isActive = selectedPickerDataSourceGroup?.id === group.id;
@@ -7506,19 +7507,43 @@ function KpiSourceEditor({
                 {ungroupedPickerDataSources.filter((source) => (source.category ?? 'Preprocessed Constants') === category).map((source) => (
                   <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={`table:${source.id}`} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? 'tables' : `data:${source.id}`); setQuery(''); }}><Table2 size={13} aria-hidden="true" /><span><strong>{spatiallyScaledTableLabel(source.name, sourceTableUnit(source))}</strong></span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
                 ))}
-              </div> : null}
+              </div>
+                {(selectedPickerDataSourceGroup?.category ?? selectedDataSource?.category ?? (selectedDataSource ? 'Preprocessed Constants' : undefined)) === category ? <div className="source-category-details" ref={sourceTablePickerPanelRef}>
+                  {selectedPickerDataSourceGroup ? <fieldset className="source-scope-panel source-table-picker-panel">
+                    <legend>{selectedPickerDataSourceGroup.category} / {selectedPickerDataSourceGroup.name}</legend>
+                    {selectedPickerDataSourceGroup.dataSources.length === 0 ? <span className="empty-option">No tables in this group.</span> : null}
+                    <div className="source-table-buttons" aria-label={`Tables in ${selectedPickerDataSourceGroup.name}`}>
+                      {selectedPickerDataSourceGroup.dataSources.map((source) => (
+                        <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? `data-group:${selectedPickerDataSourceGroup.id}` : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(source.name, sourceTableUnit(source))}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
+                      ))}
+                    </div>
+                  </fieldset> : null}
+                  {selectedDataSource ? <label className="popover-search"><Search size={13} /><input value={query} placeholder="Search fields…" onChange={(event) => setQuery(event.target.value)} /></label> : null}
+                  {selectedDataSource ? (
+                  <fieldset className="source-scope-panel">
+                    <legend>Fields in {selectedDataSource.name}{sourceTableUnit(selectedDataSource) ? ` · ${sourceTableUnit(selectedDataSource)}` : ''}</legend>
+                    <TableAvailabilityFlag table={selectedDataSource} />
+                    {filterMode ? <label className="source-choice-row source-whole-table-choice"><input type="checkbox" checked={filterMode.tables.includes(selectedDataSource.id)} onChange={() => toggleFilterTable(selectedDataSource.id)} /><span><strong>Entire table: {selectedDataSource.name}</strong><small>Match KPIs using any field from this table.</small></span></label> : null}
+                    {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
+                    {visibleFields.map((field) => {
+                      const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));
+                      const dimensionLabel = fieldGroupDimensionLabel(group);
+                      const fieldItem = { id: '', type: 'dataField' as const, dataSourceId: selectedDataSource.id, fieldId: field.id, latex: '' };
+                      const fieldDomain = sourceItemFieldDomain(config, fieldItem);
+                      return (
+                        <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
+                          <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
+                          <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}{filterMode ? <FieldFlags field={field} compact /> : null}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(config, group.dimensions)}` : ''}</small></span>
+                        </label>
+                      );
+                    })}
+                  </fieldset>
+                  ) : null}
+                </div> : null}
+              </> : null}
               </section>)}
             </div> : null}
-            {selectedPickerDataSourceGroup ? <fieldset className="source-scope-panel source-table-picker-panel" ref={sourceTablePickerPanelRef}>
-              <legend>{selectedPickerDataSourceGroup.category} / {selectedPickerDataSourceGroup.name}</legend>
-              {selectedPickerDataSourceGroup.dataSources.length === 0 ? <span className="empty-option">No tables in this group.</span> : null}
-              <div className="source-table-buttons" aria-label={`Tables in ${selectedPickerDataSourceGroup.name}`}>
-                {selectedPickerDataSourceGroup.dataSources.map((source) => (
-                  <button className={`source-table-button ${pickerScope === `data:${source.id}` ? 'is-active' : ''}`} type="button" aria-expanded={pickerScope === `data:${source.id}`} key={source.id} onClick={() => { setPickerScope((current) => current === `data:${source.id}` ? `data-group:${selectedPickerDataSourceGroup.id}` : `data:${source.id}`); setQuery(''); }}><Table2 size={12} aria-hidden="true" /><span>{spatiallyScaledTableLabel(source.name, sourceTableUnit(source))}</span><ChevronDown size={11} className={pickerScope === `data:${source.id}` ? 'rotate' : ''} /></button>
-                ))}
-              </div>
-            </fieldset> : null}
-            {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' || selectedDataSource ? (
+            {pickerScope === 'kpis' || pickerScope === 'lookups' || pickerScope === 'variables' ? (
               <label className="popover-search"><Search size={13} /><input value={query} autoFocus={!selectedDataSource} placeholder={!fieldOwner && pickerScope === 'kpis' ? 'Search KPIs…' : pickerScope === 'lookups' ? 'Search lookups…' : pickerScope === 'variables' ? 'Search constants…' : 'Search fields…'} onChange={(event) => setQuery(event.target.value)} /></label>
             ) : null}
             {!fieldOwner && pickerScope === 'kpis' ? (
@@ -7562,26 +7587,6 @@ function KpiSourceEditor({
                 ];
               })}
               {config.variableGroups.filter((group) => group.position === config.variables.length).map(renderVariablePickerGroup)}
-            </fieldset>
-            ) : null}
-            {selectedDataSource ? (
-            <fieldset className="source-scope-panel" ref={selectedPickerDataSourceGroup ? undefined : sourceTablePickerPanelRef}>
-              <legend>Fields in {selectedDataSource.name}{sourceTableUnit(selectedDataSource) ? ` · ${sourceTableUnit(selectedDataSource)}` : ''}</legend>
-              <TableAvailabilityFlag table={selectedDataSource} />
-              {filterMode ? <label className="source-choice-row source-whole-table-choice"><input type="checkbox" checked={filterMode.tables.includes(selectedDataSource.id)} onChange={() => toggleFilterTable(selectedDataSource.id)} /><span><strong>Entire table: {selectedDataSource.name}</strong><small>Match KPIs using any field from this table.</small></span></label> : null}
-              {visibleFields.length === 0 ? <span className="empty-option">No matching fields.</span> : null}
-              {visibleFields.map((field) => {
-                const group = selectedDataSource.fieldGroups.find((entry) => entry.fieldIds.includes(field.id));
-                const dimensionLabel = fieldGroupDimensionLabel(group);
-                const fieldItem = { id: '', type: 'dataField' as const, dataSourceId: selectedDataSource.id, fieldId: field.id, latex: '' };
-                const fieldDomain = sourceItemFieldDomain(config, fieldItem);
-                return (
-                  <label className={`source-choice-row ${field.dataType === 'collection' ? 'is-collection' : ''}`} key={field.id}>
-                    <input type="checkbox" checked={kpi.sources.some((item) => item.type === 'dataField' && item.dataSourceId === selectedDataSource.id && item.fieldId === field.id)} onChange={() => toggleDataField(selectedDataSource.id, field.id)} />
-                    <span><strong>{dimensionedSourceLabel(field.name, dimensionLabel)}{filterMode ? <FieldFlags field={field} compact /> : null}</strong><small>{dataSourceFieldTypeLabels[field.dataType]}{fieldDomain ? ` · ${sourceFieldDomainSummary(fieldDomain)}` : ''}{field.meaning ? ` · ${field.meaning}` : ''}{field.valueUnit ? ` · ${field.valueUnit}` : ''}{group?.dimensions.length ? ` · ${sourceDimensionsSummary(config, group.dimensions)}` : ''}</small></span>
-                  </label>
-                );
-              })}
             </fieldset>
             ) : null}
             {pickerScope === 'custom' && filterMode ? <fieldset className="source-scope-panel">
@@ -10628,69 +10633,6 @@ function MeasuredKpiRow({
     />
   );
 }
-
-type KpiCatalogChangeSummary = {
-  affectsEveryRow: boolean;
-  changedKpiIds: Set<string>;
-};
-
-const kpiCatalogChangeCache = new WeakMap<KpiPoolConfig, WeakMap<KpiPoolConfig, KpiCatalogChangeSummary>>();
-
-const summarizeKpiCatalogChanges = (previous: KpiPoolConfig, next: KpiPoolConfig): KpiCatalogChangeSummary => {
-  let summariesByNext = kpiCatalogChangeCache.get(previous);
-  const cached = summariesByNext?.get(next);
-  if (cached) return cached;
-
-  const changedKpiIds = new Set<string>();
-  let affectsEveryRow = previous.kpis.length !== next.kpis.length;
-  if (!affectsEveryRow) {
-    const previousById = new Map(previous.kpis.map((kpi) => [kpi.id, kpi]));
-    for (let index = 0; index < next.kpis.length; index += 1) {
-      const nextKpi = next.kpis[index];
-      if (previous.kpis[index]?.id !== nextKpi.id) {
-        affectsEveryRow = true;
-        break;
-      }
-
-      const previousKpi = previousById.get(nextKpi.id);
-      if (!previousKpi) {
-        affectsEveryRow = true;
-        break;
-      }
-      if (
-        previousKpi.name !== nextKpi.name ||
-        previousKpi.description.overview !== nextKpi.description.overview ||
-        !sameStructuredValue(previousKpi.dimensions, nextKpi.dimensions)
-      ) changedKpiIds.add(nextKpi.id);
-    }
-  }
-
-  const summary = { affectsEveryRow, changedKpiIds };
-  summariesByNext ??= new WeakMap<KpiPoolConfig, KpiCatalogChangeSummary>();
-  summariesByNext.set(next, summary);
-  kpiCatalogChangeCache.set(previous, summariesByNext);
-  return summary;
-};
-
-const kpiCatalogChangeAffectsRow = (previous: KpiPoolConfig, next: KpiPoolConfig, rowKpiId: string) => {
-  if (
-    previous.spatialScaleDefinitions !== next.spatialScaleDefinitions ||
-    previous.logic !== next.logic ||
-    previous.enums !== next.enums ||
-    previous.noteLabels !== next.noteLabels ||
-    previous.valueEnums !== next.valueEnums ||
-    previous.valueEnumGroups !== next.valueEnumGroups ||
-    previous.dataSources !== next.dataSources ||
-    previous.lookups !== next.lookups ||
-    previous.lookupGroups !== next.lookupGroups ||
-    previous.variables !== next.variables ||
-    previous.variableGroups !== next.variableGroups
-  ) return true;
-  if (previous.kpis === next.kpis) return false;
-
-  const summary = summarizeKpiCatalogChanges(previous, next);
-  return summary.affectsEveryRow || summary.changedKpiIds.size > (summary.changedKpiIds.has(rowKpiId) ? 1 : 0);
-};
 
 const sameMeasuredKpiRowProps = (
   previous: ComponentProps<typeof MeasuredKpiRow>,
