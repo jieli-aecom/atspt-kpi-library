@@ -110,9 +110,9 @@ All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use 
 
 ## Schema compatibility
 
-`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `52`.
+`CURRENT_SCHEMA_VERSION` in [`src/types.ts`](src/types.ts) is the authoritative schema version. The current version is `53`.
 
-Schema 52 adds a unique numeric `displayNumber` to every KPI, separate from its internal `id`. Older rows receive 1, 2, 3… in stored order. Valid existing numbers are preserved; missing, invalid, or colliding numbers receive unused positive integers, including during imports and concurrent merges. Users can edit numbers above each row's chevron. The Name column sorts numerically and keeps that direction as a secondary sort when another column is sorted. Clearing all sorts restores manual row order. Its filter combines name/description text, an exact KPI number, status, note labels, and scenario buttons; multiple scenario selections match any selected type.
+Schema 53 makes the numeric `displayNumber` optional (`null` when blank), separate from the internal `id`. Older rows without numbers, new rows, and duplicates start blank so users can assign numbers gradually. Valid existing numbers are preserved; missing, invalid, or colliding numbers become blank, including during imports and concurrent merges. Assigned numbers must be unique, and users can clear a number to leave it unassigned. The Name column sorts numerically and keeps that direction as a secondary sort when another column is sorted. Unnumbered rows follow numbered rows in either direction and retain their stored order within primary-sort ties. Clearing all sorts restores manual row order. Its filter combines name/description text, an exact KPI number, status, note labels, and scenario buttons; multiple scenario selections match any selected type.
 
 The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to domain IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
 
@@ -128,7 +128,7 @@ When introducing a future schema:
 
 ## Config shape
 
-- `schemaVersion`: currently `52`
+- `schemaVersion`: currently `53`
 - `title`: library title
 - `updatedAt`: ISO timestamp written by the server or during HTML export
 - `enums`: prerequisite module, user group, previous application, federal requirement, performance area, and group-owned domain definitions

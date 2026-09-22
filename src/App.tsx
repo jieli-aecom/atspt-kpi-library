@@ -1,7 +1,7 @@
 import { FieldFlagBadge, FieldFlags, TableAvailabilityFlag } from './FieldFlagBadges';
 import { KpiNumberInput } from './KpiNumberInput';
 import { matchesKpiNumberAndScenario } from './kpiNameFilters';
-import { nextKpiNumber, sortKpisByNumber } from './kpiNumbers';
+import { sortKpisByNumber } from './kpiNumbers';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
 import { sourceFilterKey, sourceTableFilterKey, sourceFilterEntry, matchesSourceFilters, sourceFlagOptions, type SourceFlag } from './sourceFilters';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
@@ -1031,7 +1031,7 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
 };
 
 const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig): KpiMetric => {
-  const kpi = createBlankKpi(config.kpis);
+  const kpi = createBlankKpi();
   const nameFilter = filters.name.trim();
   const descriptionFilter = filters.description.trim();
   const formulaFilter = filters.formula.trim();
@@ -1134,7 +1134,7 @@ const duplicateKpiMetric = (kpi: KpiMetric, focusAssignment?: UseCaseAssignment)
     }));
 
   return {
-    displayNumber: kpi.displayNumber,
+    displayNumber: null,
     status: kpi.status,
     unit: kpi.unit,
     scenarioType: kpi.scenarioType,
@@ -11810,7 +11810,7 @@ function EditorApp({
       return;
     }
 
-    const duplicate = { ...duplicateKpiMetric(source, focusedAssignment), displayNumber: nextKpiNumber(config.kpis) };
+    const duplicate = duplicateKpiMetric(source, focusedAssignment);
     commitConfig({
       ...config,
       kpis: [...config.kpis.slice(0, sourceIndex + 1), duplicate, ...config.kpis.slice(sourceIndex + 1)]
