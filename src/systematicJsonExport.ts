@@ -23,6 +23,7 @@ export const buildSystematicJsonExport = (config: KpiPoolConfig, kpis: readonly 
     'Data Sources': config.dataSources,
     'Data Source Groups': config.dataSourceGroups,
     KPIs: kpis.map((kpi) => ({
+      Number: kpi.displayNumber,
       Name: kpi.name,
       Status: kpi.status,
       Unit: kpi.unit,

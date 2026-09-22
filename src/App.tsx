@@ -1,4 +1,7 @@
 import { FieldFlagBadge, FieldFlags, TableAvailabilityFlag } from './FieldFlagBadges';
+import { KpiNumberInput } from './KpiNumberInput';
+import { matchesKpiNumberAndScenario } from './kpiNameFilters';
+import { nextKpiNumber, sortKpisByNumber } from './kpiNumbers';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
 import { sourceFilterKey, sourceTableFilterKey, sourceFilterEntry, matchesSourceFilters, sourceFlagOptions, type SourceFlag } from './sourceFilters';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
@@ -139,6 +142,8 @@ const CONFIG_SCRIPT_ID = 'kpi-pool-config';
 const EXPORTED_SNAPSHOT_ATTRIBUTE = 'data-kpi-exported-snapshot';
 
 type ColumnFilters = {
+  number: string;
+  scenarios: KpiMetric['scenarioType'][];
   name: string;
   description: string;
   status: KpiStatus | '';
@@ -255,6 +260,8 @@ const isRowBackgroundClick = (event: React.MouseEvent<HTMLTableRowElement>) => {
 };
 
 const emptyFilters = (): ColumnFilters => ({
+  number: '',
+  scenarios: [],
   name: '',
   description: '',
   status: '',
@@ -942,6 +949,7 @@ const formatLastModified = (timestamp: string) => {
 };
 
 const activeFilterCount = (filters: ColumnFilters) =>
+  (filters.number.trim() ? 1 : 0) + filters.scenarios.length +
   (filters.name || filters.description ? 1 : 0) +
   (filters.status ? 1 : 0) +
   filters.noteLabels.length +
@@ -972,6 +980,8 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
   if (filters.status && kpi.status !== filters.status) {
     return false;
   }
+
+  if (!matchesKpiNumberAndScenario(kpi, filters.source.number, filters.source.scenarios)) return false;
 
   if (filters.noteLabels.size > 0 && !kpi.noteLabels.some((id) => filters.noteLabels.has(id))) {
     return false;
@@ -1021,7 +1031,7 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
 };
 
 const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig): KpiMetric => {
-  const kpi = createBlankKpi();
+  const kpi = createBlankKpi(config.kpis);
   const nameFilter = filters.name.trim();
   const descriptionFilter = filters.description.trim();
   const formulaFilter = filters.formula.trim();
@@ -1061,6 +1071,7 @@ const createKpiMatchingFilters = (filters: ColumnFilters, config: KpiPoolConfig)
   return {
     ...kpi,
     name: nameFilter || kpi.name,
+    scenarioType: filters.scenarios.length === 1 ? filters.scenarios[0] : kpi.scenarioType,
     status: filters.status || (filters.noteLabels.length ? 'Question' : kpi.status),
     noteLabels: [...filters.noteLabels],
     description: {
@@ -1123,6 +1134,7 @@ const duplicateKpiMetric = (kpi: KpiMetric, focusAssignment?: UseCaseAssignment)
     }));
 
   return {
+    displayNumber: kpi.displayNumber,
     status: kpi.status,
     unit: kpi.unit,
     scenarioType: kpi.scenarioType,
@@ -1250,6 +1262,45 @@ function TextHeaderFilter({
       </label>
     </div>
   );
+}
+
+function NameHeaderFilter({ filters, config, onChange }: {
+  filters: ColumnFilters;
+  config: KpiPoolConfig;
+  onChange: (next: ColumnFilters) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const controlRef = useCloseOnOutsideClick<HTMLDivElement>(open, () => setOpen(false));
+  const activeCount = Number(Boolean(filters.name || filters.description)) + Number(Boolean(filters.number.trim())) +
+    Number(Boolean(filters.status)) + filters.scenarios.length + filters.noteLabels.length;
+  return <div className="header-control header-popover-control" ref={controlRef}>
+    <div className="header-title"><span>Name / Description</span>{activeCount ? <strong>{activeCount}</strong> : null}</div>
+    <button className="header-filter-button" type="button" aria-label="Filter KPI names, numbers, status and scenario" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <ListFilter size={13} aria-hidden="true" /><span>{activeCount ? `${activeCount} active filters` : 'Any'}</span><ChevronDown size={13} className={open ? 'rotate' : ''} />
+    </button>
+    {open ? <div className="popup-surface header-popover name-filter-popover" role="dialog" aria-label="Filter Name / Description">
+      <div className="name-filter-search-row">
+        <label className="header-search"><Search size={13} aria-hidden="true" />
+          <input aria-label="Match KPI name or description" value={filters.name || filters.description} placeholder="Name / description…" onChange={(event) => onChange({ ...filters, name: event.target.value, description: '' })} />
+        </label>
+        <label className="header-search" title="Match an exact KPI number"><span aria-hidden="true">#</span>
+          <input aria-label="Match KPI number" inputMode="decimal" value={filters.number} placeholder="Number" onChange={(event) => onChange({ ...filters, number: event.target.value })} />
+        </label>
+      </div>
+      <div className="name-filter-options-row">
+        <select aria-label="Filter KPIs by status" value={filters.status} onChange={(event) => onChange({ ...filters, status: event.target.value as KpiStatus | '' })}>
+          <option value="">All statuses</option>{kpiStatuses.map((status) => <option key={status}>{status}</option>)}
+        </select>
+        <NoteLabelHeaderFilter options={config.noteLabels} value={filters.noteLabels} onChange={(noteLabels) => onChange({ ...filters, noteLabels })} />
+        <button className="text-action" type="button" disabled={!activeCount} onClick={() => onChange({ ...filters, name: '', description: '', number: '', status: '', scenarios: [], noteLabels: [] })}>Clear</button>
+      </div>
+      <div className="name-filter-scenarios" title="Match any selected scenario; none selected matches all">
+        <div className="source-scope-buttons" role="group" aria-label="Filter KPIs by scenario">
+          {kpiScenarioTypes.map((scenario) => <button key={scenario} type="button" aria-pressed={filters.scenarios.includes(scenario)} className={filters.scenarios.includes(scenario) ? 'is-active' : ''} onClick={() => onChange({ ...filters, scenarios: filters.scenarios.includes(scenario) ? filters.scenarios.filter((entry) => entry !== scenario) : [...filters.scenarios, scenario] })}>{scenario}</button>)}
+        </div>
+      </div>
+    </div> : null}
+  </div>;
 }
 
 function NoteLabelHeaderFilter({
@@ -10178,6 +10229,21 @@ function KpiRow({
           <div className="name-description-cell">
             <div className="name-cell">
               <button className="kpi-insert-before" type="button" title="Insert KPI here" aria-label={`Insert KPI before ${kpi.name}`} onClick={(event) => { event.stopPropagation(); onInsertBefore(kpi.id); }}><Plus size={11} aria-hidden="true" /><span>Add KPI</span></button>
+              <div className="kpi-row-controls">
+              <KpiNumberInput kpi={kpi} kpis={config.kpis} onChange={(displayNumber) => patch({ displayNumber })} />
+              <button
+                className={`kpi-note-button status-${kpi.status.toLowerCase()}`}
+                type="button"
+                aria-label={`Edit status for ${kpi.name}: ${kpi.status}`}
+                aria-haspopup="dialog"
+                title={`Status: ${kpi.status}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setNoteOpen(true);
+                }}
+              >
+                <KpiStatusIcon status={kpi.status} />
+              </button>
               <button
                 className="expand-button"
                 type="button"
@@ -10189,6 +10255,7 @@ function KpiRow({
               >
                 <ChevronDown size={14} aria-hidden="true" className={expanded ? 'rotate' : ''} />
               </button>
+              </div>
               <div className="kpi-name-main">
                 <AutoGrowTextarea
                   className="inline-textarea strong-input"
@@ -10233,19 +10300,6 @@ function KpiRow({
                   <AutoGrowTextarea className="kpi-unit-input" rows={1} value={kpi.unit} placeholder="Unit" aria-label={`Unit for ${kpi.name}`} onClick={stopRowToggle} onValueChange={(unit) => patch({ unit })} />
                 </div>
               </div>
-              <button
-                className={`kpi-note-button status-${kpi.status.toLowerCase()}`}
-                type="button"
-                aria-label={`Edit status for ${kpi.name}: ${kpi.status}`}
-                aria-haspopup="dialog"
-                title={`Status: ${kpi.status}`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  setNoteOpen(true);
-                }}
-              >
-                <KpiStatusIcon status={kpi.status} />
-              </button>
             </div>
             <AutoGrowTextarea
               className="inline-textarea description-input"
@@ -10691,6 +10745,8 @@ function KpiTable({
   onEditLibrarySource,
   onViewKpi,
   focusedAssignment,
+  numberSort,
+  onNumberSortChange,
   performanceAreaSort,
   onPerformanceAreaSortChange,
   useCaseSort,
@@ -10711,6 +10767,8 @@ function KpiTable({
   onEditLibrarySource: (target: SourceLibraryEditTarget) => void;
   onViewKpi: (kpiId: string) => void;
   focusedAssignment?: UseCaseAssignment;
+  numberSort: ColumnSortOrder;
+  onNumberSortChange: (next: ColumnSortOrder) => void;
   performanceAreaSort: ColumnSortOrder;
   onPerformanceAreaSortChange: (next: ColumnSortOrder) => void;
   useCaseSort: ColumnSortOrder;
@@ -11061,17 +11119,18 @@ function KpiTable({
           <thead>
             <tr>
               <th className={headerClass(0)}>
-                <TextHeaderFilter
-                  label="Name / Description"
-                  value={filters.name || filters.description}
-                  placeholder="Search name or description..."
-                  onChange={(name) => onFiltersChange({ ...filters, name, description: '' })}
-                  status={filters.status}
-                  onStatusChange={(status) => onFiltersChange({ ...filters, status })}
-                  noteLabelOptions={config.noteLabels}
-                  noteLabels={filters.noteLabels}
-                  onNoteLabelsChange={(noteLabels) => onFiltersChange({ ...filters, noteLabels })}
-                />
+                <div className="sortable-header-control">
+                <NameHeaderFilter config={config} filters={filters} onChange={onFiltersChange} />
+                <button
+                  className={`mini-icon-button sort-toggle ${numberSort ? 'is-active' : ''}`}
+                  type="button"
+                  aria-label={numberSort === 'asc' ? 'Sort KPI numbers descending' : numberSort === 'desc' ? 'Clear KPI number sort' : 'Sort KPI numbers ascending'}
+                  title={`Sort Name / Description by KPI number${numberSort ? ` (${numberSort === 'asc' ? 'ascending' : 'descending'})` : ''}; retained as secondary sort`}
+                  onClick={() => onNumberSortChange(numberSort === undefined ? 'asc' : numberSort === 'asc' ? 'desc' : undefined)}
+                >
+                  {numberSort === 'desc' ? <SortDesc size={13} aria-hidden="true" /> : <SortAsc size={13} aria-hidden="true" />}
+                </button>
+                </div>
                 {resizeHandle(0, 'Name and description')}
               </th>
               <th className={headerClass(2)}>
@@ -11203,7 +11262,7 @@ function KpiTable({
                 tableColumnCount={tableColumnCount}
                 tableViewportWidth={scrollFrame.width}
                 useCaseAssignment={focusedAssignment}
-                sortingActive={Boolean(performanceAreaSort || useCaseSort)}
+                sortingActive={Boolean(numberSort || performanceAreaSort || useCaseSort)}
                 onExpand={stableOnToggleExpanded}
                 onChange={stableOnKpiChange}
                 onConfigChange={onConfigChange}
@@ -11469,6 +11528,7 @@ function EditorApp({
   const [focusedAssignment, setFocusedAssignment] = useState<UseCaseAssignment | undefined>(() => validDefaultFocus(initialConfig, initialConfig.defaultFocus));
   const [hideOutsideFocusedGroup, setHideOutsideFocusedGroup] = useState(true);
   const [performanceAreaSort, setPerformanceAreaSort] = useState<ColumnSortOrder>();
+  const [numberSort, setNumberSort] = useState<ColumnSortOrder>('asc');
   const [useCaseSort, setUseCaseSort] = useState<ColumnSortOrder>();
   const [sourceLibraryEditRequest, setSourceLibraryEditRequest] = useState<SourceLibraryEditRequest>();
   const [viewedPrerequisiteKpiIds, setViewedPrerequisiteKpiIds] = useState<string[]>([]);
@@ -11619,15 +11679,15 @@ function EditorApp({
   );
   const visibleKpis = useMemo(() => {
     if (useCaseSort) {
-      return [...filteredKpis].sort((left, right) =>
+      return sortKpisByNumber(filteredKpis, numberSort, (left, right) =>
         compareUseCaseAssignments(config.enums.userGroup, config.enums.useCase, left, right, useCaseSort)
       );
     }
     if (!performanceAreaSort) {
-      return filteredKpis;
+      return sortKpisByNumber(filteredKpis, numberSort);
     }
 
-    return [...filteredKpis].sort((left, right) => {
+    return sortKpisByNumber(filteredKpis, numberSort, (left, right) => {
       if (focusedAssignment) {
         return compareFocusedPerformanceAreas(config.enums.performanceArea, left, right, focusedAssignment.useCase, performanceAreaSort);
       }
@@ -11636,7 +11696,7 @@ function EditorApp({
       const result = leftKey.localeCompare(rightKey, undefined, { sensitivity: 'base', numeric: true });
       return performanceAreaSort === 'asc' ? result : -result;
     });
-  }, [config, deferredFilters, filteredKpis, focusedAssignment, performanceAreaSort, useCaseSort]);
+  }, [config, deferredFilters, filteredKpis, focusedAssignment, numberSort, performanceAreaSort, useCaseSort]);
   const filterCount = activeFilterCount(filters);
   const viewedPrerequisiteKpis = useMemo(() => viewedPrerequisiteKpiIds.flatMap((kpiId) => {
     const kpi = config.kpis.find((entry) => entry.id === kpiId);
@@ -11750,7 +11810,7 @@ function EditorApp({
       return;
     }
 
-    const duplicate = duplicateKpiMetric(source, focusedAssignment);
+    const duplicate = { ...duplicateKpiMetric(source, focusedAssignment), displayNumber: nextKpiNumber(config.kpis) };
     commitConfig({
       ...config,
       kpis: [...config.kpis.slice(0, sourceIndex + 1), duplicate, ...config.kpis.slice(sourceIndex + 1)]
@@ -12055,6 +12115,7 @@ function EditorApp({
               {filterCount ? ` | ${filterCount} filters` : ''}
               {performanceAreaSort ? ` | performance area ${focusedAssignment ? performanceAreaSort === 'asc' ? 'definition order' : 'reverse definition order' : performanceAreaSort === 'asc' ? 'A-Z' : 'Z-A'}` : ''}
               {useCaseSort ? ` | user group / use case ${useCaseSort === 'asc' ? 'definition order' : 'reverse definition order'}` : ''}
+              {numberSort || performanceAreaSort || useCaseSort ? ` | KPI number ${numberSort === 'desc' ? 'descending' : 'ascending'}${performanceAreaSort || useCaseSort ? ' (secondary)' : ''}` : ''}
             </span>
             <button
               className="secondary-action small"
@@ -12144,6 +12205,8 @@ function EditorApp({
           onViewKpi={viewPrerequisiteKpi}
           focusedAssignment={focusedAssignment}
           performanceAreaSort={performanceAreaSort}
+          numberSort={numberSort}
+          onNumberSortChange={(next) => { setNumberSort(next); setPerformanceAreaSort(undefined); setUseCaseSort(undefined); }}
           onPerformanceAreaSortChange={(next) => { setPerformanceAreaSort(next); setUseCaseSort(undefined); }}
           useCaseSort={useCaseSort}
           onUseCaseSortChange={(next) => { setUseCaseSort(next); setPerformanceAreaSort(undefined); }}

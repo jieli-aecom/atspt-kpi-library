@@ -1,4 +1,5 @@
 import { migrateCellTerminology } from './globalDefinitions.js';
+import { isKpiNumber, nextKpiNumber, reconcileKpiNumbers } from './kpiNumbers.js';
 import { defaultSpatialScaleDefinitions, spatialScaleDefinitionKeys, sourceTableUnitLatex } from './types.js';
 import { sourceTableUnit } from './types.js';
 import { migrateParcelTerminology } from './parcelTerminology.js';
@@ -252,6 +253,7 @@ const defaultFocusSchema = z.object({
 });
 
 const kpiSchema = z.object({
+  displayNumber: z.number().finite(),
   status: z.enum(kpiStatuses),
   unit: z.string(),
   scenarioType: z.enum(kpiScenarioTypes),
@@ -315,7 +317,7 @@ export const kpiPoolConfigSchema = z.object({
   lookupGroups: z.array(dataLibraryGroupSchema),
   variables: z.array(variableSchema),
   variableGroups: z.array(dataLibraryGroupSchema),
-  kpis: z.array(kpiSchema)
+  kpis: z.array(kpiSchema).refine((kpis) => new Set(kpis.map((kpi) => kpi.displayNumber)).size === kpis.length, 'KPI numbers must be unique')
 });
 
 const isStringArray = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string');
@@ -372,6 +374,7 @@ const isCurrentUseCaseNote = (value: unknown): value is KpiUseCaseNote =>
 
 const isCurrentKpiMetricShape = (value: unknown): value is KpiMetric =>
   isRecord(value) &&
+  isKpiNumber(value.displayNumber) &&
   kpiStatuses.includes(value.status as never) &&
   typeof value.unit === 'string' &&
   typeof value.id === 'string' &&
@@ -623,6 +626,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
   }
 
   const kpiIds = input.kpis.map((kpi) => kpi.id);
+  if (new Set(input.kpis.map((kpi) => kpi.displayNumber)).size !== input.kpis.length) return false;
   if (hasDuplicate(kpiIds)) {
     return false;
   }
@@ -2702,7 +2706,8 @@ export const createBlankConfig = (): KpiPoolConfig => ({
   kpis: []
 });
 
-export const createBlankKpi = (): KpiMetric => ({
+export const createBlankKpi = (existingKpis: readonly KpiMetric[] = []): KpiMetric => ({
+  displayNumber: nextKpiNumber(existingKpis),
   status: 'Drafted',
   unit: '',
   scenarioType: 'Scenario',
@@ -2843,6 +2848,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     const repairedNoteLabels = repairKpiNoteLabels(record.noteLabels ?? record.labels ?? record.Labels, noteLabels, warnings, name);
     const status = record.status ?? record.Status;
     const kpi: KpiMetric = {
+      displayNumber: isKpiNumber(record.displayNumber) ? record.displayNumber : Number.NaN,
       status: kpiStatuses.includes(status as never) ? status as KpiMetric['status'] : note.trim() || repairedNoteLabels.length ? 'Question' : 'Drafted',
       unit: stringValue(record.unit ?? record.Unit),
       scenarioType: kpiScenarioTypes.includes(record.scenarioType as never) ? record.scenarioType as KpiMetric['scenarioType'] : 'Scenario',
@@ -3056,7 +3062,7 @@ export const repairConfig = (input: unknown): RepairResult => {
     lookupGroups,
     variables,
     variableGroups,
-    kpis: scopedKpis
+    kpis: reconcileKpiNumbers(scopedKpis)
   };
 
   repaired.kpis = repaired.kpis.map((kpi) => reconcileKpiScenarios(repaired, kpi));

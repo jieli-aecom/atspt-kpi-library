@@ -1,4 +1,5 @@
 import { alignGlobalDefinitions } from './globalDefinitions.js';
+import { reconcileKpiNumbers } from './kpiNumbers.js';
 import { spatialScaleDefinitionKeys } from './types.js';
 import { CURRENT_SCHEMA_VERSION, enumCategoryKeys, type DataLibraryGroup, type KpiPoolConfig } from './types.js';
 
@@ -110,7 +111,7 @@ export const mergeConcurrentConfig = (
     lookupGroups: mergeConcurrentCollection(current.lookupGroups, base.lookupGroups, incoming.lookupGroups),
     variables: mergeConcurrentCollection(current.variables, base.variables, incoming.variables),
     variableGroups: mergeConcurrentCollection(current.variableGroups, base.variableGroups, incoming.variableGroups),
-    kpis: mergeConcurrentCollection(current.kpis, base.kpis, incoming.kpis)
+    kpis: reconcileKpiNumbers(mergeConcurrentCollection(current.kpis, base.kpis, incoming.kpis))
   };
 };
 
@@ -302,7 +303,7 @@ export const mergeImportedConfig = (current: KpiPoolConfig, incoming: KpiPoolCon
         incoming.variables,
         addedVariables
       ),
-      kpis: [...mergedCurrentKpis, ...addedKpis]
+      kpis: reconcileKpiNumbers([...mergedCurrentKpis, ...addedKpis])
     },
     importedKpiIds,
     addedKpis: addedKpis.length,

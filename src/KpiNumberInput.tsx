@@ -1,0 +1,45 @@
+import { useEffect, useId, useState } from 'react';
+import { kpiNumberError } from './kpiNumbers';
+import type { KpiMetric } from './types';
+
+export function KpiNumberInput({ kpi, kpis, onChange }: {
+  kpi: KpiMetric;
+  kpis: KpiMetric[];
+  onChange: (number: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(kpi.displayNumber));
+  const [error, setError] = useState('');
+  const errorId = useId();
+  useEffect(() => {
+    setDraft(String(kpi.displayNumber));
+    setError('');
+  }, [kpi.displayNumber]);
+  const commit = () => {
+    const message = kpiNumberError(draft, kpi.id, kpis);
+    setError(message);
+    if (!message) {
+      setDraft(String(Number(draft)));
+      if (Number(draft) !== kpi.displayNumber) onChange(Number(draft));
+    }
+  };
+  return <div className="kpi-number-editor" onClick={(event) => event.stopPropagation()}>
+    <input
+      className="kpi-number-input"
+      type="text"
+      inputMode="decimal"
+      aria-label={`KPI number for ${kpi.name}`}
+      aria-invalid={Boolean(error)}
+      aria-describedby={error ? errorId : undefined}
+      title={error || `KPI number: ${kpi.displayNumber}. Enter an unused number.`}
+      value={draft}
+      onChange={(event) => { setDraft(event.target.value); setError(''); }}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        event.stopPropagation();
+        if (event.key === 'Enter') { event.preventDefault(); commit(); }
+        if (event.key === 'Escape') { setDraft(String(kpi.displayNumber)); setError(''); }
+      }}
+    />
+    {error ? <span id={errorId} className="kpi-number-error" role="alert">{error}</span> : null}
+  </div>;
+}
