@@ -1,4 +1,4 @@
-import { visibleRelationFields } from './tableRelations.js';
+import { relationPrincipalId, visibleRelationFields } from './tableRelations.js';
 import { fieldFlagsText, fieldFlagTone } from './fieldFlags';
 import { sourceTableUnit } from './types.js';
 import JSZip from 'jszip';
@@ -530,72 +530,106 @@ const tableSchemaFieldDimensions = (config: KpiPoolConfig, source: DataSource, f
   })
   .join('; ');
 
+const tableJoinDetails = (config: KpiPoolConfig, source: DataSource, relation: KpiPoolConfig['tableRelations'][number]) => {
+  const other = config.dataSources.find((table) => table.id === (relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId));
+  const principalId = relationPrincipalId(relation, config.dataSources);
+  const isPrincipal = source.id === principalId;
+  const type = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : isPrincipal ? '1:N' : 'N:1';
+  const role = relation.cardinality === 'oneToMany' ? isPrincipal ? 'One side' : 'Many side' : isPrincipal ? 'Principal' : 'Secondary';
+  const primaryKey = (table?: DataSource) => table?.fields.find((field) => field.id === table.primaryKeyFieldId)?.name || 'Not configured';
+  const linkedField = (table?: DataSource) => table?.fields.find((field) => field.generatedRelationId === relation.id)?.name || 'Not configured';
+  return {
+    other, type, role, otherPrimaryKey: primaryKey(other),
+    localKey: relation.cardinality === 'oneToOne' || isPrincipal ? primaryKey(source) : linkedField(source),
+    otherKey: relation.cardinality === 'oneToOne' || !isPrincipal ? primaryKey(other) : linkedField(other)
+  };
+};
+
 function tableSchemaWorksheetXml(config: KpiPoolConfig, source: DataSource) {
   const fields = visibleRelationFields(source, config.dataSources, config.tableRelations);
   const ordinaryFields = fields.filter((field) => !field.generatedRelationId);
   const virtualFields = fields.filter((field) => field.generatedRelationId);
+  const relations = (config.tableRelations ?? []).filter((relation) => relation.sourceDataSourceId === source.id || relation.targetDataSourceId === source.id);
   const headerRow = 3;
-  const firstDataRow = headerRow + 1;
-  const joinRow = virtualFields.length ? firstDataRow + ordinaryFields.length : undefined;
-  const lastRow = headerRow + fields.length + (joinRow ? 1 : 0);
   const lastColumnName = columnName(tableSchemaColumns.length);
-  // Size columns from headers and field values, excluding merged title/section rows.
   const widths = tableSchemaColumns.map((label) => label.length + 2);
-  const headerCells = tableSchemaColumns
-    .map((label, index) => stringCell(`${columnName(index + 1)}${headerRow}`, label, 3))
-    .join('');
-  const fieldRow = (field: DataSourceField, rowNumber: number, virtual: boolean) => {
+  const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`];
+  const rows: string[] = [];
+  let nextRow = headerRow;
+  const writeCells = (values: readonly string[], styles: number | number[]) => {
+    const row = nextRow++;
+    rows.push(`<row r="${row}">${values.map((value, index) => {
+      for (const line of value.split('\n')) widths[index] = Math.min(64, Math.max(widths[index], Array.from(line).length + 2));
+      return stringCell(`${columnName(index + 1)}${row}`, value, typeof styles === 'number' ? styles : styles[index]);
+    }).join('')}</row>`);
+  };
+  const section = (title: string) => {
+    const row = nextRow++;
+    mergeRanges.push(`A${row}:${lastColumnName}${row}`);
+    rows.push(`<row r="${row}">${stringCell(`A${row}`, title, 5)}</row>`);
+  };
+  writeCells(tableSchemaColumns, 3);
+  for (const field of ordinaryFields) {
     const tone = fieldFlagTone(field);
-    const values = [
-      field.id === source.primaryKeyFieldId ? 'PK' : '',
-      field.name,
-      tableSchemaFieldType(field),
+    const dimensions = tableSchemaFieldDimensions(config, source, field.id);
+    writeCells([
+      field.id === source.primaryKeyFieldId ? 'PK' : '', field.name, tableSchemaFieldType(field),
       field.dataType === 'collection' ? '' : field.valueUnit.trim(),
       field.dataType === 'collection' ? field.valueUnit.trim() : '',
-      markdownToExcelText(field.meaning),
-      tableSchemaFieldDimensions(config, source, field.id),
-      markdownToExcelText(fieldFlagsText(field)),
+      markdownToExcelText(field.meaning), dimensions, markdownToExcelText(fieldFlagsText(field)),
       fieldSourceRows(config, field).map((row, index) => `${index ? 'and' : 'From:'} ${row.label} ${row.fields.map((entry) => entry.name).join(', ')}`).join(' '),
       traceKpiSupport(config, { dataSourceId: source.id, fieldId: field.id }).map((kpi) => kpi.name).join(', ')
-    ];
-    const style = virtual ? 6 : 4;
-    return `<row r="${rowNumber}">${values.map((value, index) => {
-      for (const line of value.split('\n')) {
-        widths[index] = Math.min(64, Math.max(widths[index], Array.from(line).length + 2));
-      }
-      const cellStyle = index === 6 && value ? 10 : index === 7 && tone ? (tone === 'unavailable' ? 7 : tone === 'preprocessing' ? 9 : 8) : style;
-      return stringCell(`${columnName(index + 1)}${rowNumber}`, value, cellStyle);
-    }).join('')}</row>`;
-  };
-  const ordinaryRows = ordinaryFields.map((field, index) => fieldRow(field, firstDataRow + index, false)).join('');
-  const joinsSection = joinRow
-    ? `<row r="${joinRow}">${stringCell(`A${joinRow}`, 'Joins', 5)}</row>`
-    : '';
-  const virtualRows = virtualFields.map((field, index) => fieldRow(field, (joinRow ?? firstDataRow) + 1 + index, true)).join('');
-  const columns = widths
-    .map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${Math.max(8, width)}" customWidth="1"/>`)
-    .join('');
-  const mergeRanges = [`A1:${lastColumnName}1`, `A2:${lastColumnName}2`, ...(joinRow ? [`A${joinRow}:${lastColumnName}${joinRow}`] : [])];
-  const spatialUnit = sourceTableUnit(source) || 'Not specified';
-  const fieldCount = `${fields.length} field${fields.length === 1 ? '' : 's'}`;
+    ], [4, 4, 4, 4, 4, 4, dimensions ? 10 : 4, tone === 'unavailable' ? 7 : tone === 'preprocessing' ? 9 : tone ? 8 : 4, 4, 4]);
+  }
+  if (virtualFields.length) {
+    section('Virtual Fields');
+    writeCells(['Key', 'Field name', 'Type', 'Joined table', 'Join type', 'Description', 'By', 'Flags', 'Related primary key', 'This table role'], 3);
+    for (const field of virtualFields) {
+      const relation = relations.find((entry) => entry.id === field.generatedRelationId)!;
+      const join = tableJoinDetails(config, source, relation);
+      const tone = fieldFlagTone(field);
+      const dimensions = tableSchemaFieldDimensions(config, source, field.id);
+      writeCells(['', field.name, tableSchemaFieldType(field), join.other?.name || 'Missing table', join.type,
+        markdownToExcelText(field.meaning), dimensions, markdownToExcelText(fieldFlagsText(field)), join.otherPrimaryKey, join.role
+      ], [6, 6, 6, 6, 6, 6, dimensions ? 10 : 6, tone === 'unavailable' ? 7 : tone === 'preprocessing' ? 9 : tone ? 8 : 6, 6, 6]);
+    }
+  }
+  if (relations.length) {
+    nextRow++; // Space between field data and the independent relationship table.
+    section('Joins');
+    // Relationship columns span the existing worksheet grid, independent of field columns.
+    const spans = [[1, 1], [2, 4], [5, 6], [7, 8], [9, 10]];
+    const joinRow = (values: string[], style: number) => {
+      const row = nextRow++;
+      rows.push(`<row r="${row}">${values.map((value, index) => {
+        const [start, end] = spans[index];
+        if (start !== end) mergeRanges.push(`${columnName(start)}${row}:${columnName(end)}${row}`);
+        const available = widths.slice(start - 1, end).reduce((sum, width) => sum + Math.max(8, width), 0);
+        widths[end - 1] = Math.min(64, widths[end - 1] + Math.max(0, Math.min(80, value.length + 2) - available));
+        return stringCell(`${columnName(start)}${row}`, value, style);
+      }).join('')}</row>`);
+    };
+    joinRow(['Join type', 'Other table', 'This table role', 'This table key / field', 'Other table key / field'], 3);
+    for (const relation of relations) {
+      const join = tableJoinDetails(config, source, relation);
+      joinRow([join.type, join.other?.name || 'Missing table', join.role, join.localKey, join.otherKey], 4);
+    }
+  }
+  const columns = widths.map((width, index) => `<col min="${index + 1}" max="${index + 1}" width="${Math.max(8, width)}" customWidth="1"/>`).join('');
   const sourceGroup = config.dataSourceGroups.find((group) => group.itemIds.includes(source.id));
-  const sourceGroupName = sourceGroup?.name.trim();
   const category = sourceGroup?.category ?? source.category ?? 'Preprocessed Constants';
-  const sourceGroupText = sourceGroupName ? `Group: ${sourceGroupName}. ` : '';
-
+  const sourceGroupText = sourceGroup?.name.trim() ? `Group: ${sourceGroup.name.trim()}. ` : '';
+  const fieldCount = `${fields.length} field${fields.length === 1 ? '' : 's'}`;
   return xmlDocument(`<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <sheetPr><tabColor rgb="${tableSchemaTabColors[category]}"/></sheetPr>
-  <dimension ref="A1:${lastColumnName}${Math.max(headerRow, lastRow)}"/>
+  <dimension ref="A1:${lastColumnName}${nextRow - 1}"/>
   <sheetViews><sheetView workbookViewId="0" showGridLines="0"><pane ySplit="3" topLeftCell="A4" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>
   <sheetFormatPr defaultRowHeight="15"/>
   <cols>${columns}</cols>
   <sheetData>
     <row r="1">${stringCell('A1', source.name.trim() || 'Untitled table', 1)}</row>
-    <row r="2">${stringCell('A2', `Category: ${category}. ${sourceGroupText}Spatial unit: ${spatialUnit}. ${fieldCount}.`, 2)}</row>
-    <row r="${headerRow}">${headerCells}</row>
-    ${ordinaryRows}
-    ${joinsSection}
-    ${virtualRows}
+    <row r="2">${stringCell('A2', `Category: ${category}. ${sourceGroupText}Spatial unit: ${sourceTableUnit(source) || 'Not specified'}. ${fieldCount}.`, 2)}</row>
+    ${rows.join('')}
   </sheetData>
   <mergeCells count="${mergeRanges.length}">${mergeRanges.map((range) => `<mergeCell ref="${range}"/>`).join('')}</mergeCells>
   <pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>

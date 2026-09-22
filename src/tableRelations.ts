@@ -22,10 +22,10 @@ export const relationPrincipalId = (relation: TableRelation, tables: DataSource[
 };
 
 export const relationFieldRole = (relation: TableRelation, tableId: string): DataSourceField['generatedRelationRole'] => {
+  if (relation.cardinality === 'oneToOne') return undefined;
   if (tableId !== relation.sourceDataSourceId && tableId !== relation.targetDataSourceId) return undefined;
   if (relation.cardinality === 'oneToMany') return tableId === relation.targetDataSourceId ? 'manyForeignKey' : relation.principalFieldExpanded ? 'oneCollection' : undefined;
   if (tableId === relation.principalDataSourceId && !relation.principalFieldExpanded) return undefined;
-  if (relation.cardinality === 'oneToOne') return tableId === relation.principalDataSourceId ? 'principalForeignKey' : 'secondaryForeignKey';
   return tableId === relation.sourceDataSourceId ? 'sourceCollection' : 'targetCollection';
 };
 

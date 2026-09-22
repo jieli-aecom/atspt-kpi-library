@@ -167,10 +167,10 @@ test('schema formatting uses category tabs, compact sizing and semantic cell fil
   const colorAt = (address: string) => fills[xfs[Number(sheet.match(new RegExp(`<c r="${address}" s="(\\d+)"`))![1])]];
   assert.match(colorAt('B5'), /patternType="none"/);
   assert.match(colorAt('B6'), /patternType="none"/);
-  assert.match(colorAt('B9'), /FFF3F4F6/);
+  assert.match(colorAt('B10'), /FFF3F4F6/);
   assert.match(colorAt('H5'), /FFFFC7CE/);
   assert.match(colorAt('H6'), /FFBDD7EE/);
-  assert.match(colorAt('H9'), /FFFFE0B2/);
+  assert.match(colorAt('H10'), /FFFFE0B2/);
   assert.match(sheet, /Preprocessing Needed: Needs cleaning; Derived; Potentially Unavailable: Coverage varies/);
   assert.match(colorAt('G5'), /FFB2DFDB/);
   assert.doesNotMatch(styles, /wrapText="1"/);

@@ -97,16 +97,18 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
     const source = tablesById.get(relation.sourceDataSourceId);
     const target = tablesById.get(relation.targetDataSourceId);
     if (!source || !target) continue;
-    if (relation.cardinality === 'oneToMany') {
+    if (relation.cardinality === 'oneToOne') {
+      addJoin(source, target, '1:1', primaryKey(source), primaryKey(target));
+      addJoin(target, source, '1:1', primaryKey(target), primaryKey(source));
+    } else if (relation.cardinality === 'oneToMany') {
       const foreignKey = relationField(target, relation.id, 'manyForeignKey');
       addJoin(source, target, '1:N', primaryKey(source), foreignKey);
       addJoin(target, source, 'N:1', foreignKey, primaryKey(source));
     } else {
       const principal = relationPrincipalId(relation, config.dataSources) === source.id ? source : target;
       const secondary = principal === source ? target : source;
-      const foreignKey = relationField(secondary, relation.id, relation.cardinality === 'oneToOne'
-        ? 'secondaryForeignKey' : secondary === source ? 'sourceCollection' : 'targetCollection');
-      const type = relation.cardinality === 'oneToOne' ? '1:1' : 'N:N';
+      const foreignKey = relationField(secondary, relation.id, secondary === source ? 'sourceCollection' : 'targetCollection');
+      const type = 'N:N';
       addJoin(principal, secondary, type, primaryKey(principal), foreignKey);
       addJoin(secondary, principal, type, foreignKey, primaryKey(principal));
     }

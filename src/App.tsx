@@ -4558,7 +4558,7 @@ function DataSourceHeader({
       cardinality: relationEditor.cardinality,
       ...(relationEditor.cardinality !== 'oneToMany' ? { principalDataSourceId: relationEditor.principalDataSourceId } : {})
     };
-    if (previousRelation && previousRelation.cardinality === relation.cardinality &&
+    if (relation.cardinality !== 'oneToOne' && previousRelation && previousRelation.cardinality === relation.cardinality &&
       relationPrincipalId(previousRelation, config.dataSources) === relationPrincipalId(relation, config.dataSources)) {
       relation.principalFieldExpanded = previousRelation.principalFieldExpanded;
       relation.collapsedPrincipalField = previousRelation.collapsedPrincipalField;
@@ -5884,7 +5884,9 @@ function DataSourceHeader({
                       <button className={relationEditor.principalDataSourceId === relationEditor.targetDataSourceId ? 'is-active' : ''} aria-pressed={relationEditor.principalDataSourceId === relationEditor.targetDataSourceId} type="button" onClick={() => setRelationEditor((current) => current ? { ...current, principalDataSourceId: current.targetDataSourceId } : current)}>Secondary</button>
                     </div>
                   </div>
-                  <small className="field-relation-note">{relationEditor.principalDataSourceId ? `Secondary table: ${config.dataSources.find((entry) => entry.id === (relationEditor.principalDataSourceId === source.id ? relationEditor.targetDataSourceId : source.id))?.name || 'Untitled table'}. ` : "Choose this table's role. "}The secondary table gets a virtual {relationEditor.cardinality === 'manyToMany' ? 'collection of principal IDs' : 'principal ID field'}. The principal field can be expanded below the table.</small>
+                  <small className="field-relation-note">{relationEditor.cardinality === 'oneToOne'
+                    ? "1:1 joins use both tables' primary keys without adding virtual fields."
+                    : 'The secondary table gets a virtual collection of principal IDs. The principal field can be expanded below the table.'}</small>
                 </> : <small className="field-relation-note">The many side gets the related ID from the one side. The one-side collection can be expanded below the table.</small>}
                 <small className="field-relation-note">Missing primary keys are filled from an existing ID field or a generated table ID.</small>
                 <button className="primary-action tiny" type="button" disabled={!relationEditor.targetDataSourceId || relationDraftIsDuplicate || (relationEditor.cardinality !== 'oneToMany' && !relationEditor.principalDataSourceId)} onClick={saveTableRelation}>{relationDraftIsDuplicate ? 'Relation already exists' : relationEditor.relationId ? 'Save relationship' : 'Add relationship'}</button>
@@ -6359,19 +6361,19 @@ function DataSourceHeader({
                           renderFieldGroup(group)
                         ])}
                         {renderInsertControls(source.fields.length, undefined, `final-insert-${source.id}`, true)}
-                        {sourceRelations.some((relation) => relationPrincipalId(relation, config.dataSources) === source.id) ? <div className="table-principal-relations" role="group" aria-label={`Joins for ${source.name || 'this table'}`}>
-                          {sourceRelations.filter((relation) => relationPrincipalId(relation, config.dataSources) === source.id).map((relation) => {
+                        {sourceRelations.some((relation) => relation.cardinality === 'oneToOne' || relationPrincipalId(relation, config.dataSources) === source.id) ? <div className="table-principal-relations" role="group" aria-label={`Joins for ${source.name || 'this table'}`}>
+                          {sourceRelations.filter((relation) => relation.cardinality === 'oneToOne' || relationPrincipalId(relation, config.dataSources) === source.id).map((relation) => {
                             const otherId = relation.sourceDataSourceId === source.id ? relation.targetDataSourceId : relation.sourceDataSourceId;
                             const otherName = config.dataSources.find((entry) => entry.id === otherId)?.name || 'Untitled table';
                             const cardinality = relation.cardinality === 'oneToOne' ? '1:1' : relation.cardinality === 'manyToMany' ? 'N:N' : '1:N';
                             const editorOpen = sourceRelationEditorOpen && relationEditor?.anchor === 'tableLink' && relationEditor.relationId === relation.id;
                             return <div className="table-principal-relation" key={relation.id}>
-                              <button className="secondary-action tiny relation-expand-toggle" type="button" aria-label={`${relation.principalFieldExpanded ? 'Collapse' : 'Expand'} field for join with ${otherName}`} aria-expanded={Boolean(relation.principalFieldExpanded)} onClick={() => {
+                              {relation.cardinality !== 'oneToOne' ? <button className="secondary-action tiny relation-expand-toggle" type="button" aria-label={`${relation.principalFieldExpanded ? 'Collapse' : 'Expand'} field for join with ${otherName}`} aria-expanded={Boolean(relation.principalFieldExpanded)} onClick={() => {
                                 setRelationEditor(null);
                                 onConfigChange(setPrincipalFieldExpanded(config, relation.id, !relation.principalFieldExpanded));
-                              }}><ChevronDown size={12} className={relation.principalFieldExpanded ? 'is-expanded' : ''} />{relation.principalFieldExpanded ? 'Collapse field' : 'Expand field'}</button>
+                              }}><ChevronDown size={12} className={relation.principalFieldExpanded ? 'is-expanded' : ''} />{relation.principalFieldExpanded ? 'Collapse field' : 'Expand field'}</button> : null}
                               <button className="relation-field-badge" type="button" aria-label={`Edit relationship with ${otherName}`} aria-haspopup="dialog" aria-expanded={editorOpen} onClick={() => editTableRelation(relation.id, source.id, 'tableLink')}>Edit Link</button>
-                              <span>to <strong>{otherName}</strong> · {cardinality} · {relation.cardinality === 'oneToMany' ? 'One side' : 'Principal'}</span>
+                              <span>to <strong>{otherName}</strong> · {cardinality} · {relation.cardinality === 'oneToMany' ? 'One side' : relationPrincipalId(relation, config.dataSources) === source.id ? 'Principal' : 'Secondary'}</span>
                               {editorOpen ? renderRelationEditor('table-link-relation-popover') : null}
                             </div>;
                           })}

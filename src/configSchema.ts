@@ -722,6 +722,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
       const source = dataSourceById.get(relation.sourceDataSourceId);
       const target = dataSourceById.get(relation.targetDataSourceId);
       return !source || !target || source.id === target.id || !source.primaryKeyFieldId ||
+        (relation.cardinality === 'oneToOne' && (relation.principalFieldExpanded !== undefined || relation.collapsedPrincipalField !== undefined)) ||
         (relation.principalFieldExpanded && !target.primaryKeyFieldId) ||
         (relation.cardinality !== 'oneToMany' && (!target.primaryKeyFieldId ||
           ![source.id, target.id].includes(relation.principalDataSourceId ?? '')));
@@ -2249,10 +2250,10 @@ const repairTableRelations = (rawValue: unknown, dataSources: DataSource[], warn
       sourceDataSourceId: source.id,
       targetDataSourceId: target.id,
       cardinality,
-      ...(rawRelation.principalFieldExpanded === true ? { principalFieldExpanded: true } : {}),
+      ...(cardinality !== 'oneToOne' && rawRelation.principalFieldExpanded === true ? { principalFieldExpanded: true } : {}),
       ...(() => {
         const cached = dataSourceFieldSchema.safeParse(rawRelation.collapsedPrincipalField);
-        return cached.success ? { collapsedPrincipalField: cached.data as DataSourceField } : {};
+        return cardinality !== 'oneToOne' && cached.success ? { collapsedPrincipalField: cached.data as DataSourceField } : {};
       })(),
       ...(cardinality !== 'oneToMany' ? { principalDataSourceId: relationPrincipalId({
         id: '', sourceDataSourceId, targetDataSourceId, cardinality,
@@ -3030,7 +3031,7 @@ export const repairConfig = (input: unknown): RepairResult => {
 /** Materialize or collapse the optional field while retaining its edits for re-expansion. */
 export const setPrincipalFieldExpanded = (config: KpiPoolConfig, relationId: string, expanded: boolean): KpiPoolConfig => {
   const relation = config.tableRelations.find((entry) => entry.id === relationId);
-  if (!relation || Boolean(relation.principalFieldExpanded) === expanded) return config;
+  if (!relation || relation.cardinality === 'oneToOne' || Boolean(relation.principalFieldExpanded) === expanded) return config;
   const principal = config.dataSources.find((source) => source.id === relationPrincipalId(relation, config.dataSources));
   const field = principal?.fields.find((entry) => entry.generatedRelationId === relation.id);
   const next = {

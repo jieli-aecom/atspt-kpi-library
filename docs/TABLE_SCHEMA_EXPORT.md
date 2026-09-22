@@ -14,11 +14,11 @@ Dimensioned fields expand to one field per option combination, preserving field,
 
 Each relationship appears from both tables' perspectives:
 
-- `1:1`: the principal table's primary key joins to a singular virtual ID field on the secondary table.
+- `1:1`: the two tables join directly on their primary keys. Neither table receives a virtual field.
 - `1:N`: the source primary key joins to the generated foreign key on the many side. The reverse entry is `N:1`. No virtual field is generated on the one side.
 - `N:N`: the secondary table's generated collection of principal IDs joins to the principal table's primary key, using collection membership.
 
-New `1:1` and `N:N` joins require an explicit Principal / Secondary toggle choice for the current table; the other table takes the opposite role. Principal and one-side joins remain editable through entries below all table fields. Only the secondary table receives a virtual field, including in Excel. Schema 54 migrates existing joins using the library display order: Preprocessed Constants, Scenario Upstream, then KPI Preparation, including group placement and order within each category. Saved principal choices remain unchanged when tables are reordered. Removed virtual fields are also removed from KPI sources, field sources, and field groups.
+New `1:1` and `N:N` joins require an explicit Principal / Secondary toggle choice for the current table; the other table takes the opposite role. Principal and one-side joins remain editable through entries below all table fields; `1:1` joins have these entries on both sides. For `N:N`, only the secondary table receives a virtual field by default. Schema 54 migrates existing joins using the library display order: Preprocessed Constants, Scenario Upstream, then KPI Preparation, including group placement and order within each category. Saved principal choices remain unchanged when tables are reordered. Removed virtual fields are also removed from KPI sources, field sources, and field groups.
 
 Joins without existing endpoint fields are omitted. Export does not modify the library configuration.
 
@@ -37,6 +37,14 @@ Excel replaces the two preprocessing columns with one `Flags` column, with semic
 
 ## Optional principal fields (schema 55)
 
-Principal and one-side join entries below the fields offer **Expand field** and **Collapse field**. Expansion adds the related table's ID (1:1) or collection of IDs (1:N and N:N) to that table and includes it in Excel and table-schema JSON. The choice survives save, reload, and HTML export/import. Fields remain collapsed by default when migrating existing joins.
+For `1:N` and `N:N`, principal and one-side join entries below the fields offer **Expand field** and **Collapse field**. Expansion adds a virtual collection of related IDs to that table and includes it in Excel and table-schema JSON. The choice survives save, reload, and HTML export/import. Fields remain collapsed by default when migrating existing joins. `1:1` joins have no expansion control.
 
 Collapsing removes the optional field from the table and exports, retaining the join entry and the other side's field. Field names and notes are retained for re-expansion. References to the collapsed field are removed from KPI sources, field sources, and field groups. Expanding a one-side collection establishes a primary key on the many table if it does not already have one.
+
+## Primary-key joins and Excel sections (schema 56)
+
+Migration removes existing `1:1` virtual fields from both tables, obsolete expansion settings, and references to those removed fields. The relationship and both primary keys remain.
+
+Excel keeps ordinary fields in the main field table. A separate **Virtual Fields** section includes all visible generated fields, including optional expanded fields, with their joined table, join type, related primary key, and table role.
+
+The **Joins** section lists every relationship from the current table's perspective, including collapsed links and `1:1` links. It has five independent columns: join type, other table, this table's role, this table's key or field, and the other table's key or field. Missing keys are labeled `Not configured`; the relationship remains listed. `1:1` rows show the two primary keys.

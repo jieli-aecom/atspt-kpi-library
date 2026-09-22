@@ -30,16 +30,15 @@ test('many-to-many collections preserve punctuation and do not append a second s
   assert.equal(config.dataSources[0].fields.find((field) => field.generatedRelationId)?.name, 'Road-Link IDs');
 });
 
-test('one-to-one creates a singular principal ID only on the secondary table', () => {
+test('one-to-one uses existing primary keys without creating virtual fields', () => {
   const config = linkedTables('oneToOne');
   assert.equal(config.tableRelations.length, 1);
   assert.equal(config.dataSources[0].fields.length, 1);
-  assert.equal(config.dataSources[1].fields[1].name, 'Zone ID');
-  assert.equal(config.dataSources[1].fields[1].dataType, 'id');
+  assert.equal(config.dataSources[1].fields.length, 1);
 });
 
 test('principal primary key renames propagate without changing field IDs or metadata', () => {
-  for (const cardinality of ['oneToOne', 'oneToMany', 'manyToMany'] as const) {
+  for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
     const config = linkedTables(cardinality);
     const after = config.dataSources.map((table, index) => ({ ...table, fields: table.fields.map((field) =>
       field.id === table.primaryKeyFieldId ? { ...field, name: index ? 'Road Segment ID' : 'District ID' } : field) }));

@@ -31,8 +31,10 @@ for (const cardinality of ['oneToOne', 'manyToMany'] as const) {
       const principal = config.dataSources.find((entry) => entry.id === expected)!;
       const secondary = config.dataSources.find((entry) => entry.id !== expected)!;
       assert.equal(principal.fields.length, 1);
-      assert.equal(secondary.fields[1].name, `${expected}ID${cardinality === 'manyToMany' ? 's' : ''}`);
-      assert.equal(secondary.fields[1].dataType, cardinality === 'manyToMany' ? 'collection' : 'id');
+      if (cardinality === 'manyToMany') {
+        assert.equal(secondary.fields[1].name, `${expected}IDs`);
+        assert.equal(secondary.fields[1].dataType, 'collection');
+      } else assert.equal(secondary.fields.length, 1);
       assert.equal(repairConfig(config).config, config);
       assert.deepEqual(prepareForExport(config).tableRelations, config.tableRelations);
       assert.ok(kpiPoolConfigSchema.safeParse(config).success);
@@ -45,9 +47,10 @@ for (const cardinality of ['oneToOne', 'manyToMany'] as const) {
     assert.equal(prepareForExport(config).tableRelations[0].principalDataSourceId, 'b');
     const exported = buildTableSchemaJsonExport(config);
     assert.equal(exported.KPIPreparation.b.Fields.length, 1);
-    assert.equal(exported.PreprocessedConstants.a.Fields[1].Virtual, true);
+    if (cardinality === 'manyToMany') assert.equal(exported.PreprocessedConstants.a.Fields[1].Virtual, true);
+    else assert.equal(exported.PreprocessedConstants.a.Fields.length, 1);
     assert.deepEqual(exported.KPIPreparation.b.Joins[0], {
-      With: 'a', Type: cardinality === 'manyToMany' ? 'N:N' : '1:1', LeftOn: 'bID', RightOn: cardinality === 'manyToMany' ? 'bIDs' : 'bID'
+      With: 'a', Type: cardinality === 'manyToMany' ? 'N:N' : '1:1', LeftOn: 'bID', RightOn: cardinality === 'manyToMany' ? 'bIDs' : 'aID'
     });
   });
 }
@@ -103,12 +106,12 @@ test('Excel excludes legacy principal/one-side fields and keeps secondary fields
       for (const [index, source] of config.dataSources.entries()) {
         const sheet = await zip.file(`xl/worksheets/sheet${index + 1}.xml`)!.async('string');
         assert.doesNotMatch(sheet, /OBSOLETE FIELD/);
-        if (source.id === principal) {
-          assert.doesNotMatch(sheet, />Joins</);
+        assert.match(sheet, />Joins</);
+        if (source.id === principal || cardinality === 'oneToOne') {
+          assert.doesNotMatch(sheet, />Virtual Fields</);
           assert.match(sheet, /1 field\./);
-          assert.match(sheet, /dimension ref="A1:J4"/);
         } else {
-          assert.match(sheet, />Joins</);
+          assert.match(sheet, />Virtual Fields</);
           assert.match(sheet, new RegExp(`>${principal}ID${cardinality === 'manyToMany' ? 's' : ''}<`));
         }
       }
@@ -116,7 +119,7 @@ test('Excel excludes legacy principal/one-side fields and keeps secondary fields
   }
 });
 
-for (const cardinality of ['oneToMany', 'oneToOne', 'manyToMany'] as const) {
+for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
   for (const principalId of cardinality === 'oneToMany' ? ['a'] : ['a', 'b']) {
     test(`${cardinality} / ${principalId}: expand, export, collapse and restore optional field`, async () => {
       const original = migrate([table('a'), table('b')], relation(cardinality, principalId));
@@ -125,8 +128,8 @@ for (const cardinality of ['oneToMany', 'oneToOne', 'manyToMany'] as const) {
       const otherId = principalId === 'a' ? 'b' : 'a';
       const optionalField = principal.fields.find((entry) => entry.generatedRelationId === 'r')!;
       assert.ok(optionalField);
-      assert.equal(optionalField.dataType, cardinality === 'oneToOne' ? 'id' : 'collection');
-      assert.equal(optionalField.name, `${otherId}ID${cardinality === 'oneToOne' ? '' : 's'}`);
+      assert.equal(optionalField.dataType, 'collection');
+      assert.equal(optionalField.name, `${otherId}IDs`);
       assert.equal(original.dataSources.find((source) => source.id === principalId)!.fields.length, 1);
       optionalField.name = 'Custom linked records';
       optionalField.details = 'Preserve these notes';
@@ -178,4 +181,54 @@ test('collapsing removes references to the optional field without deleting the j
   const collapsed = setPrincipalFieldExpanded(expanded, 'r', false);
   assert.deepEqual(collapsed.kpis[0].sources, []);
   assert.equal(collapsed.tableRelations[0].id, 'r');
+});
+
+test('1:1 migration removes virtual fields on both sides and obsolete expansion settings', () => {
+  const a = table('a');
+  const b = table('b');
+  const virtual = field('legacy', { generatedRelationId: 'r', generatedRelationRole: 'principalForeignKey' });
+  a.fields.push(virtual);
+  b.fields.push({ ...virtual, id: 'secondary', generatedRelationRole: 'secondaryForeignKey' });
+  a.fieldGroups = [{ id: 'group', position: 1, fieldIds: ['legacy'], dimensions: [] }];
+  const config = repairConfig({ ...createBlankConfig(), schemaVersion: 55, dataSources: [a, b],
+    tableRelations: [{ ...relation('oneToOne', 'a'), principalFieldExpanded: true, collapsedPrincipalField: virtual }],
+    kpis: [{ ...createBlankKpi(), sources: [{ id: 'ref', type: 'dataField', dataSourceId: 'a', fieldId: 'legacy', latex: 'x' }] }]
+  }).config;
+  assert.deepEqual(config.dataSources.map((source) => source.fields.map((entry) => entry.id)), [['aID'], ['bID']]);
+  assert.deepEqual(config.dataSources[0].fieldGroups[0].fieldIds, []);
+  assert.deepEqual(config.kpis[0].sources, []);
+  assert.equal(config.tableRelations[0].principalFieldExpanded, undefined);
+  assert.equal(config.tableRelations[0].collapsedPrincipalField, undefined);
+  assert.equal(setPrincipalFieldExpanded(config, 'r', true), config);
+  assert.equal(repairConfig(config).config, config);
+});
+
+test('Excel separates virtual fields and all joins with independent relationship headers and keys', async () => {
+  let config = repairConfig({ ...createBlankConfig(), dataSources: [table('a'), table('b'), table('c'), table('d')],
+    tableRelations: [relation('oneToMany'),
+      { ...relation('oneToOne', 'c'), id: 'one', targetDataSourceId: 'c' },
+      { ...relation('manyToMany', 'a'), id: 'many', targetDataSourceId: 'd' }]
+  }).config;
+  config = setPrincipalFieldExpanded(config, 'r', true);
+  const zip = await JSZip.loadAsync(await createTableSchemaExcelWorkbook(config));
+  const sheet = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+  const rows = [...sheet.matchAll(/<row r="(\d+)"[^>]*>(.*?)<\/row>/gs)];
+  const rowTexts = rows.map((row) => [...row[2].matchAll(/<t[^>]*>(.*?)<\/t>/gs)].map((cell) => cell[1]));
+  const virtualIndex = rowTexts.findIndex((row) => row[0] === 'Virtual Fields');
+  const joinsIndex = rowTexts.findIndex((row) => row[0] === 'Joins');
+  assert.ok(virtualIndex > 0 && joinsIndex > virtualIndex);
+  assert.deepEqual(rowTexts[virtualIndex + 2], ['', 'bIDs', 'Collection (IDs)', 'b', '1:N', 'Related b record IDs', '', '', 'bID', 'One side']);
+  assert.deepEqual(rowTexts[joinsIndex + 1], ['Join type', 'Other table', 'This table role', 'This table key / field', 'Other table key / field']);
+  assert.deepEqual(rowTexts.slice(joinsIndex + 2), [
+    ['1:N', 'b', 'One side', 'aID', 'aID'],
+    ['1:1', 'c', 'Secondary', 'aID', 'cID'],
+    ['N:N', 'd', 'Principal', 'aID', 'aIDs']
+  ]);
+  for (const row of rows.slice(joinsIndex + 1)) {
+    assert.match(sheet, new RegExp(`mergeCell ref="B${row[1]}:D${row[1]}"`));
+    assert.equal([...row[2].matchAll(/<c /g)].length, 5);
+  }
+  const otherSheet = await zip.file('xl/worksheets/sheet3.xml')!.async('string');
+  assert.doesNotMatch(otherSheet, />Virtual Fields</);
+  assert.match(otherSheet, />Joins</);
 });

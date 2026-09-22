@@ -26,7 +26,7 @@ export type SpatialUnit = string;
 export const isSpatialUnit = (value: unknown): value is SpatialUnit =>
   typeof value === 'string';
 
-export const CURRENT_SCHEMA_VERSION = 55 as const;
+export const CURRENT_SCHEMA_VERSION = 56 as const;
 
 export type SpatialScaleDefinition = { name: string; latex: string };
 export type SpatialScaleDefinitions = Record<SpatialScaleDefinitionKey, SpatialScaleDefinition>;

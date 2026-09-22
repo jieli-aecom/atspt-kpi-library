@@ -43,9 +43,13 @@ test('keeps colliding names and join references unique even across categories', 
   assert.equal(result.PreprocessedConstants.RoadNetwork.Fields[1].Name, 'RoadID_2');
   assert.ok(result.PreprocessedConstants.RoadNetwork_2_2);
   assert.deepEqual(result.PreprocessedConstants.RoadNetwork.Joins, [
-    { With: 'RoadNetwork_2', Type: '1:1', LeftOn: 'RoadID', RightOn: 'RoadID' }
+    { With: 'RoadNetwork_2', Type: '1:1', LeftOn: 'RoadID', RightOn: 'RoadNetworkID' }
   ]);
   assert.equal(result.ScenarioUpstream.RoadNetwork_2.Joins[0].With, 'RoadNetwork');
+  assert.equal(result.ScenarioUpstream.RoadNetwork_2.Fields.length, 1);
+  assert.deepEqual(result.ScenarioUpstream.RoadNetwork_2.Joins[0], {
+    With: 'RoadNetwork', Type: '1:1', LeftOn: 'RoadNetworkID', RightOn: 'RoadID'
+  });
 });
 
 test('handles blank, punctuation-only, numeric and prototype names without losing tables', () => {
