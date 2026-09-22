@@ -155,6 +155,8 @@ const dataSourceSchema = z.object({
   id: z.string().min(1),
   name: z.string(),
   description: z.string().optional(),
+  potentiallyUnavailable: z.boolean().optional(),
+  potentiallyUnavailableNote: z.string().optional(),
   spatialUnit: z.custom<SpatialUnit>(isSpatialUnit, {
     message: 'Spatial unit must be a string'
   }),
@@ -2186,6 +2188,8 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
       id,
       name,
       description: stringValue(rawSource.description),
+      potentiallyUnavailable: rawSource.potentiallyUnavailable === true,
+      potentiallyUnavailableNote: stringValue(rawSource.potentiallyUnavailableNote),
       category: tableSourceCategories.includes(rawSource.category as TableSourceCategory) ? rawSource.category as TableSourceCategory : 'Preprocessed Constants',
       spatialUnit,
       ...(typeof rawSource.customUnit === 'string' ? { customUnit: rawSource.customUnit } : {}),

@@ -3,6 +3,7 @@ import type { KpiMetric, KpiPoolConfig, KpiSourceItem } from './types.js';
 
 export const sourceFlagOptions = fieldFlagDefinitions;
 export type SourceFlag = typeof sourceFlagOptions[number]['key'];
+export const sourceTableFilterKey = (tableId: string) => JSON.stringify(['table', tableId]);
 
 // Match catalog identities, independently of row IDs, notation and scenario slots.
 export const sourceFilterKey = (source: KpiSourceItem): string => {
@@ -16,10 +17,14 @@ export const sourceFilterKey = (source: KpiSourceItem): string => {
 };
 
 export const sourceFilterEntry = (config: KpiPoolConfig, kpi: KpiMetric) => ({
-  keys: new Set(kpi.sources.map(sourceFilterKey)),
-  flags: new Set(kpi.sources.flatMap((source) => source.type === 'dataField'
-    ? fieldFlags(config.dataSources.find((table) => table.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId)).map((flag) => flag.key)
-    : []))
+  keys: new Set(kpi.sources.flatMap((source) => source.type === 'dataField'
+    ? [sourceFilterKey(source), sourceTableFilterKey(source.dataSourceId)] : [sourceFilterKey(source)])),
+  flags: new Set(kpi.sources.flatMap((source) => {
+    if (source.type !== 'dataField') return [];
+    const table = config.dataSources.find((table) => table.id === source.dataSourceId);
+    return [...fieldFlags(table?.fields.find((field) => field.id === source.fieldId)).map((flag) => flag.key),
+      ...(table?.potentiallyUnavailable ? ['unavailable' as const] : [])];
+  }))
 });
 
 export const matchesSourceFilters = (

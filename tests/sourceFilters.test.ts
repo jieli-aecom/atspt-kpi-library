@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createBlankConfig, createBlankKpi } from '../src/configSchema.ts';
-import { matchesSourceFilters, sourceFilterEntry, sourceFilterKey } from '../src/sourceFilters.ts';
+import { matchesSourceFilters, sourceFilterEntry, sourceFilterKey, sourceTableFilterKey } from '../src/sourceFilters.ts';
 import type { DataSourceField, KpiSourceItem } from '../src/types.ts';
 
 const field = (id: string, flags: Partial<DataSourceField> = {}): DataSourceField => ({
@@ -61,4 +61,31 @@ test('flags use explicit current field values, ignore missing fields and do not 
     [{ id: 'ref', type: 'kpi' as const, kpiId: kpi.id, latex: '' }]]) {
     assert.equal(matchesSourceFilters(sourceFilterEntry({ ...config, kpis: [kpi] }, metric(sources)), keys(), ['preprocessing']), false);
   }
+});
+
+test('entire-table selections match any referenced field and combine with fields using OR', () => {
+  const tableKeys = new Set([sourceTableFilterKey('table')]);
+  for (const fieldId of ['clean', 'computed', 'ordinary', 'new-field']) {
+    assert.equal(matchesSourceFilters(sourceFilterEntry(config, metric([{ ...data, fieldId }])), tableKeys, []), true);
+  }
+  assert.equal(matchesSourceFilters(sourceFilterEntry(config, metric([{ ...data, dataSourceId: 'other' }])), tableKeys, []), false);
+  assert.equal(matchesSourceFilters(sourceFilterEntry(config, metric([lookup])), tableKeys, []), false);
+  assert.equal(matchesSourceFilters(sourceFilterEntry(config, metric([lookup])), new Set([...tableKeys, ...keys(lookup)]), []), true);
+  assert.equal(matchesSourceFilters(sourceFilterEntry(config, metric([data])), tableKeys, ['derived']), false);
+});
+
+test('table unavailability contributes to flags without modifying individual fields', () => {
+  const flagged = structuredClone(config);
+  flagged.dataSources[0].potentiallyUnavailable = true;
+  const kpi = metric([{ ...data, fieldId: 'ordinary' }]);
+  const entry = sourceFilterEntry(flagged, kpi);
+  assert.equal(matchesSourceFilters(entry, keys(), ['unavailable']), true);
+  assert.equal(matchesSourceFilters(entry, new Set([sourceTableFilterKey('table')]), ['unavailable']), true);
+  assert.equal(matchesSourceFilters(entry, keys(), ['unavailable', 'derived']), false);
+  assert.equal(flagged.dataSources[0].fields[2].potentiallyUnavailable, undefined);
+  assert.equal(matchesSourceFilters(sourceFilterEntry(flagged, metric([lookup])), keys(), ['unavailable']), false);
+  flagged.dataSources[0].potentiallyUnavailable = false;
+  assert.equal(matchesSourceFilters(sourceFilterEntry(flagged, kpi), keys(), ['unavailable']), false);
+  flagged.dataSources[0].fields[2].potentiallyUnavailable = true;
+  assert.equal(matchesSourceFilters(sourceFilterEntry(flagged, kpi), keys(), ['unavailable']), true);
 });

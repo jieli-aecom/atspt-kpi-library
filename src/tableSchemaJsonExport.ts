@@ -10,6 +10,7 @@ type SchemaJoin = {
 
 type SchemaTable = {
   PK: string | null;
+  Flags?: { Name: string; Note?: string }[];
   Fields: { Name: string; Type: string; ElementType?: string; Virtual?: true; Flags?: { Name: string; Note?: string }[] }[];
   Joins: SchemaJoin[];
 };
@@ -65,6 +66,7 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
     });
     fieldNames.set(table.id, names);
     const exported: SchemaTable = {
+      ...(table.potentiallyUnavailable ? { Flags: [{ Name: 'Potentially Unavailable', ...(table.potentiallyUnavailableNote?.trim() ? { Note: table.potentiallyUnavailableNote } : {}) }] } : {}),
       PK: names.get(table.primaryKeyFieldId ?? '')?.[0] ?? null,
       Fields: fields,
       Joins: []

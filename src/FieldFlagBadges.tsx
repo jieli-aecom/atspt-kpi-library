@@ -1,6 +1,13 @@
 import { AlertTriangle, Sigma, Wrench } from 'lucide-react';
-import { fieldFlags, type fieldFlagDefinitions } from './fieldFlags';
-import type { DataSourceField } from './types';
+import { fieldFlags, fieldFlagDefinitions } from './fieldFlags';
+import type { DataSource, DataSourceField } from './types';
+
+export function TableAvailabilityFlag({ table, compact = false }: { table?: DataSource; compact?: boolean }) {
+  if (!table?.potentiallyUnavailable) return null;
+  return <span className={`field-flags${compact ? ' is-compact' : ''}`}>
+    <FieldFlagBadge flag={{ ...fieldFlagDefinitions[2], note: [`Table: ${table.name}`, table.potentiallyUnavailableNote?.trim()].filter(Boolean).join(' — ') }} compact={compact} />
+  </span>;
+}
 
 export function FieldFlagBadge({ flag, compact = false }: {
   flag: typeof fieldFlagDefinitions[number] & { note?: string };
