@@ -5056,6 +5056,8 @@ h1 {
 
 .kpi-number-input[aria-invalid='true'] { border-color: #b42318; }
 
+.kpi-number-assign-icon { position: relative; top: -1px; }
+
 .name-filter-popover {
   width: min(310px, calc(100vw - 40px));
   display: grid;

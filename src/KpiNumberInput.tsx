@@ -25,7 +25,19 @@ export function KpiNumberInput({ kpi, kpis, onChange }: {
     }
   };
   return <div className="kpi-number-editor" onClick={(event) => event.stopPropagation()}>
-    <input
+    {kpi.displayNumber === null ? <button
+      className="kpi-number-input"
+      type="button"
+      aria-label={`Assign smallest available positive integer to ${kpi.name}`}
+      title="Assign the smallest available positive integer"
+      onKeyDown={(event) => event.stopPropagation()}
+      onClick={() => {
+        const usedNumbers = new Set(kpis.map((item) => item.displayNumber));
+        let number = 1;
+        while (usedNumbers.has(number)) number += 1;
+        onChange(number);
+      }}
+    ><span className="kpi-number-assign-icon" aria-hidden="true">+</span></button> : <input
       className="kpi-number-input"
       type="text"
       inputMode="decimal"
@@ -41,7 +53,7 @@ export function KpiNumberInput({ kpi, kpis, onChange }: {
         if (event.key === 'Enter') { event.preventDefault(); commit(); }
         if (event.key === 'Escape') { setDraft(String(kpi.displayNumber ?? '')); setValidated(false); }
       }}
-    />
+    />}
     {error ? <span id={errorId} className="kpi-number-error" role="alert">{error}</span> : null}
   </div>;
 }
