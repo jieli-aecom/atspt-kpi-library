@@ -43,12 +43,12 @@ test('keeps colliding names and join references unique even across categories', 
   assert.equal(result.PreprocessedConstants.RoadNetwork.Fields[1].Name, 'RoadID_2');
   assert.ok(result.PreprocessedConstants.RoadNetwork_2_2);
   assert.deepEqual(result.PreprocessedConstants.RoadNetwork.Joins, [
-    { With: 'RoadNetwork_2', Type: '1:1', LeftOn: 'RoadID', RightOn: 'RoadNetworkID' }
+    { With: 'RoadNetwork_2', Type: '1:1', LeftOn: 'RoadID', RightOn: 'RoadNetworkID', LeftRole: 'principal', RightRole: 'secondary' }
   ]);
   assert.equal(result.ScenarioUpstream.RoadNetwork_2.Joins[0].With, 'RoadNetwork');
   assert.equal(result.ScenarioUpstream.RoadNetwork_2.Fields.length, 1);
   assert.deepEqual(result.ScenarioUpstream.RoadNetwork_2.Joins[0], {
-    With: 'RoadNetwork', Type: '1:1', LeftOn: 'RoadNetworkID', RightOn: 'RoadID'
+    With: 'RoadNetwork', Type: '1:1', LeftOn: 'RoadNetworkID', RightOn: 'RoadID', LeftRole: 'secondary', RightRole: 'principal'
   });
 });
 
@@ -88,8 +88,8 @@ test('exports N:N using only the secondary collection and the principal primary 
   table('b', 'Route', { fields: [field('b-pk', 'Route ID'),
     field('as', 'Road IDs', { dataType: 'collection', collectionItemType: 'id', generatedRelationId: 'r', generatedRelationRole: 'targetCollection' })] })];
   const result = exportJson(sources, [{ id: 'r', sourceDataSourceId: 'a', targetDataSourceId: 'b', cardinality: 'manyToMany' }]).PreprocessedConstants;
-  assert.deepEqual(result.Road.Joins, [{ With: 'Route', Type: 'N:N', LeftOn: 'RoadID', RightOn: 'RoadIDs' }]);
-  assert.deepEqual(result.Route.Joins, [{ With: 'Road', Type: 'N:N', LeftOn: 'RoadIDs', RightOn: 'RoadID' }]);
+  assert.deepEqual(result.Road.Joins, [{ With: 'Route', Type: 'N:N', LeftOn: 'RoadID', RightOn: 'RoadIDs', LeftRole: 'principal', RightRole: 'secondary' }]);
+  assert.deepEqual(result.Route.Joins, [{ With: 'Road', Type: 'N:N', LeftOn: 'RoadIDs', RightOn: 'RoadID', LeftRole: 'secondary', RightRole: 'principal' }]);
   assert.equal(result.Road.Fields.length, 1);
   assert.equal(result.Route.Fields[1].Virtual, true);
   for (const own of Object.values(result) as any[]) {
@@ -100,6 +100,22 @@ test('exports N:N using only the secondary collection and the principal primary 
     }
   }
 });
+
+for (const cardinality of ['oneToOne', 'manyToMany'] as const) {
+  test(`${cardinality} export honors an explicit target principal in both directions`, () => {
+    const sources = [table('a', 'Road', { fields: [field('a-pk', 'Road ID'),
+      field('routes', 'Route IDs', { dataType: 'collection', collectionItemType: 'id', generatedRelationId: 'r', generatedRelationRole: 'sourceCollection' })] }),
+    table('b', 'Route')];
+    const result = exportJson(sources, [{ id: 'r', sourceDataSourceId: 'a', targetDataSourceId: 'b',
+      cardinality, principalDataSourceId: 'b' }]).PreprocessedConstants;
+    assert.deepEqual(result.Road.Joins, [{ With: 'Route', Type: cardinality === 'oneToOne' ? '1:1' : 'N:N',
+      LeftOn: cardinality === 'oneToOne' ? 'RoadID' : 'RouteIDs', RightOn: 'RouteID',
+      LeftRole: 'secondary', RightRole: 'principal' }]);
+    assert.deepEqual(result.Route.Joins, [{ With: 'Road', Type: cardinality === 'oneToOne' ? '1:1' : 'N:N',
+      LeftOn: 'RouteID', RightOn: cardinality === 'oneToOne' ? 'RoadID' : 'RouteIDs',
+      LeftRole: 'principal', RightRole: 'secondary' }]);
+  });
+}
 
 test('repeats dimensioned fields for every normalized option combination, retaining types', () => {
   const source = table('a', 'Metrics', {

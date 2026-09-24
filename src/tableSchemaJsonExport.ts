@@ -7,6 +7,8 @@ type SchemaJoin = {
   Type: '1:1' | '1:N' | 'N:1' | 'N:N';
   LeftOn: string;
   RightOn: string;
+  LeftRole?: 'principal' | 'secondary';
+  RightRole?: 'principal' | 'secondary';
 };
 
 type SchemaTable = {
@@ -81,13 +83,17 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
   const primaryKey = (table: DataSource) => table.fields.find((field) => field.id === table.primaryKeyFieldId);
   const relationField = (table: DataSource, relationId: string, role: DataSourceField['generatedRelationRole']) =>
     table.fields.find((field) => field.generatedRelationId === relationId && field.generatedRelationRole === role);
-  const addJoin = (left: DataSource, right: DataSource, type: SchemaJoin['Type'], leftField?: DataSourceField, rightField?: DataSourceField) => {
+  const addJoin = (left: DataSource, right: DataSource, type: SchemaJoin['Type'], leftField?: DataSourceField, rightField?: DataSourceField, principalId?: string) => {
     // Incomplete relations cannot produce valid field references.
     if (!leftField || !rightField) return;
     for (const leftName of fieldNames.get(left.id)!.get(leftField.id)!) {
       for (const rightName of fieldNames.get(right.id)!.get(rightField.id)!) {
         exportedById.get(left.id)!.Joins.push({
-          With: tableNames.get(right.id)!, Type: type, LeftOn: leftName, RightOn: rightName
+          With: tableNames.get(right.id)!, Type: type, LeftOn: leftName, RightOn: rightName,
+          ...(principalId ? {
+            LeftRole: left.id === principalId ? 'principal' as const : 'secondary' as const,
+            RightRole: right.id === principalId ? 'principal' as const : 'secondary' as const
+          } : {})
         });
       }
     }
@@ -98,8 +104,9 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
     const target = tablesById.get(relation.targetDataSourceId);
     if (!source || !target) continue;
     if (relation.cardinality === 'oneToOne') {
-      addJoin(source, target, '1:1', primaryKey(source), primaryKey(target));
-      addJoin(target, source, '1:1', primaryKey(target), primaryKey(source));
+      const principalId = relationPrincipalId(relation, config.dataSources);
+      addJoin(source, target, '1:1', primaryKey(source), primaryKey(target), principalId);
+      addJoin(target, source, '1:1', primaryKey(target), primaryKey(source), principalId);
     } else if (relation.cardinality === 'oneToMany') {
       const foreignKey = relationField(target, relation.id, 'manyForeignKey');
       addJoin(source, target, '1:N', primaryKey(source), foreignKey);
@@ -109,8 +116,8 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
       const secondary = principal === source ? target : source;
       const foreignKey = relationField(secondary, relation.id, secondary === source ? 'sourceCollection' : 'targetCollection');
       const type = 'N:N';
-      addJoin(principal, secondary, type, primaryKey(principal), foreignKey);
-      addJoin(secondary, principal, type, foreignKey, primaryKey(principal));
+      addJoin(principal, secondary, type, primaryKey(principal), foreignKey, principal.id);
+      addJoin(secondary, principal, type, foreignKey, primaryKey(principal), principal.id);
     }
   }
 
