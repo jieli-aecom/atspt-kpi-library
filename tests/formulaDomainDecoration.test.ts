@@ -15,12 +15,13 @@ const renderer = app.slice(app.indexOf('const formulaDecorationCache ='), app.in
 const domainTokens = app.slice(app.indexOf('  const fieldDomainTokens = useMemo('), app.indexOf('  const referencedKpiNames = JSON.stringify'));
 const compiled = ts.transpileModule(`${renderer}
 function getDomainTokens(config, kpi) { ${domainTokens} return fieldDomainTokens; }
-({ decorateFormulaTokens, getDomainTokens, formulaTokenTarget, spatialScaleFormulaTokens });`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-const { decorateFormulaTokens, getDomainTokens, formulaTokenTarget, spatialScaleFormulaTokens } = runInNewContext(compiled, {
+({ decorateFormulaTokens, getDomainTokens, formulaTokenTarget, spatialScaleFormulaTokens, unusedKpiSourceIds });`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+const { decorateFormulaTokens, getDomainTokens, formulaTokenTarget, spatialScaleFormulaTokens, unusedKpiSourceIds } = runInNewContext(compiled, {
   katex, spatialScaleKeys: [], spatialScaleLabels: {}, genericSpatialUnits, spatialScaleDefinitionKeys, indexedScaleLatex,
   useMemo: (fn: () => unknown) => fn(),
   formulaFieldDomains: (config: { domains: unknown[] }) => config.domains,
   latexIdentifier: (value: string) => value.replace(/\s+/g, ''),
+  sourceItemTooltip: (_config: unknown, source: { id: string }) => source.id,
   sourceItemLabel: (_config: unknown, source: { id: string }) => source.id
 });
 const tokens = () => getDomainTokens({ domains: [{ name: 'Travel mode', options: ['Car', 'Public Transport'], sourceIds: ['before', 'after'] }] }, {
@@ -174,4 +175,36 @@ test('indexed source matching uses configured notation and does not broaden unre
   // A definition change must invalidate cached membership for the same source/formula.
   assert.doesNotMatch(render('CellID_{Cell_i}', [cellIdSource('CellID_{Cell}', ['Zone'])]), /formula-source-token/);
   assert.match(render('CellID_{Cell_i}', [cellIdSource()]), /formula-source-token/);
+});
+
+
+test('unused sources respect lookup calls, filtered indexed fields and scenario variants', () => {
+  const config = createBlankConfig();
+  const sources = [
+    { id: 'field', type: 'dataField', latex: 'Count_{Cell}', dataSourceId: 'table', fieldId: 'count' },
+    { id: 'lookup', type: 'lookup', latex: 'Rate(x)', lookupId: 'rate' },
+    { id: 'constant', type: 'variable', latex: 'max', variableId: 'max' },
+    { id: 'before', type: 'kpi', latex: 'K_{Before}', kpiId: 'other', scenarioSlot: 0 },
+    { id: 'after', type: 'kpi', latex: 'K_{After}', kpiId: 'other', scenarioSlot: 1 },
+    { id: 'blank', type: 'custom', name: 'Empty', latex: '' }
+  ];
+  const kpi = { sources, spatialScales: {}, description: { formulas: [{ items: [
+    { formula: String.raw`Count_{Cell_i|Car} + Rate(y) + K_{Before} + \max(x) + maximum` }
+  ] }] } };
+  assert.deepEqual([...unusedKpiSourceIds(config, kpi)], ['constant', 'after', 'blank']);
+  kpi.description.formulas[0].items[0].formula += ' + max + K_{After}';
+  assert.deepEqual([...unusedKpiSourceIds(config, kpi)], ['blank']);
+  kpi.description.formulas[0].items[0].formula = 'Rate';
+  assert.ok(unusedKpiSourceIds(config, kpi).has('lookup'));
+});
+
+test('unused sources include aggregation usage, exclude prose, and update when formulas are removed', () => {
+  const config = createBlankConfig();
+  const kpi = { sources: [{ id: 'custom', type: 'custom', name: 'Input', latex: 'x' }],
+    description: { formulaComment: 'x', formulas: [{ items: [{ formula: '', generalExplanation: 'x', terms: [{ term: 'x' }] }] }] },
+    spatialScales: { city: { isBasicUnit: false, formula: 'x + 1' } }
+  };
+  assert.equal(unusedKpiSourceIds(config, kpi).size, 0);
+  kpi.spatialScales.city.formula = '';
+  assert.deepEqual([...unusedKpiSourceIds(config, kpi)], ['custom']);
 });

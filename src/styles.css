@@ -5810,10 +5810,40 @@ h1 {
 }
 
 .selected-source-term > strong {
+  display: flex;
+  align-items: center;
   overflow: hidden;
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.selected-source-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.source-unused-flag {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 2px;
+  margin-left: 5px;
+  color: #687985;
+  font-size: 9px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.selected-source-custom-name {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.selected-source-custom-name > input {
+  min-width: 0;
+  flex: 1;
 }
 
 .selected-source-dimensions {

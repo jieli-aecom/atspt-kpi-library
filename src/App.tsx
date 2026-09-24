@@ -7239,11 +7239,21 @@ function KpiSourceEditor({
     setOpen(false);
     onEditLibrarySource({ kind: 'domain', domainId });
   };
+  const unusedSourceIds = useMemo(() => open && !filterMode && !fieldOwner
+    ? unusedKpiSourceIds(config, kpi) : new Set<string>(), [open, Boolean(filterMode), Boolean(fieldOwner), config, kpi]);
   const selectionGroups = groupSourceSelections(kpi.sources);
   const renderSelectedSourceRow = (item: KpiSourceItem, label: string) => {
     const variants = selectionGroups.find((group) => sourceSelectionKey(group[0]) === sourceSelectionKey(item)) ?? [item];
     if (variants[0].id !== item.id) return null;
     const paired = variants.length > 1;
+    const unusedVariants = variants.filter((variant) => unusedSourceIds.has(variant.id));
+    const unusedScenarios = paired ? unusedVariants.map((variant) =>
+      (variant.type === 'dataField' || variant.type === 'kpi') && variant.scenarioSlot !== undefined
+        ? kpi.scenarioNames[variant.scenarioSlot] : '').filter(Boolean) : [];
+    const unusedFlag = unusedVariants.length ? <span className="source-unused-flag"
+      title={`Not used in this KPI's formulas${unusedScenarios.length ? `: ${unusedScenarios.join(', ')}` : ''}`}>
+      <CircleDashed size={11} aria-hidden="true" />unused
+    </span> : null;
 
     const selectedField = item.type === 'dataField' ? config.dataSources
       .find((source) => source.id === item.dataSourceId)?.fields
@@ -7262,9 +7272,9 @@ function KpiSourceEditor({
       }}
     >
       {item.type === 'custom'
-        ? <DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />
+        ? <div className="selected-source-custom-name"><DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />{unusedFlag}</div>
         : <div className="selected-source-term" title={sourceItemTooltip(config, item)}>
-          <strong>{label}<FieldFlags field={selectedField} compact /></strong>
+          <strong><span className="selected-source-name">{label}</span>{unusedFlag}<FieldFlags field={selectedField} compact /></strong>
           {fieldDomain ? <div className={`selected-source-domain ${fieldDomain.enumId ? 'is-global' : 'is-custom'}`}>
             <span>
               <b>{fieldDomain.name}</b>
@@ -8400,6 +8410,37 @@ const formulaContainsToken = (formula: string, token: FormulaSemanticToken) => {
   return matches;
 };
 
+const sourceFormulaToken = (config: KpiPoolConfig, source: KpiSourceItem): FormulaSemanticToken => {
+  const lookupOpenParenthesis = source.type === 'lookup' ? source.latex.indexOf('(') : -1;
+  const fieldType = source.type === 'dataField'
+    ? config.dataSources.find((dataSource) => dataSource.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId)?.dataType
+    : undefined;
+  return {
+    latex: source.latex,
+    indexedScaleBases: source.type === 'dataField' ? spatialScaleDefinitionKeys.flatMap((scale) => {
+      const latex = config.spatialScaleDefinitions[scale].latex;
+      return [latex, ...(!latex.includes('\\') && !/[{}]/.test(latex) ? [`\\mathrm{${latex}}`, `\\text{${latex}}`] : [])];
+    }) : undefined,
+    matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
+    requiresFollowingParenthesis: lookupOpenParenthesis > 0,
+    kind: source.type === 'variable' ? 'variable' : source.type === 'lookup' ? 'lookup' : fieldType === 'collection' ? 'collection' : 'source',
+    label: `Source: ${sourceItemTooltip(config, source)}`,
+    target: { kind: 'source', sourceId: source.id }
+  };
+};
+
+const unusedKpiSourceIds = (config: KpiPoolConfig, kpi: KpiMetric): Set<string> => {
+  const formulas = [
+    ...kpi.description.formulas.flatMap((group) => group.items.map((item) => item.formula)),
+    ...Object.values(kpi.spatialScales).filter((scale) => !scale.isBasicUnit).map((scale) => scale.formula)
+  ].filter((formula) => formula.trim());
+  return new Set(kpi.sources.filter((source) => {
+    if (!source.latex.trim()) return true;
+    const token = sourceFormulaToken(config, source);
+    return !formulas.some((formula) => formulaContainsToken(formula, token));
+  }).map((source) => source.id));
+};
+
 const splitFormulaAtSafeCommas = (formula: string) => {
   if (/\\left|\\right/.test(formula)) return [formula];
   const segments: string[] = [];
@@ -8711,24 +8752,7 @@ function InteractiveFormulaPreview({
       const referencedKpi = config.kpis.find((entry) => entry.id === source.kpiId);
       return [source.kpiId, referencedKpi?.name ?? 'Missing KPI', referencedKpi?.dimensions ?? []];
     }));
-  const sourceTokens = useMemo(() => kpi.sources.map((source): FormulaSemanticToken => {
-    const lookupOpenParenthesis = source.type === 'lookup' ? source.latex.indexOf('(') : -1;
-    const fieldType = source.type === 'dataField'
-      ? config.dataSources.find((dataSource) => dataSource.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId)?.dataType
-      : undefined;
-    return {
-      latex: source.latex,
-      indexedScaleBases: source.type === 'dataField' ? spatialScaleDefinitionKeys.flatMap((scale) => {
-        const latex = config.spatialScaleDefinitions[scale].latex;
-        return [latex, ...(!latex.includes('\\') && !/[{}]/.test(latex) ? [`\\mathrm{${latex}}`, `\\text{${latex}}`] : [])];
-      }) : undefined,
-      matchLatex: lookupOpenParenthesis > 0 ? source.latex.slice(0, lookupOpenParenthesis).trimEnd() : undefined,
-      requiresFollowingParenthesis: lookupOpenParenthesis > 0,
-      kind: source.type === 'variable' ? 'variable' : source.type === 'lookup' ? 'lookup' : fieldType === 'collection' ? 'collection' : 'source',
-      label: `Source: ${sourceItemTooltip(config, source)}`,
-      target: { kind: 'source', sourceId: source.id }
-    };
-  }), [config.dataSources, config.lookups, config.variables, config.spatialScaleDefinitions, kpi.sources, referencedKpiNames]);
+  const sourceTokens = useMemo(() => kpi.sources.map((source) => sourceFormulaToken(config, source)), [config.dataSources, config.lookups, config.variables, config.spatialScaleDefinitions, kpi.sources, referencedKpiNames]);
   const itemCatalog = formulaItemCatalog(kpi);
   const regularFormulaItems = itemCatalog.items;
   const finalFormulaItem = itemCatalog.finalItem;
