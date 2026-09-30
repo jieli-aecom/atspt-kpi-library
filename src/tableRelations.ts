@@ -1,4 +1,13 @@
-import { tableSourceCategories, type DataLibraryGroup, type DataSource, type DataSourceField, type TableRelation } from './types.js';
+import { sourceTableUnit, tableSourceCategories, type DataLibraryGroup, type DataSource, type DataSourceField, type TableRelation } from './types.js';
+
+/** Retarget an existing join only within the original related table's geography unit. */
+export const relationTargetTables = (tables: DataSource[], anchorId: string, relation?: TableRelation): DataSource[] => {
+  if (!relation) return tables.filter((table) => table.id !== anchorId);
+  if (relation.sourceDataSourceId !== anchorId && relation.targetDataSourceId !== anchorId) return [];
+  const otherId = relation.sourceDataSourceId === anchorId ? relation.targetDataSourceId : relation.sourceDataSourceId;
+  const other = tables.find((table) => table.id === otherId);
+  return other ? tables.filter((table) => table.id !== anchorId && sourceTableUnit(table) === sourceTableUnit(other)) : [];
+};
 
 /** Match the table library's category and group display order during migration. */
 export const relationTableOrder = (tables: DataSource[], groups: DataLibraryGroup[]): DataSource[] => {
