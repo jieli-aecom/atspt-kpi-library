@@ -8,7 +8,7 @@ const fixture = () => {
   const config = createBlankConfig();
   config.dataSources = [{
     id: 'vehicles', name: 'Vehicles', spatialUnit: '', customUnit: 'Vehicle', fieldGroups: [],
-    fields: [{ id: 'speed', name: 'Speed', meaning: '', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'collection', valueUnit: '', options: [] }]
+    fields: [{ id: 'speed', name: 'Speed', meaning: '', details: '', status: 'Not Ready', preprocessingNeeded: false, preferredLatex: '', dataType: 'collection', valueUnit: '', options: [] }]
   }];
   return config;
 };

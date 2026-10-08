@@ -27,8 +27,8 @@ test('exports categories without groups, normalized keys and fields, and collect
   const result = JSON.parse(JSON.stringify(buildTableSchemaJsonExport(input)));
   assert.deepEqual(Object.keys(result), ['PreprocessedConstants', 'ScenarioUpstream', 'KPIPreparation']);
   assert.deepEqual(result.PreprocessedConstants, {
-    RoadNetwork: { PK: 'RoadID', Fields: [{ Name: 'RoadID', Type: 'id' },
-      { Name: 'Lengthkm', Type: 'number' }, { Name: 'RoadTags', Type: 'collection', ElementType: 'text' }], Joins: [] }
+    RoadNetwork: { PK: 'RoadID', Fields: [{ Name: 'RoadID', Status: 'Not Ready', Type: 'id' },
+      { Name: 'Lengthkm', Status: 'Not Ready', Type: 'number' }, { Name: 'RoadTags', Status: 'Not Ready', Type: 'collection', ElementType: 'text' }], Joins: [] }
   });
   assert.equal(JSON.stringify(input), before);
 });
@@ -74,11 +74,11 @@ test('exports 1:N using the primary and foreign key with reversed N:1 on the oth
   assert.deepEqual(result.Parent.Joins, [{ With: 'Child', Type: '1:N', LeftOn: 'ParentID', RightOn: 'ParentID' }]);
   assert.deepEqual(result.Child.Joins, [{ With: 'Parent', Type: 'N:1', LeftOn: 'ParentID', RightOn: 'ParentID' }]);
   assert.deepEqual(result.Parent.Fields, [
-    { Name: 'ParentID', Type: 'id' }
+    { Name: 'ParentID', Status: 'Not Ready', Type: 'id' }
   ]);
   assert.deepEqual(result.Child.Fields, [
-    { Name: 'ChildID', Type: 'id' },
-    { Name: 'ParentID', Type: 'id', Virtual: true }
+    { Name: 'ChildID', Status: 'Not Ready', Type: 'id' },
+    { Name: 'ParentID', Status: 'Not Ready', Type: 'id', Virtual: true }
   ]);
 });
 
@@ -129,9 +129,9 @@ test('repeats dimensioned fields for every normalized option combination, retain
   const result = exportJson([source]).PreprocessedConstants.Metrics;
   assert.equal(result.PK, 'RecordID');
   assert.deepEqual(result.Fields, [
-    { Name: 'RecordID', Type: 'id' },
-    ...['Car_AMpeak', 'Car_PMpeak', 'PublicTransit_AMpeak', 'PublicTransit_PMpeak'].map((suffix) => ({ Name: `MeanSpeed_${suffix}`, Type: 'number' })),
-    ...['Car_AMpeak', 'Car_PMpeak', 'PublicTransit_AMpeak', 'PublicTransit_PMpeak'].map((suffix) => ({ Name: `Tags_${suffix}`, Type: 'collection', ElementType: 'text' }))
+    { Name: 'RecordID', Status: 'Not Ready', Type: 'id' },
+    ...['Car_AMpeak', 'Car_PMpeak', 'PublicTransit_AMpeak', 'PublicTransit_PMpeak'].map((suffix) => ({ Name: `MeanSpeed_${suffix}`, Status: 'Not Ready', Type: 'number' })),
+    ...['Car_AMpeak', 'Car_PMpeak', 'PublicTransit_AMpeak', 'PublicTransit_PMpeak'].map((suffix) => ({ Name: `Tags_${suffix}`, Status: 'Not Ready', Type: 'collection', ElementType: 'text' }))
   ]);
 });
 

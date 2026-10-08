@@ -1,5 +1,13 @@
 # Table schema exports
 
+## Field readiness (schema 57)
+
+Each table field has a `status`: `Not Ready` (gray), `With Sample` (yellow), or `Ready` (green). Set it in the field list or Field details. Older configurations default missing statuses to `Not Ready`. Statuses survive save, HTML export/import, and relationship field collapse/expansion. Table-schema JSON includes `Status` on each field, including dimension-expanded fields.
+
+The KPI Source cell displays the lowest status among its directly selected table fields. Lookups, constants, custom inputs, and referenced KPIs have no field status and do not affect this calculation. A KPI with no table fields is gray and does not match yellow or green requirements. Source filters offer **None** (no status restriction), **With Sample or better**, and **Ready**. These requirements combine with other source filters.
+
+KPI Excel exports include **Source** followed by **Source Status**, with the same status label and colored dot. Selecting Source always includes its status column.
+
 The Source Tables library toolbar provides **View diagram**, **Export Excel**, and **Export JSON**. Both exports use the current in-memory schema, including unsaved edits. Add tables within categories. The diagram retains its SVG and PNG exports.
 
 ## JSON format

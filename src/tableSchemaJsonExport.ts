@@ -1,6 +1,7 @@
 import { relationPrincipalId, visibleRelationFields } from './tableRelations.js';
 import type { DataSource, DataSourceField, KpiPoolConfig, TableSourceCategory } from './types.js';
 import { fieldFlags } from './fieldFlags.js';
+import { fieldStatus, type SourceStatus } from './sourceStatus.js';
 
 type SchemaJoin = {
   With: string;
@@ -14,7 +15,7 @@ type SchemaJoin = {
 type SchemaTable = {
   PK: string | null;
   Flags?: { Name: string; Note?: string }[];
-  Fields: { Name: string; Type: string; ElementType?: string; Virtual?: true; Flags?: { Name: string; Note?: string }[] }[];
+  Fields: { Name: string; Type: string; Status: SourceStatus; ElementType?: string; Virtual?: true; Flags?: { Name: string; Note?: string }[] }[];
   Joins: SchemaJoin[];
 };
 
@@ -61,6 +62,7 @@ export function buildTableSchemaJsonExport(config: Pick<KpiPoolConfig, 'dataSour
       names.set(field.id, expandedNames);
       return expandedNames.map((name) => ({
         Name: name,
+        Status: fieldStatus(field),
         Type: field.dataType,
         ...(fieldFlags(field).length ? { Flags: fieldFlags(field).map(({ label, note }) => ({ Name: label, ...(note.trim() ? { Note: note } : {}) })) } : {}),
         ...(field.generatedRelationId ? { Virtual: true as const } : {}),

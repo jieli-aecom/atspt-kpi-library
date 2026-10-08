@@ -7,7 +7,7 @@ import { buildTableSchemaJsonExport } from '../src/tableSchemaJsonExport.ts';
 import type { DataSource, DataSourceField, TableRelation, TableSourceCategory } from '../src/types.ts';
 
 const field = (id: string, extra: Partial<DataSourceField> = {}): DataSourceField => ({
-  id, name: id, meaning: '', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: [], ...extra
+  id, name: id, meaning: '', details: '', status: 'Not Ready', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: [], ...extra
 });
 const table = (id: string, category: TableSourceCategory = 'Preprocessed Constants'): DataSource => ({
   id, name: id, category, spatialUnit: '', primaryKeyFieldId: `${id}ID`, fields: [field(`${id}ID`)], fieldGroups: []
@@ -50,7 +50,7 @@ for (const cardinality of ['oneToOne', 'manyToMany'] as const) {
     if (cardinality === 'manyToMany') assert.equal(exported.PreprocessedConstants.a.Fields[1].Virtual, true);
     else assert.equal(exported.PreprocessedConstants.a.Fields.length, 1);
     assert.deepEqual(exported.KPIPreparation.b.Joins[0], {
-      With: 'a', Type: cardinality === 'manyToMany' ? 'N:N' : '1:1', LeftOn: 'bID', RightOn: cardinality === 'manyToMany' ? 'bIDs' : 'aID'
+      With: 'a', Type: cardinality === 'manyToMany' ? 'N:N' : '1:1', LeftOn: 'bID', RightOn: cardinality === 'manyToMany' ? 'bIDs' : 'aID', LeftRole: 'principal', RightRole: 'secondary'
     });
   });
 }
@@ -133,6 +133,7 @@ for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
       assert.equal(original.dataSources.find((source) => source.id === principalId)!.fields.length, 1);
       optionalField.name = 'Custom linked records';
       optionalField.details = 'Preserve these notes';
+      optionalField.status = 'With Sample';
       const json = buildTableSchemaJsonExport(expanded).PreprocessedConstants;
       assert.ok(json[principalId].Fields.some((entry) => entry.Name === 'Customlinkedrecords'));
       const zip = await JSZip.loadAsync(await createTableSchemaExcelWorkbook(expanded));
@@ -143,6 +144,13 @@ for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
       const persisted = repairConfig(JSON.parse(JSON.stringify(prepareForExport(expanded)))).config;
       assert.equal(persisted.tableRelations[0].principalFieldExpanded, true);
       const collapsed = setPrincipalFieldExpanded(persisted, 'r', false);
+      const legacyCollapsed = JSON.parse(JSON.stringify(collapsed));
+      legacyCollapsed.schemaVersion = 56;
+      delete legacyCollapsed.tableRelations[0].collapsedPrincipalField.status;
+      const legacyRestored = repairConfig(legacyCollapsed).config.tableRelations[0].collapsedPrincipalField!;
+      assert.equal(legacyRestored.status, 'Not Ready');
+      assert.equal(legacyRestored.details, optionalField.details);
+      assert.equal(legacyRestored.name, optionalField.name);
       assert.equal(collapsed.tableRelations.length, 1);
       assert.equal(collapsed.dataSources.find((source) => source.id === principalId)!.fields.length, 1);
       assert.equal(collapsed.dataSources.find((source) => source.id === otherId)!.fields.length, 2);
@@ -157,6 +165,7 @@ for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
       assert.equal(restoredField.id, optionalField.id);
       assert.equal(restoredField.name, optionalField.name);
       assert.equal(restoredField.details, optionalField.details);
+      assert.equal(restoredField.status, optionalField.status);
       assert.equal(restoredField.dataType, optionalField.dataType);
       assert.equal(setPrincipalFieldExpanded(restored, 'r', true), restored);
     });

@@ -6,6 +6,8 @@ import { matchesKpiNumberAndScenario } from './kpiNameFilters';
 import { sortKpisByNumber } from './kpiNumbers';
 import { kpiCatalogChangeAffectsRow } from './kpiCatalogChanges';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
+import { fieldStatus, sourceStatus, type SourceStatusFilter } from './sourceStatus';
+import { SourceStatusBadge, SourceStatusSelect } from './SourceStatusBadge';
 import { sourceFilterKey, sourceTableFilterKey, sourceFilterEntry, matchesSourceFilters, sourceFlagOptions, type SourceFlag } from './sourceFilters';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
 import { indexedScaleLatex } from './globalDefinitions';
@@ -157,6 +159,7 @@ type ColumnFilters = {
   sourceItems: KpiSourceItem[];
   sourceTables: string[];
   sourceFlags: SourceFlag[];
+  sourceStatus: SourceStatusFilter;
   prerequisiteModules: string[];
   scales: SpatialScaleKey[];
   userGroups: string[];
@@ -275,6 +278,7 @@ const emptyFilters = (): ColumnFilters => ({
   sourceItems: [],
   sourceTables: [],
   sourceFlags: [],
+  sourceStatus: '',
   prerequisiteModules: [],
   scales: [],
   userGroups: [],
@@ -352,6 +356,7 @@ type CompiledFilters = {
   formula: string;
   sourceKeys: Set<string>;
   sourceFlags: SourceFlag[];
+  sourceStatus: SourceStatusFilter;
   prerequisiteModules: Set<string>;
   scales: Set<SpatialScaleKey>;
   userGroups: Set<string>;
@@ -448,6 +453,7 @@ const compileFilters = (filters: ColumnFilters): CompiledFilters => {
     formula: normalize(filters.formula),
     sourceKeys: new Set([...filters.sourceItems.map(sourceFilterKey), ...filters.sourceTables.map(sourceTableFilterKey)]),
     sourceFlags: filters.sourceFlags,
+    sourceStatus: filters.sourceStatus,
     prerequisiteModules: new Set(filters.prerequisiteModules),
     scales: new Set(filters.scales),
     userGroups: new Set(filters.userGroups),
@@ -959,7 +965,7 @@ const activeFilterCount = (filters: ColumnFilters) =>
   (filters.status ? 1 : 0) +
   filters.noteLabels.length +
   (filters.formula ? 1 : 0) +
-  filters.sourceItems.length + filters.sourceTables.length + filters.sourceFlags.length +
+  filters.sourceItems.length + filters.sourceTables.length + filters.sourceFlags.length + Number(Boolean(filters.sourceStatus)) +
   filters.prerequisiteModules.length +
   filters.scales.length +
   filters.userGroups.length +
@@ -1000,7 +1006,7 @@ const matchesFilters = (indexes: AppIndexes, kpi: KpiMetric, filters: CompiledFi
     return false;
   }
 
-  if (!matchesSourceFilters(search?.sources, filters.sourceKeys, filters.sourceFlags)) {
+  if (!matchesSourceFilters(search?.sources, filters.sourceKeys, filters.sourceFlags, filters.sourceStatus)) {
     return false;
   }
 
@@ -4538,7 +4544,7 @@ function DataSourceHeader({
         name: uniqueFieldName(current, fallbackPrimaryKeyName(current)),
         meaning: `Primary key for ${current.name || 'this table'}`,
         details: '',
-        preprocessingNeeded: false,
+        status: 'Not Ready', preprocessingNeeded: false,
         preferredLatex: '',
         dataType: 'id',
         valueUnit: '',
@@ -4713,6 +4719,7 @@ function DataSourceHeader({
     if (!current) return;
     const editablePartial = current.generatedRelationId
       ? {
+          ...(partial.status !== undefined ? { status: partial.status } : {}),
           ...(partial.name !== undefined ? { name: partial.name } : {}),
           ...(partial.meaning !== undefined ? { meaning: partial.meaning } : {}),
           ...(partial.details !== undefined ? { details: partial.details } : {}),
@@ -4829,7 +4836,7 @@ function DataSourceHeader({
       name: 'New field',
       meaning: '',
       details: '',
-      preprocessingNeeded: false,
+      status: 'Not Ready', preprocessingNeeded: false,
       preferredLatex: '',
       dataType: 'number',
       valueUnit: '',
@@ -6076,7 +6083,7 @@ function DataSourceHeader({
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
                     ><Trash2 size={12} /></button>}
                   </div>
-                  {fieldFlags(field).length > 0 ? <div className="data-source-field-flags"><FieldFlags field={field} /></div> : null}
+                  <div className="data-source-field-flags"><SourceStatusSelect status={fieldStatus(field)} label={`Status for ${field.name || 'field'}`} onChange={(status) => updateField(sourceIndex, fieldIndex, { status })} /><FieldFlags field={field} /></div>
                   {field.generatedRelationId ? <small className="relation-field-summary">
                     <button className="relation-field-badge" type="button" title="Edit link" aria-label={`Edit link for ${field.name || 'linked field'}`} aria-haspopup="dialog" aria-expanded={sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId} onClick={() => editTableRelation(field.generatedRelationId!, source.id, 'linkedField')}>Edit Link</button>
                     <span>to <strong>{linkedTable ? linkedTable.name || 'Untitled table' : 'Missing table'}</strong> · {linkedRelation ? linkedDirection : 'Missing relationship'}</span>
@@ -6897,13 +6904,13 @@ function SourceHeaderFilter({ config, filters, onChange }: {
   onChange: (filters: ColumnFilters) => void;
 }) {
   const context = useMemo(() => ({ ...createBlankKpi(), sources: filters.sourceItems }), [filters.sourceItems]);
-  const count = filters.sourceItems.length + filters.sourceTables.length + filters.sourceFlags.length;
+  const count = filters.sourceItems.length + filters.sourceTables.length + filters.sourceFlags.length + Number(Boolean(filters.sourceStatus));
   return <div className="header-control source-header-filter">
     <div className="header-title"><span>Source</span>{count ? <strong>{count}</strong> : null}</div>
     <KpiSourceEditor config={config} kpi={context}
       onChange={(sourceItems) => onChange({ ...filters, sourceItems })}
       onEditLibrarySource={() => {}} onViewKpi={() => {}}
-      filterMode={{ flags: filters.sourceFlags, tables: filters.sourceTables, onTablesChange: (sourceTables) => onChange({ ...filters, sourceTables }), onFlagsChange: (sourceFlags) => onChange({ ...filters, sourceFlags }), onClearSources: () => onChange({ ...filters, sourceItems: [], sourceTables: [] }), onClear: () => onChange({ ...filters, sourceItems: [], sourceTables: [], sourceFlags: [] }) }} />
+      filterMode={{ status: filters.sourceStatus, onStatusChange: (sourceStatus) => onChange({ ...filters, sourceStatus }), flags: filters.sourceFlags, tables: filters.sourceTables, onTablesChange: (sourceTables) => onChange({ ...filters, sourceTables }), onFlagsChange: (sourceFlags) => onChange({ ...filters, sourceFlags }), onClearSources: () => onChange({ ...filters, sourceItems: [], sourceTables: [] }), onClear: () => onChange({ ...filters, sourceItems: [], sourceTables: [], sourceFlags: [], sourceStatus: '' }) }} />
   </div>;
 }
 
@@ -6928,7 +6935,7 @@ function KpiSourceEditor({
   openOnTransientHighlight?: boolean;
   compact?: boolean;
   fieldOwner?: { dataSourceId: string; fieldId: string };
-  filterMode?: { flags: SourceFlag[]; tables: string[]; onTablesChange: (tables: string[]) => void; onFlagsChange: (flags: SourceFlag[]) => void; onClearSources: () => void; onClear: () => void };
+  filterMode?: { status: SourceStatusFilter; onStatusChange: (status: SourceStatusFilter) => void; flags: SourceFlag[]; tables: string[]; onTablesChange: (tables: string[]) => void; onFlagsChange: (flags: SourceFlag[]) => void; onClearSources: () => void; onClear: () => void };
 }) {
   const [open, setOpen] = useState(false);
   const [pickerScope, setPickerScope] = useState(fieldOwner ? `data:${fieldOwner.dataSourceId}` : 'tables');
@@ -7390,9 +7397,10 @@ function KpiSourceEditor({
         }
         setOpen((value) => !value);
       }}>
-        {filterMode ? <span>{sourceFilterCount || filterMode.flags.length
+        {!filterMode && !fieldOwner ? <SourceStatusBadge status={sourceStatus(config, kpi.sources)} compact /> : null}
+        {filterMode ? <span>{sourceFilterCount || filterMode.flags.length || filterMode.status
           ? `${sourceFilterCount ? `${sourceFilterCount} source${sourceFilterCount === 1 ? '' : 's'} (OR)` : 'Any source'}${filterMode.flags.length ? ` AND ${filterMode.flags.length} flag${filterMode.flags.length === 1 ? '' : 's'}` : ''}`
-          : 'Filter sources / flags…'}</span>
+          : 'Filter sources / flags…'}{filterMode.status ? ` · ${filterMode.status === 'Ready' ? 'Ready' : 'At least With Sample'}` : ''}</span>
           : kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={viewSelectedSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
@@ -7424,7 +7432,7 @@ function KpiSourceEditor({
             onPointerUp={stopSourcePopoverPointerEvent}
           >
           <div className="popover-title source-filter-heading"><span>{filterMode ? 'Source filters' : fieldOwner ? 'Field sources' : 'KPI sources'}</span>{filterMode ? <>
-            <button className="text-action" type="button" disabled={!sourceFilterCount && !filterMode.flags.length} onClick={filterMode.onClear}>Clear filters</button>
+            <button className="text-action" type="button" disabled={!sourceFilterCount && !filterMode.flags.length && !filterMode.status} onClick={filterMode.onClear}>Clear filters</button>
             <button className="mini-icon-button" type="button" aria-label="Close source filters" onClick={() => setOpen(false)}><X size={14} /></button>
           </> : null}</div>
           {!fieldOwner && kpi.scenarioType === 'Inter-Scenario' ? <div className="scenario-name-inputs">{kpi.scenarioNames.map((name, slot) => <label className="field" key={slot}><span>Scenario {slot + 1}</span><DebouncedInput value={name} aria-label={`Scenario ${slot + 1} name`} onValueChange={(value) => {
@@ -7433,6 +7441,13 @@ function KpiSourceEditor({
             onChange(updated.sources, { description: updated.description, spatialScales: updated.spatialScales, scenarioNames: names });
           }} /></label>)}</div> : null}
           {filterMode ? <>
+            <fieldset className="source-status-filter">
+              <legend>Source status</legend>
+              <label><input type="radio" name="source-status-filter" checked={!filterMode.status} onChange={() => filterMode.onStatusChange('')} />None</label>
+              <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'With Sample'} onChange={() => filterMode.onStatusChange('With Sample')} /><SourceStatusBadge status="With Sample" />or better</label>
+              <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'Ready'} onChange={() => filterMode.onStatusChange('Ready')} /><SourceStatusBadge status="Ready" /></label>
+              <p>All table fields in the KPI’s Source cell must meet this status. KPIs without table fields do not match a status requirement.</p>
+            </fieldset>
             <fieldset className="source-filter-flags">
               <legend>Source flags <span className="source-filter-logic">AND</span></legend>
               <div>{sourceFlagOptions.map((flag) => <label className={`source-filter-flag flag-${flag.key} ${filterMode.flags.includes(flag.key) ? 'is-selected' : ''}`} key={flag.key}>
@@ -7852,6 +7867,7 @@ function FieldDetailsDialog({
         <div className="kpi-note-dialog-body">
           <div className="library-detail-properties">
             <label className="field"><span>Name</span><input aria-label="Field name" value={field.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
+            <label className="field"><span>Status</span><SourceStatusSelect status={fieldStatus(field)} label="Field status" onChange={(status) => onChange({ status })} /></label>
             <label className="field"><span>Type</span><select aria-label="Field data type" value={field.dataType} disabled={Boolean(field.generatedRelationId || table.primaryKeyFieldId === field.id)} onChange={(event) => onChange({ dataType: event.target.value as DataSourceFieldType })}>{dataSourceFieldTypes.map((type) => <option key={type} value={type}>{dataSourceFieldTypeLabels[type]}</option>)}</select></label>
             <label className="field full-width"><span>Meaning / description</span><textarea aria-label="Field meaning" rows={2} value={field.meaning} onChange={(event) => onChange({ meaning: event.target.value })} /></label>
             {field.dataType === 'collection' ? <label className="field"><span>Collection item type</span><select aria-label="Collection item data type" value={field.collectionItemType ?? 'number'} disabled={Boolean(field.generatedRelationId)} onChange={(event) => onChange({ collectionItemType: event.target.value as DataSourceCollectionItemType })}>{dataSourceCollectionItemTypes.map((type) => <option key={type} value={type}>{dataSourceCollectionItemTypeLabels[type]}</option>)}</select></label> : null}
@@ -11398,7 +11414,7 @@ function ExcelExportActions({
       ? current.filter((columnKey) => columnKey !== key)
       : KPI_EXCEL_COLUMNS
         .map((column) => column.key)
-        .filter((columnKey) => columnKey === key || current.includes(columnKey))
+        .filter((columnKey) => columnKey === key || current.includes(columnKey) || (key === 'source' && columnKey === 'sourceStatus'))
     );
   };
 
@@ -11424,6 +11440,8 @@ function ExcelExportActions({
                 <input
                   type="checkbox"
                   checked={selectedColumnSet.has(column.key)}
+                  disabled={column.key === 'sourceStatus' && selectedColumnSet.has('source')}
+                  title={column.key === 'sourceStatus' && selectedColumnSet.has('source') ? 'Included with Source' : undefined}
                   onChange={() => toggleColumn(column.key)}
                 />
                 <span>{column.label}</span>
@@ -11612,9 +11630,9 @@ function EditorApp({
     // Keep the result set stable while KPI values are being edited. Recompute it
     // when the user changes the filters or their focus; otherwise a field
     // can stop matching its own filter and make its row disappear mid-edit.
-    // Source-flag filters must also reflect table/field flag edits in the library.
+    // Source filters must also reflect table/field flag and status edits in the library.
     if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment
-      && (!deferredFilters.sourceFlags.length || cached.dataSources === config.dataSources)) {
+      && ((!deferredFilters.sourceFlags.length && !deferredFilters.sourceStatus) || cached.dataSources === config.dataSources)) {
       filterMatchIds = cached.ids;
     } else {
       const compiledFilters = compileFilters(deferredFilters);

@@ -7781,3 +7781,23 @@ h1 {
 .table-principal-relation { flex-wrap: wrap; }
 .relation-expand-toggle svg { transform: rotate(-90deg); }
 .relation-expand-toggle svg.is-expanded { transform: rotate(0deg); }
+.source-status-badge, .source-status-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.source-status-dot {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+}
+.source-status-select select { max-width: 150px; }
+.source-status-filter { flex: 0 0 auto; margin: 0; min-width: 0; border: 0; border-bottom: 1px solid #e1e7ea; padding: 6px 0 10px; }
+.source-status-filter legend { padding: 0; font-size: 11px; font-weight: 700; }
+.source-status-filter label { display: inline-flex; align-items: center; gap: 6px; margin: 4px 14px 4px 0; white-space: nowrap; cursor: pointer; }
+.source-status-filter input { flex: 0 0 12px; width: 12px; height: 12px; min-height: 0; margin: 0; cursor: pointer; }
+.source-status-filter p { margin: 5px 0 0; color: #657681; font-size: 11px; font-weight: normal; line-height: 1.4; }

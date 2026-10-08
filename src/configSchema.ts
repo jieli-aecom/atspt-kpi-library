@@ -7,6 +7,7 @@ import { sourceTableUnit } from './types.js';
 import { migrateParcelTerminology } from './parcelTerminology.js';
 import { normalizeScenarioNames, reconcileKpiScenarios, migrateScenarioDecoration } from './scenarios.js';
 import { z } from 'zod';
+import { sourceStatuses, fieldStatus } from './sourceStatus.js';
 import {
   CURRENT_SCHEMA_VERSION,
   kpiStatuses,
@@ -126,6 +127,7 @@ const fieldSourceItemSchema = z.union([
 ]);
 
 const dataSourceFieldSchema = z.object({
+  status: z.enum(sourceStatuses),
   id: z.string().min(1),
   name: z.string(),
   meaning: z.string(),
@@ -513,6 +515,7 @@ const isCurrentKpiPoolConfig = (input: unknown): input is KpiPoolConfig => {
             isRecord(field) &&
             typeof field.id === 'string' &&
             typeof field.name === 'string' &&
+            sourceStatuses.some((status) => status === field.status) &&
             typeof field.meaning === 'string' &&
             typeof field.details === 'string' &&
             dataSourceFieldTypes.some((type) => type === field.dataType) &&
@@ -2085,6 +2088,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
       return [{
         id: ensureUniqueId(rawField.id, 'field', usedFieldIds, warnings, `${name}: field "${fieldName}"`),
         name: fieldName,
+        status: fieldStatus(rawField as Partial<DataSourceField>),
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
         details: stringValue(rawField.details ?? rawField.note ?? rawField.Details),
         preprocessingNeeded: Boolean(rawField.preprocessingNeeded) || (legacyFlags && Boolean(stringValue(rawField.details ?? rawField.note ?? rawField.Details).trim())),
@@ -2252,7 +2256,9 @@ const repairTableRelations = (rawValue: unknown, dataSources: DataSource[], warn
       cardinality,
       ...(cardinality !== 'oneToOne' && rawRelation.principalFieldExpanded === true ? { principalFieldExpanded: true } : {}),
       ...(() => {
-        const cached = dataSourceFieldSchema.safeParse(rawRelation.collapsedPrincipalField);
+        const rawCached = rawRelation.collapsedPrincipalField;
+        const cached = dataSourceFieldSchema.safeParse(isRecord(rawCached)
+          ? { ...rawCached, status: fieldStatus(rawCached as Partial<DataSourceField>) } : rawCached);
         return cardinality !== 'oneToOne' && cached.success ? { collapsedPrincipalField: cached.data as DataSourceField } : {};
       })(),
       ...(cardinality !== 'oneToMany' ? { principalDataSourceId: relationPrincipalId({
@@ -2273,7 +2279,7 @@ export const reconcileRelationFields = (dataSources: DataSource[], relations: Ta
     if (existing) return { ...source, primaryKeyFieldId: existing.id };
     const key: DataSourceField = {
       id: createId('field'), name: uniqueRelationName(new Set(source.fields.map((field) => field.name.toLocaleLowerCase())), fallbackRelationKeyName(source)),
-      meaning: `Primary key for ${source.name}`, details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: []
+      meaning: `Primary key for ${source.name}`, details: '', status: 'Not Ready', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: []
     };
     return { ...source, primaryKeyFieldId: key.id, fields: [...source.fields, key] };
   });
@@ -2301,7 +2307,7 @@ export const reconcileRelationFields = (dataSources: DataSource[], relations: Ta
       const cached = source.id === relationPrincipalId(relation, dataSources) ? relation.collapsedPrincipalField : undefined;
       fields.push({
         meaning: collection ? `Related ${other?.name ?? 'table'} record IDs` : `ID of the related ${other?.name ?? 'table'} record`,
-        details: '', preprocessingNeeded: false, preferredLatex: '',
+        details: '', status: 'Not Ready', preprocessingNeeded: false, preferredLatex: '',
         ...cached,
         id: cached && !fields.some((field) => field.id === cached.id) ? cached.id : createId('field'),
         name: uniqueRelationName(names, cached?.name || (collection ? collectionRelationFieldName(keyName) : keyName)),

@@ -4,6 +4,7 @@ import { sourceTableUnit } from './types.js';
 import JSZip from 'jszip';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { traceKpiSupport } from './kpiSupport';
+import { sourceStatus, sourceStatusColors, type SourceStatus } from './sourceStatus';
 import type { DataSource, DataSourceField, KpiMetric, KpiPoolConfig } from './types';
 
 const EXCEL_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -15,6 +16,8 @@ export type ExcelExportFilters = {
 };
 
 export type KpiExcelRow = {
+  source?: string;
+  sourceStatus?: SourceStatus;
   status?: string;
   unit?: string;
   userGroup: string;
@@ -43,7 +46,9 @@ export const KPI_EXCEL_COLUMNS = [
   { key: 'noteLabels', label: 'Labels', width: 34 },
   { key: 'performanceAreas', label: 'Performance Areas', width: 44 },
   { key: 'status', label: 'Status', width: 16 },
-  { key: 'unit', label: 'Unit', width: 20 }
+  { key: 'unit', label: 'Unit', width: 20 },
+  { key: 'source', label: 'Source', width: 58 },
+  { key: 'sourceStatus', label: 'Source Status', width: 20 }
 ] as const satisfies readonly KpiExcelColumnDefinition[];
 
 export type KpiExcelColumnKey = (typeof KPI_EXCEL_COLUMNS)[number]['key'];
@@ -331,6 +336,21 @@ export const buildKpiExcelRows = (
           .filter(Boolean)
       ).join(', '),
       status: kpi.status,
+      source: kpi.sources.map((source) => {
+        switch (source.type) {
+          case 'dataField': {
+            const table = config.dataSources.find((table) => table.id === source.dataSourceId);
+            const group = config.dataSourceGroups.find((group) => group.itemIds.includes(source.dataSourceId));
+            const field = table?.fields.find((field) => field.id === source.fieldId);
+            return [group?.name, table?.name ?? 'Missing table', field?.name ?? 'Missing field'].filter(Boolean).join(' · ');
+          }
+          case 'kpi': return `KPI: ${config.kpis.find((kpi) => kpi.id === source.kpiId)?.name ?? 'Missing KPI'}`;
+          case 'lookup': return `Lookup: ${config.lookups.find((lookup) => lookup.id === source.lookupId)?.outputName ?? 'Missing lookup'}`;
+          case 'variable': return `Constant: ${config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing constant'}`;
+          case 'custom': return source.name;
+        }
+      }).join('\n'),
+      sourceStatus: sourceStatus(config, kpi.sources),
       unit: kpi.unit,
       name: kpi.name,
       description: kpi.description.overview,
@@ -436,6 +456,7 @@ function worksheetXml(
   selectedColumnKeys: readonly KpiExcelColumnKey[]
 ) {
   const selectedColumnKeySet = new Set(selectedColumnKeys);
+  if (selectedColumnKeySet.has('source')) selectedColumnKeySet.add('sourceStatus');
   const selectedColumns = KPI_EXCEL_COLUMNS.filter(({ key }) => selectedColumnKeySet.has(key));
   if (selectedColumns.length === 0) {
     throw new Error('Select at least one column to export.');
@@ -454,6 +475,7 @@ function worksheetXml(
     const rowNumber = firstDataRow + index;
     return `<row r="${rowNumber}" ht="45" customHeight="1">${selectedColumns.map((column, columnIndex) => {
       const reference = `${columnName(columnIndex + 1)}${rowNumber}`;
+      if (column.key === 'sourceStatus') return sourceStatusCell(reference, row.sourceStatus ?? 'Not Ready');
       const richText = 'richTextKey' in column ? row[column.richTextKey] : undefined;
       return richText !== undefined
         ? richMarkdownCell(reference, richText, 4)
@@ -481,6 +503,11 @@ function worksheetXml(
 
 function stringCell(reference: string, value: string, style: number) {
   return `<c r="${reference}" s="${style}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(value.slice(0, 32767))}</t></is></c>`;
+}
+
+function sourceStatusCell(reference: string, status: SourceStatus) {
+  const color = `FF${sourceStatusColors[status].slice(1).toUpperCase()}`;
+  return `<c r="${reference}" s="4" t="inlineStr"><is><r><rPr><color rgb="${color}"/></rPr><t>●</t></r><r><t xml:space="preserve"> ${status}</t></r></is></c>`;
 }
 
 function richMarkdownCell(reference: string, markdown: string, style: number) {

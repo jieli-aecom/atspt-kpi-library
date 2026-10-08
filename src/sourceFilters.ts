@@ -1,4 +1,5 @@
 import { fieldFlags, fieldFlagDefinitions } from './fieldFlags.js';
+import { sourceStatus, meetsSourceStatus, type SourceStatusFilter } from './sourceStatus.js';
 import type { KpiMetric, KpiPoolConfig, KpiSourceItem } from './types.js';
 
 export const sourceFlagOptions = fieldFlagDefinitions;
@@ -17,6 +18,7 @@ export const sourceFilterKey = (source: KpiSourceItem): string => {
 };
 
 export const sourceFilterEntry = (config: KpiPoolConfig, kpi: KpiMetric) => ({
+  status: sourceStatus(config, kpi.sources),
   keys: new Set(kpi.sources.flatMap((source) => source.type === 'dataField'
     ? [sourceFilterKey(source), sourceTableFilterKey(source.dataSourceId)] : [sourceFilterKey(source)])),
   flags: new Set(kpi.sources.flatMap((source) => {
@@ -30,6 +32,8 @@ export const sourceFilterEntry = (config: KpiPoolConfig, kpi: KpiMetric) => ({
 export const matchesSourceFilters = (
   entry: ReturnType<typeof sourceFilterEntry> | undefined,
   selectedKeys: ReadonlySet<string>,
-  selectedFlags: readonly SourceFlag[]
+  selectedFlags: readonly SourceFlag[],
+  minimumStatus: SourceStatusFilter = ''
 ) => (!selectedKeys.size || [...selectedKeys].some((key) => entry?.keys.has(key)))
-  && selectedFlags.every((flag) => entry?.flags.has(flag));
+  && selectedFlags.every((flag) => entry?.flags.has(flag))
+  && meetsSourceStatus(entry?.status, minimumStatus);
