@@ -1,4 +1,5 @@
 import { relationPrincipalId, relationTargetTables } from './tableRelations';
+
 import { RelationPopover } from './RelationPopover';
 import { FieldFlagBadge, FieldFlags, TableAvailabilityFlag } from './FieldFlagBadges';
 import { KpiNumberInput } from './KpiNumberInput';
