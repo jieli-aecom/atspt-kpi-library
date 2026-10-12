@@ -4,6 +4,7 @@ import JSZip from 'jszip';
 import { createBlankConfig, createBlankKpi } from '../src/configSchema.ts';
 import type { DataSourceField } from '../src/types.ts';
 import {
+  buildKpiExcelRows,
   createKpiExcelWorkbook,
   createTableSchemaExcelWorkbook,
   KPI_EXCEL_COLUMNS,
@@ -60,8 +61,32 @@ test('writes rich-text formatting to the Remaining Ambiguities cell XML', async 
   const worksheet = await zip.file('xl/worksheets/sheet1.xml')?.async('string');
 
   assert.ok(worksheet);
-  assert.match(worksheet, /<c r="E4"[^>]*>.*<rPr><b\/><\/rPr><t xml:space="preserve">Bold<\/t>.*<rPr><i\/><\/rPr><t xml:space="preserve">italic<\/t>.*<\/c>/s);
+  assert.match(worksheet, /<c r="F4"[^>]*>.*<rPr><b\/><\/rPr><t xml:space="preserve">Bold<\/t>.*<rPr><i\/><\/rPr><t xml:space="preserve">italic<\/t>.*<\/c>/s);
   assert.doesNotMatch(worksheet, /\*\*Bold\*\*|\*italic\*/);
+});
+
+test('exports KPI numbers as numeric cells in ascending order with blanks last', async () => {
+  const config = createBlankConfig();
+  config.kpis = [null, 10, 2, null, 0, -1.5].map((displayNumber, index) => ({
+    ...createBlankKpi(), name: `KPI ${index}`, displayNumber
+  }));
+  const originalKpis = [...config.kpis];
+  const rows = buildKpiExcelRows(config, config.kpis, { userGroups: [], useCases: [], performanceAreas: [] });
+  assert.deepEqual(rows.map((row) => row.displayNumber), [-1.5, 0, 2, 10, null, null]);
+  assert.deepEqual(rows.map((row) => row.name), ['KPI 5', 'KPI 4', 'KPI 2', 'KPI 1', 'KPI 0', 'KPI 3']);
+  assert.deepEqual(config.kpis, originalKpis);
+
+  const zip = await JSZip.loadAsync(await createKpiExcelWorkbook('Test', rows));
+  const worksheet = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+  const cell = (address: string) => worksheet.match(new RegExp(`<c r="${address}"[^>]*>.*?</c>`))?.[0] ?? '';
+  assert.match(cell('A3'), />KPI Number</);
+  [-1.5, 0, 2, 10].forEach((value, index) => {
+    assert.match(cell(`A${index + 4}`), new RegExp(`t="n"><v>${value}</v>`));
+  });
+  for (const address of ['A8', 'A9']) {
+    assert.match(cell(address), /<t xml:space="preserve"><\/t>/);
+    assert.doesNotMatch(cell(address), /<v>/);
+  }
 });
 
 test('exports only selected columns in the shared column-definition order', async () => {

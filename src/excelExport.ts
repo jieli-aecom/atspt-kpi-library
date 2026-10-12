@@ -4,6 +4,7 @@ import { sourceTableUnit } from './types.js';
 import JSZip from 'jszip';
 import { fieldSourceRows } from './fieldSourceSummary';
 import { traceKpiSupport } from './kpiSupport';
+import { sortKpisByNumber } from './kpiNumbers.js';
 import { sourceStatus, sourceStatusColors, type SourceStatus } from './sourceStatus';
 import type { DataSource, DataSourceField, KpiMetric, KpiPoolConfig } from './types';
 
@@ -16,6 +17,7 @@ export type ExcelExportFilters = {
 };
 
 export type KpiExcelRow = {
+  displayNumber?: number | null;
   source?: string;
   sourceStatus?: SourceStatus;
   status?: string;
@@ -38,6 +40,7 @@ type KpiExcelColumnDefinition = {
 };
 
 export const KPI_EXCEL_COLUMNS = [
+  { key: 'displayNumber', label: 'KPI Number', width: 14 },
   { key: 'userGroup', label: 'User Group', width: 24 },
   { key: 'useCase', label: 'Use Case', width: 32 },
   { key: 'name', label: 'Name', width: 34 },
@@ -290,7 +293,7 @@ export const buildKpiExcelRows = (
   const noteLabelById = new Map(config.noteLabels.map((label) => [label.id, label.name]));
   const selectedPerformanceAreaIds = new Set(filters.performanceAreas);
 
-  return kpis.flatMap((kpi) => {
+  return sortKpisByNumber([...kpis], 'asc').flatMap((kpi) => {
     const assignments = unique(
       kpi.userGroupUseCases.flatMap((entry) => entry.useCases.map((useCase) => `${entry.userGroup}\u0000${useCase}`))
     ).map((key) => {
@@ -325,6 +328,7 @@ export const buildKpiExcelRows = (
     if (matchingAssignments.length === 0) return [];
 
     return [{
+      displayNumber: kpi.displayNumber,
       userGroup: unique(
         matchingAssignments
           .map(({ userGroup }) => userGroupLabelById.get(userGroup) ?? userGroup)
@@ -475,6 +479,11 @@ function worksheetXml(
     const rowNumber = firstDataRow + index;
     return `<row r="${rowNumber}" ht="45" customHeight="1">${selectedColumns.map((column, columnIndex) => {
       const reference = `${columnName(columnIndex + 1)}${rowNumber}`;
+      if (column.key === 'displayNumber') {
+        return row.displayNumber == null
+          ? stringCell(reference, '', 4)
+          : `<c r="${reference}" s="4" t="n"><v>${row.displayNumber}</v></c>`;
+      }
       if (column.key === 'sourceStatus') return sourceStatusCell(reference, row.sourceStatus ?? 'Not Ready');
       const richText = 'richTextKey' in column ? row[column.richTextKey] : undefined;
       return richText !== undefined
