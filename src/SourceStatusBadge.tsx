@@ -7,10 +7,11 @@ export function SourceStatusBadge({ status, compact = false }: { status: SourceS
   </span>;
 }
 
-export function SourceStatusSelect({ status, label, onChange }: { status: SourceStatus; label: string; onChange: (status: SourceStatus) => void }) {
-  return <span className="source-status-select"><SourceStatusBadge status={status} compact />
-    <select aria-label={label} value={status} onChange={(event) => onChange(event.target.value as SourceStatus)}>
-      {sourceStatuses.map((value) => <option key={value}>{value}</option>)}
-    </select>
+export function SourceStatusButtons({ status, label, onChange }: { status: SourceStatus; label: string; onChange: (status: SourceStatus) => void }) {
+  return <span className="source-status-buttons" role="group" aria-label={label}>
+    {sourceStatuses.map((value) => <button key={value} type="button" title={value}
+      aria-label={`${label}: ${value}`} aria-pressed={status === value} onClick={() => onChange(value)}>
+      <span className="source-status-dot" style={{ backgroundColor: sourceStatusColors[value] }} aria-hidden="true" />
+    </button>)}
   </span>;
 }

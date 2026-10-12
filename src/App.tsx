@@ -6,8 +6,8 @@ import { matchesKpiNumberAndScenario } from './kpiNameFilters';
 import { sortKpisByNumber } from './kpiNumbers';
 import { kpiCatalogChangeAffectsRow } from './kpiCatalogChanges';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
-import { fieldStatus, sourceStatus, type SourceStatusFilter } from './sourceStatus';
-import { SourceStatusBadge, SourceStatusSelect } from './SourceStatusBadge';
+import { fieldStatus, type SourceStatusFilter } from './sourceStatus';
+import { SourceStatusBadge, SourceStatusButtons } from './SourceStatusBadge';
 import { sourceFilterKey, sourceTableFilterKey, sourceFilterEntry, matchesSourceFilters, sourceFlagOptions, type SourceFlag } from './sourceFilters';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
 import { indexedScaleLatex } from './globalDefinitions';
@@ -6067,6 +6067,7 @@ function DataSourceHeader({
                     ? <DebouncedInput className="data-source-field-unit" value={field.valueUnit} aria-label="Field value unit" placeholder="mph, vehicles, %..." onValueChange={(valueUnit) => updateField(sourceIndex, fieldIndex, { valueUnit })} />
                     : <span className="data-source-field-unit-na" title="Units apply only to number values">—</span>}
                   <div className="data-source-field-actions">
+                    <SourceStatusButtons status={fieldStatus(field)} label={`Status for ${field.name || 'field'}`} onChange={(status) => updateField(sourceIndex, fieldIndex, { status })} />
                     <button
                       className="mini-icon-button field-details-button"
                       type="button"
@@ -6083,7 +6084,7 @@ function DataSourceHeader({
                       onClick={() => deleteField(sourceIndex, fieldIndex)}
                     ><Trash2 size={12} /></button>}
                   </div>
-                  <div className="data-source-field-flags"><SourceStatusSelect status={fieldStatus(field)} label={`Status for ${field.name || 'field'}`} onChange={(status) => updateField(sourceIndex, fieldIndex, { status })} /><FieldFlags field={field} /></div>
+                  {fieldFlags(field).length > 0 ? <div className="data-source-field-flags"><FieldFlags field={field} /></div> : null}
                   {field.generatedRelationId ? <small className="relation-field-summary">
                     <button className="relation-field-badge" type="button" title="Edit link" aria-label={`Edit link for ${field.name || 'linked field'}`} aria-haspopup="dialog" aria-expanded={sourceRelationEditorOpen && relationEditor?.anchor === 'linkedField' && relationEditor.relationId === field.generatedRelationId} onClick={() => editTableRelation(field.generatedRelationId!, source.id, 'linkedField')}>Edit Link</button>
                     <span>to <strong>{linkedTable ? linkedTable.name || 'Untitled table' : 'Missing table'}</strong> · {linkedRelation ? linkedDirection : 'Missing relationship'}</span>
@@ -6707,7 +6708,7 @@ function KpiSourceGroupedSummary({
                   <span className="source-summary-heading"><Table2 size={12} aria-hidden="true" /><span>{dataSource.name}{isScenarioTable(config, dataSource) ? <> <span className="source-summary-dimension-badge">scenario</span></> : null}{sourceTableUnit(dataSource).trim() ? <> <span className="source-summary-dimension-badge">by {sourceTableUnit(dataSource).trim()}</span></> : null}</span><TableAvailabilityFlag table={dataSource} compact /></span>
                   <span className="source-summary-items">{items.map(({ source, field }) => {
                     const dimensionLabel = fieldGroupDimensionLabel(dataSource.fieldGroups.find((group) => group.fieldIds.includes(field.id)));
-                    return <span className={`${sourceSummaryItemClassName(source.id)} is-data-field flag-tone-${fieldFlagTone(field)}`} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}><span className="source-summary-field-name">{field.name}</span><FieldFlags field={field} compact />{source.type === 'dataField' && source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
+                    return <span className={`${sourceSummaryItemClassName(source.id)} is-data-field flag-tone-${fieldFlagTone(field)}`} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}><span className="source-summary-field-name">{field.name}</span><SourceStatusBadge status={fieldStatus(field)} compact /><FieldFlags field={field} compact />{source.type === 'dataField' && source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
                   })}</span>
                 </span>
               ))}
@@ -7397,7 +7398,6 @@ function KpiSourceEditor({
         }
         setOpen((value) => !value);
       }}>
-        {!filterMode && !fieldOwner ? <SourceStatusBadge status={sourceStatus(config, kpi.sources)} compact /> : null}
         {filterMode ? <span>{sourceFilterCount || filterMode.flags.length || filterMode.status
           ? `${sourceFilterCount ? `${sourceFilterCount} source${sourceFilterCount === 1 ? '' : 's'} (OR)` : 'Any source'}${filterMode.flags.length ? ` AND ${filterMode.flags.length} flag${filterMode.flags.length === 1 ? '' : 's'}` : ''}`
           : 'Filter sources / flags…'}{filterMode.status ? ` · ${filterMode.status === 'Ready' ? 'Ready' : 'At least With Sample'}` : ''}</span>
@@ -7866,9 +7866,11 @@ function FieldDetailsDialog({
         </header>
         <div className="kpi-note-dialog-body">
           <div className="library-detail-properties">
-            <label className="field"><span>Name</span><input aria-label="Field name" value={field.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
-            <label className="field"><span>Status</span><SourceStatusSelect status={fieldStatus(field)} label="Field status" onChange={(status) => onChange({ status })} /></label>
-            <label className="field"><span>Type</span><select aria-label="Field data type" value={field.dataType} disabled={Boolean(field.generatedRelationId || table.primaryKeyFieldId === field.id)} onChange={(event) => onChange({ dataType: event.target.value as DataSourceFieldType })}>{dataSourceFieldTypes.map((type) => <option key={type} value={type}>{dataSourceFieldTypeLabels[type]}</option>)}</select></label>
+            <div className="field-detail-identity-row full-width">
+              <label className="field"><span>Name</span><input aria-label="Field name" value={field.name} onChange={(event) => onChange({ name: event.target.value })} /></label>
+              <label className="field"><span>Type</span><select aria-label="Field data type" value={field.dataType} disabled={Boolean(field.generatedRelationId || table.primaryKeyFieldId === field.id)} onChange={(event) => onChange({ dataType: event.target.value as DataSourceFieldType })}>{dataSourceFieldTypes.map((type) => <option key={type} value={type}>{dataSourceFieldTypeLabels[type]}</option>)}</select></label>
+              <div className="field"><span>Status</span><SourceStatusButtons status={fieldStatus(field)} label="Field status" onChange={(status) => onChange({ status })} /></div>
+            </div>
             <label className="field full-width"><span>Meaning / description</span><textarea aria-label="Field meaning" rows={2} value={field.meaning} onChange={(event) => onChange({ meaning: event.target.value })} /></label>
             {field.dataType === 'collection' ? <label className="field"><span>Collection item type</span><select aria-label="Collection item data type" value={field.collectionItemType ?? 'number'} disabled={Boolean(field.generatedRelationId)} onChange={(event) => onChange({ collectionItemType: event.target.value as DataSourceCollectionItemType })}>{dataSourceCollectionItemTypes.map((type) => <option key={type} value={type}>{dataSourceCollectionItemTypeLabels[type]}</option>)}</select></label> : null}
             {field.dataType === 'number' || (field.dataType === 'collection' && field.collectionItemType === 'number') ? <label className="field"><span>Value unit</span><input aria-label="Field value unit" value={field.valueUnit} onChange={(event) => onChange({ valueUnit: event.target.value })} /></label> : null}
