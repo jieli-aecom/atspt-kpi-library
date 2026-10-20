@@ -92,11 +92,11 @@ When an exported HTML opens:
 - it makes no `/api/config` request;
 - it does not ask for the shared secret;
 - Refresh, Save, and Force Save are disabled;
-- local editing, Import HTML, and Export HTML remain available.
+- local editing, Import HTML / JSON, and Export HTML remain available.
 
-### 5. Import HTML
+### 5. Import HTML / JSON
 
-**Import HTML** reads embedded JSON from another KPI Library HTML file and merges it into the in-memory configuration. Importing does not change the hosted Blob until the user chooses Save or Force Save.
+**Import HTML / JSON** accepts a full library configuration JSON file or reads embedded JSON from another KPI Library HTML file, then merges it into the in-memory configuration. Full configuration JSON must contain a lowercase `kpis` array; the reporting **Export JSON** and table-schema exports are not full configurations and cannot be re-imported through this action. Importing does not change the hosted Blob until the user chooses Save or Force Save.
 
 ## API
 
@@ -114,7 +114,7 @@ All methods require `Authorization: Bearer <KPI_LIBRARY_SECRET>`. Responses use 
 
 Schema 53 makes the numeric `displayNumber` optional (`null` when blank), separate from the internal `id`. Older rows without numbers, new rows, and duplicates start blank so users can assign numbers gradually. Valid existing numbers are preserved; missing, invalid, or colliding numbers become blank, including during imports and concurrent merges. Assigned numbers must be unique, and users can clear a number to leave it unassigned. The Name column sorts numerically and keeps that direction as a secondary sort when another column is sorted. Unnumbered rows follow numbered rows in either direction and retain their stored order within primary-sort ties. Clearing all sorts restores manual row order. Its filter combines name/description text, an exact KPI number, status, note labels, and scenario buttons; multiple scenario selections match any selected type.
 
-The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to domain IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML imports.
+The repair/migration pipeline in [`src/configSchema.ts`](src/configSchema.ts) accepts partial and older configurations, supplies missing IDs and fields, maps legacy labels to domain IDs where possible, and returns migration warnings. This pipeline is used for hosted reads, hosted writes, embedded snapshots, and HTML/JSON imports.
 
 A configuration whose `schemaVersion` is newer than the running application supports is rejected. It is never silently converted to an older schema, preventing a stale deployment from deleting fields introduced by a future release.
 

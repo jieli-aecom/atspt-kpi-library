@@ -80,6 +80,7 @@ import {
   setPrincipalFieldExpanded
 } from './configSchema';
 import { mergeImportedConfig } from './configMerge';
+import { readConfigImport } from './configImport';
 import { buildSystematicJsonExport } from './systematicJsonExport';
 import { buildTableSchemaJsonExport } from './tableSchemaJsonExport';
 import { TableDiagram } from './TableDiagram';
@@ -11350,11 +11351,11 @@ function HtmlActions({
       <button
         className="secondary-action small topbar-menu-toggle overflow-menu-toggle"
         type="button"
-        aria-label="Show HTML import and export options"
+        aria-label="Show import and export options"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        title="More HTML actions"
+        title="Import HTML or JSON, or export HTML"
       >
         <Ellipsis size={17} aria-hidden="true" />
       </button>
@@ -11370,7 +11371,7 @@ function HtmlActions({
             }}
           >
             <Upload size={15} aria-hidden="true" />
-            Import HTML
+            Import HTML / JSON
           </button>
           <button
             className="topbar-action-menu-item"
@@ -11390,7 +11391,7 @@ function HtmlActions({
         ref={importInputRef}
         className="hidden-file"
         type="file"
-        accept="text/html,.html,.htm"
+        accept="text/html,application/json,.html,.htm,.json"
         onChange={onImport}
       />
     </div>
@@ -11978,7 +11979,7 @@ function EditorApp({
     }
 
     try {
-      const parsed = readConfigFromHtml(await file.text());
+      const parsed = readConfigImport(await file.text(), file.name, readConfigFromHtml);
       const repaired = repairConfig(parsed);
       const merged = mergeImportedConfig(config, repaired.config);
       const normalizedMerged = repairConfig(merged.config);
@@ -12022,7 +12023,7 @@ function EditorApp({
           : [])
       ]);
     } catch (err) {
-      setWarnings([`Could not import "${file.name}". ${err instanceof Error ? err.message : 'The file was not a valid KPI Library HTML file.'}`]);
+      setWarnings([`Could not import "${file.name}". ${err instanceof Error ? err.message : 'The file was not a valid KPI Library HTML or JSON file.'}`]);
     }
   };
 
