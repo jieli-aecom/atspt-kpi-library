@@ -6278,6 +6278,7 @@ h1 {
   min-height: 34px;
   overflow-y: hidden;
   resize: none;
+  field-sizing: content;
 }
 
 .formula-equals {
@@ -6340,6 +6341,8 @@ h1 {
   min-width: 0;
   max-width: 100%;
   min-height: 31px;
+  /* The clipped shortcut strip must not participate in ancestor grid sizing. */
+  contain: inline-size;
 }
 
 .formula-source-options.is-expanded {

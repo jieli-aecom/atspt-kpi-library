@@ -6,7 +6,7 @@ import { matchesKpiNumberAndScenario } from './kpiNameFilters';
 import { sortKpisByNumber } from './kpiNumbers';
 import { kpiCatalogChangeAffectsRow } from './kpiCatalogChanges';
 import { fieldFlagTone, fieldFlags } from './fieldFlags';
-import { fieldStatus, type SourceStatusFilter } from './sourceStatus';
+import { fieldStatus, sourceStatus, type SourceStatus, type SourceStatusFilter } from './sourceStatus';
 import { SourceStatusBadge, SourceStatusButtons } from './SourceStatusBadge';
 import { sourceFilterKey, sourceTableFilterKey, sourceFilterEntry, matchesSourceFilters, sourceFlagOptions, type SourceFlag } from './sourceFilters';
 import { SpatialScaleController, LogicLibrary } from './GlobalDefinitionEditors';
@@ -420,7 +420,8 @@ const buildAppIndexes = (config: KpiPoolConfig, previousConfig?: KpiPoolConfig, 
     const previousKpi = previousKpisById.get(kpi.id);
     const previousSearch = previousIndexes?.searchByKpiId.get(kpi.id);
     const referencedKpiNameChanged = kpi.sources.some((source) => source.type === 'kpi' && changedKpiNameIds.has(source.kpiId));
-    if (previousKpi === kpi && previousSearch && sourceCatalogsStable && !referencedKpiNameChanged) {
+    const prerequisiteSourcesStable = previousConfig?.kpis === config.kpis || !kpi.sources.some((source) => source.type === 'kpi');
+    if (previousKpi === kpi && previousSearch && sourceCatalogsStable && !referencedKpiNameChanged && prerequisiteSourcesStable) {
       searchByKpiId.set(kpi.id, previousSearch);
       continue;
     }
@@ -6732,7 +6733,7 @@ function KpiSourceGroupedSummary({
           <span className="source-summary-heading"><Gauge size={12} aria-hidden="true" /><span>Prerequisite KPIs</span></span>
           <span className="source-summary-items">{prerequisiteKpis.map(({ source, kpi: prerequisite }) => {
             const dimensionLabel = prerequisite?.dimensions.map((dimension) => dimension.name.trim()).filter(Boolean).join(', ') ?? '';
-            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{prerequisite?.name ?? 'Missing KPI'}{source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
+            return <span className={sourceSummaryItemClassName(source.id)} data-kpi-source-id={source.id} key={source.id} title={sourceItemTooltip(config, source)} onClick={(event) => { event.stopPropagation(); onSourceClick(source.id); }}>{prerequisite?.name ?? 'Missing KPI'}<SourceStatusBadge status={sourceStatus(config, [source])} compact />{source.scenarioSlot !== undefined ? <span className="source-summary-dimension-badge">{kpi.scenarioNames[source.scenarioSlot]}</span> : null}{dimensionLabel ? <> <span className="source-summary-dimension-badge">by {dimensionLabel}</span></> : null}</span>;
           })}</span>
         </span>
       ) : null}
@@ -7304,7 +7305,7 @@ function KpiSourceEditor({
       {item.type === 'custom'
         ? <div className="selected-source-custom-name"><DebouncedInput value={item.name} aria-label="Custom source name" onValueChange={(name) => updateItem(item.id, { name })} />{unusedFlag}</div>
         : <div className="selected-source-term" title={sourceItemTooltip(config, item)}>
-          <strong><span className="selected-source-name">{label}</span>{unusedFlag}<FieldFlags field={selectedField} compact /></strong>
+          <strong><span className="selected-source-name">{label}</span>{item.type === 'kpi' ? <SourceStatusBadge status={sourceStatus(config, [item])} compact /> : null}{unusedFlag}<FieldFlags field={selectedField} compact /></strong>
           {fieldDomain ? <div className={`selected-source-domain ${fieldDomain.enumId ? 'is-global' : 'is-custom'}`}>
             <span>
               <b>{fieldDomain.name}</b>
@@ -7457,7 +7458,7 @@ function KpiSourceEditor({
               <label><input type="radio" name="source-status-filter" checked={!filterMode.status} onChange={() => filterMode.onStatusChange('')} />None</label>
               <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'With Sample'} onChange={() => filterMode.onStatusChange('With Sample')} /><SourceStatusBadge status="With Sample" />or better</label>
               <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'Ready'} onChange={() => filterMode.onStatusChange('Ready')} /><SourceStatusBadge status="Ready" /></label>
-              <p>All table fields in the KPI’s Source cell must meet this status. KPIs without table fields do not match a status requirement.</p>
+              <p>All table fields and prerequisite KPIs in the KPI’s Source cell must meet this status. Prerequisite KPIs inherit the status of their own sources. KPIs without either source type, missing prerequisites, and circular dependencies are Not Ready.</p>
             </fieldset>
             <fieldset className="source-filter-flags">
               <legend>Source flags <span className="source-filter-logic">AND</span></legend>
@@ -7954,6 +7955,8 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
   const [activeSide, setActiveSide] = useState<'left' | 'right'>('right');
   const [paletteExpanded, setPaletteExpanded] = useState(false);
   const [paletteHasMore, setPaletteHasMore] = useState(false);
+  const [paletteOptionLimit, setPaletteOptionLimit] = useState(8);
+  const [paletteFocused, setPaletteFocused] = useState(false);
   const [palettePosition, setPalettePosition] = useState<{ top?: number; bottom?: number; left: number; width: number; maxHeight: number }>();
   const commitTimeoutRef = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
@@ -7964,6 +7967,9 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     setRightExpression(item.rightExpression);
   }, [item.leftExpression, item.rightExpression]);
   useEffect(() => {
+    // Native sizing avoids a forced layout for every formula textarea. Keep the
+    // existing observer fallback for browsers without field-sizing support.
+    if (CSS.supports('field-sizing', 'content')) return undefined;
     const textareas = [leftRef.current, rightRef.current].filter((textarea): textarea is HTMLTextAreaElement => Boolean(textarea));
     const resize = () => textareas.forEach((textarea) => {
       textarea.style.height = 'auto';
@@ -8064,11 +8070,37 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
     });
     return [...shortcuts.values()];
   }, [fieldDomains, config, kpi]);
+  // The closed palette is a clipped, single-line strip. Mount only enough
+  // shortcuts to fill it; More still mounts every option in its original order.
+  // Otherwise each formula duplicates a large hidden KaTeX DOM subtree.
+  let remainingOptions = paletteExpanded || paletteFocused ? Number.POSITIVE_INFINITY : paletteOptionLimit;
+  let totalOptions = 0;
+  const takeOptions = <T,>(options: readonly T[]): T[] => {
+    totalOptions += options.length;
+    const visible = options.slice(0, remainingOptions);
+    remainingOptions -= visible.length;
+    return visible;
+  };
+  if (spatialScale) takeOptions(lastFormulaItem ? [0, 1, 2] : [0, 1]);
+  const visibleSources = takeOptions(sourceFieldShortcuts);
+  const visibleScenarios = takeOptions(scenarioShortcuts);
+  const visibleDimensions = takeOptions(dimensionShortcuts);
+  const visibleLookups = takeOptions(lookupShortcuts);
+  const visibleVariables = takeOptions(variableShortcuts);
+  const visibleLogic = takeOptions(config.logic);
+  const visibleResults = takeOptions(insertableResults.filter((prior) => !spatialScale || prior !== lastFormulaItem));
+  const visibleScales = takeOptions(spatialScaleDefinitionKeys.filter((scale) => scale !== spatialScale));
+  const visibleGenericUnits = takeOptions(genericSpatialUnits);
+  const hasUnmountedOptions = !paletteExpanded && !paletteFocused && totalOptions > paletteOptionLimit;
   useLayoutEffect(() => {
     const container = paletteOptionsRef.current;
     if (!container || paletteExpanded) return undefined;
     const measure = () => {
-      setPaletteHasMore(container.scrollWidth > container.clientWidth + 1);
+      if (!container.clientWidth) return;
+      const overflows = container.scrollWidth > container.clientWidth + 1;
+      setPaletteHasMore(overflows || hasUnmountedOptions);
+      // Expand the window before paint when a wide strip can fit more options.
+      if (!overflows && hasUnmountedOptions) setPaletteOptionLimit((limit) => limit * 2);
     };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
@@ -8078,7 +8110,7 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
       observer?.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [config, dimensionShortcuts, scenarioShortcuts, insertableResults, kpi.sources, paletteExpanded, spatialScale]);
+  }, [config, dimensionShortcuts, scenarioShortcuts, insertableResults, kpi.sources, paletteExpanded, spatialScale, paletteOptionLimit, hasUnmountedOptions]);
   useLayoutEffect(() => {
     if (!paletteExpanded) {
       setPalettePosition(undefined);
@@ -8127,10 +8159,15 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
           ) : null}
         </div>
         <div className="formula-source-options-slot" ref={paletteSlotRef}>
+          {/* Keep the full tab order while keyboard focus is inside the strip. */}
           <div
             className={`formula-source-options ${paletteExpanded ? 'is-expanded' : ''} ${paletteExpanded && palettePosition ? 'is-floating' : ''}`}
             ref={paletteOptionsRef}
             style={paletteExpanded ? palettePosition : undefined}
+            onFocusCapture={() => setPaletteFocused(true)}
+            onBlurCapture={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget)) setPaletteFocused(false);
+            }}
           >
           {spatialScale ? <section className="formula-shortcut-group is-priority">
             <span className="formula-shortcut-group-label">Scale formula</span>
@@ -8149,10 +8186,10 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
               </button>
             </div>
           </section> : null}
-          {sourceFieldShortcuts.length ? <section className="formula-shortcut-group">
+          {visibleSources.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Source fields</span>
             <div className="formula-shortcut-group-options">
-              {sourceFieldShortcuts.map((source) => {
+              {visibleSources.map((source) => {
                 const isCollection = source.type === 'dataField' && config.dataSources.find((dataSource) => dataSource.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId)?.dataType === 'collection';
                 return <button className={isCollection ? 'formula-collection-insert' : 'formula-source-insert'} type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
                 {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
@@ -8160,62 +8197,62 @@ function FormulaExpressionEditor({ config, kpi, item, priorItems, onChange, righ
               })}
             </div>
           </section> : null}
-          {scenarioShortcuts.length ? <section className="formula-shortcut-group">
+          {visibleScenarios.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Scenarios</span>
             <div className="formula-shortcut-group-options">
-              {scenarioShortcuts.map((shortcut, slot) => <button className="formula-scenario-insert" type="button" title={shortcut.label} aria-label={`Insert ${shortcut.label}`} key={slot} onClick={() => insertLatex(shortcut.latex)}>
+              {visibleScenarios.map((shortcut, slot) => <button className="formula-scenario-insert" type="button" title={shortcut.label} aria-label={`Insert ${shortcut.label}`} key={slot} onClick={() => insertLatex(shortcut.latex)}>
                 <InlineMath math={shortcut.latex} errorColor="#b42318" />
               </button>)}
             </div>
           </section> : null}
-          {dimensionShortcuts.length ? <section className="formula-shortcut-group">
+          {visibleDimensions.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">{fieldDomains.some((domain) => domain.options.some((option) => latexIdentifier(option))) ? 'Dimensions & domain options' : 'Dimensions'}</span>
             <div className="formula-shortcut-group-options">
-              {dimensionShortcuts.map((shortcut) => <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
+              {visibleDimensions.map((shortcut) => <button className="formula-dimension-insert" type="button" title={shortcut.label} key={`${shortcut.kind}:${shortcut.latex}`} onClick={() => insertLatex(shortcut.latex)}>
                 <span className="formula-shortcut-kind">{shortcut.kind}</span>
                 <InlineMath math={shortcut.latex} errorColor="#b42318" />
               </button>)}
             </div>
           </section> : null}
-          {lookupShortcuts.length ? <section className="formula-shortcut-group">
+          {visibleLookups.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Source lookups</span>
             <div className="formula-shortcut-group-options">
-              {lookupShortcuts.map((source) => <button className="formula-lookup-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
+              {visibleLookups.map((source) => <button className="formula-lookup-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
                 {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
               </button>)}
             </div>
           </section> : null}
-          {variableShortcuts.length ? <section className="formula-shortcut-group">
+          {visibleVariables.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Source constants</span>
             <div className="formula-shortcut-group-options">
-              {variableShortcuts.map((source) => <button className="formula-variable-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
+              {visibleVariables.map((source) => <button className="formula-variable-insert" type="button" disabled={!source.latex.trim()} title={sourceItemLabel(config, source)} key={source.id} onClick={() => insertLatex(source.latex)}>
                 {source.latex.trim() ? <InlineMath math={source.latex} errorColor="#b42318" /> : sourceItemLabel(config, source)}
               </button>)}
             </div>
           </section> : null}
-          {config.logic.length ? <section className="formula-shortcut-group"><span className="formula-shortcut-group-label">Logic</span><div className="formula-shortcut-group-options">
-            {config.logic.map((entry) => <button type="button" className="formula-logic-insert" key={entry.id} title={entry.explanation} onClick={() => insertLatex(entry.latex)}><InlineMath math={entry.latex} /></button>)}
+          {visibleLogic.length ? <section className="formula-shortcut-group"><span className="formula-shortcut-group-label">Logic</span><div className="formula-shortcut-group-options">
+            {visibleLogic.map((entry) => <button type="button" className="formula-logic-insert" key={entry.id} title={entry.explanation} onClick={() => insertLatex(entry.latex)}><InlineMath math={entry.latex} /></button>)}
           </div></section> : null}
-          {insertableResults.some((prior) => !spatialScale || prior !== lastFormulaItem) ? <section className="formula-shortcut-group">
+          {visibleResults.length ? <section className="formula-shortcut-group">
             <span className="formula-shortcut-group-label">Previous items</span>
             <div className="formula-shortcut-group-options">
-              {insertableResults.map((prior, index) => spatialScale && prior === lastFormulaItem ? null : <button className="formula-result-insert" type="button" title={`Formula result: ${prior.tag}`} key={`${prior.tag}-${index}`} onClick={() => insertLatex(prior.leftExpression)}>
+              {visibleResults.map((prior, index) => <button className="formula-result-insert" type="button" title={`Formula result: ${prior.tag}`} key={`${prior.tag}-${index}`} onClick={() => insertLatex(prior.leftExpression)}>
                 <span>{prior.tag}</span>
                 <InlineMath math={prior.leftExpression} errorColor="#b42318" />
               </button>)}
             </div>
           </section> : null}
-            <section className="formula-shortcut-group">
+            {visibleScales.length || visibleGenericUnits.length ? <section className="formula-shortcut-group">
               <span className="formula-shortcut-group-label">Spatial-scale keywords</span>
               <div className="formula-shortcut-group-options">
-                {spatialScaleDefinitionKeys.map((scale) => spatialScale === scale ? null : <button className="formula-scale-insert" type="button" title={`Spatial scale: ${config.spatialScaleDefinitions[scale].name}`} key={scale} onClick={() => insertLatex(config.spatialScaleDefinitions[scale].latex)}>
+                {visibleScales.map((scale) => <button className="formula-scale-insert" type="button" title={`Spatial scale: ${config.spatialScaleDefinitions[scale].name}`} key={scale} onClick={() => insertLatex(config.spatialScaleDefinitions[scale].latex)}>
                   <InlineMath math={config.spatialScaleDefinitions[scale].latex} errorColor="#b42318" />
                 </button>)}
-                {genericSpatialUnits.map((keyword) => <button className="formula-scale-insert" type="button" title={`Generic spatial unit: ${keyword}`} key={keyword} onClick={() => insertLatex(keyword)}>
+                {visibleGenericUnits.map((keyword) => <button className="formula-scale-insert" type="button" title={`Generic spatial unit: ${keyword}`} key={keyword} onClick={() => insertLatex(keyword)}>
                   <InlineMath math={keyword} errorColor="#b42318" />
                 </button>)}
               </div>
-            </section>
+            </section> : null}
           </div>
         </div>
       </div>
@@ -11633,6 +11670,7 @@ function EditorApp({
   const filterMatchCacheRef = useRef<{
     filters: ColumnFilters;
     dataSources: DataSource[];
+    sourceStatuses: Map<string, SourceStatus>;
     focusedAssignment?: UseCaseAssignment;
     ids: Set<string>;
   }>();
@@ -11643,9 +11681,11 @@ function EditorApp({
     // Keep the result set stable while KPI values are being edited. Recompute it
     // when the user changes the filters or their focus; otherwise a field
     // can stop matching its own filter and make its row disappear mid-edit.
-    // Source filters must also reflect table/field flag and status edits in the library.
+    // Source filters must also reflect table/field edits and prerequisite readiness changes.
     if (cached?.filters === deferredFilters && cached.focusedAssignment === focusedAssignment
-      && ((!deferredFilters.sourceFlags.length && !deferredFilters.sourceStatus) || cached.dataSources === config.dataSources)) {
+      && ((!deferredFilters.sourceFlags.length && !deferredFilters.sourceStatus) || cached.dataSources === config.dataSources)
+      && (!deferredFilters.sourceStatus || (cached.sourceStatuses.size === indexes.searchByKpiId.size
+        && [...indexes.searchByKpiId].every(([id, entry]) => cached.sourceStatuses.get(id) === entry.sources.status)))) {
       filterMatchIds = cached.ids;
     } else {
       const compiledFilters = compileFilters(deferredFilters);
@@ -11654,7 +11694,9 @@ function EditorApp({
           .filter((kpi) => matchesFilters(indexes, kpi, compiledFilters, pinnedFilterIdSet, focusedAssignment))
           .map((kpi) => kpi.id)
       );
-      filterMatchCacheRef.current = { filters: deferredFilters, dataSources: config.dataSources, focusedAssignment, ids: filterMatchIds };
+      filterMatchCacheRef.current = { filters: deferredFilters, dataSources: config.dataSources,
+        sourceStatuses: new Map([...indexes.searchByKpiId].map(([id, entry]) => [id, entry.sources.status])),
+        focusedAssignment, ids: filterMatchIds };
     }
   }
   const filteredKpis = useMemo(

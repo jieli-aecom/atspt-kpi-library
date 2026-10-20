@@ -33,6 +33,8 @@ const summarizeKpiCatalogChanges = (previous: KpiPoolConfig, next: KpiPoolConfig
         previousKpi.displayNumber !== nextKpi.displayNumber ||
         previousKpi.name !== nextKpi.name ||
         previousKpi.description.overview !== nextKpi.description.overview ||
+        // Source edits can change readiness badges through prerequisite chains.
+        !sameStructuredValue(previousKpi.sources, nextKpi.sources) ||
         !sameStructuredValue(previousKpi.dimensions, nextKpi.dimensions)
       ) changedKpiIds.add(nextKpi.id);
     }

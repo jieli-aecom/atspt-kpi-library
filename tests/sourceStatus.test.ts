@@ -21,6 +21,7 @@ const fixture = () => {
 const sources = (...indices: number[]): KpiSourceItem[] => indices.map((index) => ({
   id: `source-${index}`, type: 'dataField', dataSourceId: 'table', fieldId: `field-${index}`, latex: ''
 }));
+const prerequisite = (kpiId: string): KpiSourceItem => ({ id: `source-${kpiId}`, type: 'kpi', kpiId, latex: '' });
 
 test('source status is the minimum over selected table fields, independent of order and duplicate scenarios', () => {
   const config = fixture();
@@ -43,6 +44,67 @@ test('yellow includes green; green requires every field ready; none does not res
   config.dataSources[0].fields[1].status = 'Ready';
   assert.equal(matchesSourceFilters(sourceFilterEntry(config, kpi), new Set(), [], 'Ready'), true);
   assert.equal(matchesSourceFilters(sourceFilterEntry(config, createBlankKpi()), new Set(), [], 'With Sample'), false);
+});
+
+test('prerequisite KPIs contribute their readiness alongside direct fields and other prerequisites', () => {
+  const config = fixture();
+  config.kpis = sourceStatuses.map((_, index) => ({ ...createBlankKpi(), id: `kpi-${index}`, sources: sources(index) }));
+  for (const [index, expected] of sourceStatuses.entries()) {
+    const dependency = prerequisite(`kpi-${index}`);
+    assert.equal(sourceStatus(config, [dependency]), expected);
+    assert.equal(sourceStatus(config, [...sources(2), dependency]), expected);
+    assert.equal(sourceStatus(config, [dependency, ...sources(2)]), expected);
+    assert.equal(sourceStatus(config, [prerequisite('kpi-2'), dependency]), expected);
+  }
+  assert.equal(sourceStatus(config, [...sources(0), prerequisite('kpi-2')]), 'Not Ready');
+  assert.equal(sourceStatus(config, [...sources(1), prerequisite('kpi-2')]), 'With Sample');
+});
+
+test('readiness follows nested and shared prerequisites, including repeated scenarios', () => {
+  const config = fixture();
+  const leaf = { ...createBlankKpi(), id: 'leaf', sources: sources(1) };
+  const left = { ...createBlankKpi(), id: 'left', sources: [prerequisite(leaf.id)] };
+  const right = { ...createBlankKpi(), id: 'right', sources: [...sources(2), prerequisite(leaf.id)] };
+  const root = { ...createBlankKpi(), id: 'root', sources: [prerequisite(left.id), prerequisite(right.id)] };
+  config.kpis = [root, right, left, leaf];
+  const references: KpiSourceItem[] = [prerequisite(root.id), { ...prerequisite(root.id), id: 'other-scenario', scenarioSlot: 1 }];
+  assert.equal(sourceStatus(config, references), 'With Sample');
+  config.dataSources[0].fields[1].status = 'Ready';
+  assert.equal(sourceStatus(config, references), 'Ready');
+  leaf.sources = sources(0);
+  assert.equal(sourceStatus(config, references), 'Not Ready');
+});
+
+test('missing, empty and cyclic prerequisites prevent readiness even beside ready fields', () => {
+  const config = fixture();
+  const empty = { ...createBlankKpi(), id: 'empty' };
+  const custom = { ...createBlankKpi(), id: 'custom', sources: [{ id: 'custom-input', type: 'custom' as const, name: 'Input', latex: '' }] };
+  const self = { ...createBlankKpi(), id: 'self', sources: [...sources(2), prerequisite('self')] };
+  const first = { ...createBlankKpi(), id: 'first', sources: [...sources(2), prerequisite('second')] };
+  const second = { ...createBlankKpi(), id: 'second', sources: [prerequisite('first')] };
+  config.kpis = [empty, custom, self, first, second];
+  for (const id of ['missing', 'empty', 'custom', 'self', 'first', 'second']) {
+    assert.equal(sourceStatus(config, [prerequisite(id)]), 'Not Ready', id);
+    assert.equal(sourceStatus(config, [...sources(2), prerequisite(id)]), 'Not Ready', id);
+  }
+  second.sources = sources(2);
+  assert.equal(sourceStatus(config, [prerequisite(first.id)]), 'Ready', 'removing a cycle restores readiness');
+});
+
+test('source filters and Excel exports use prerequisite readiness and update after dependency edits', () => {
+  const config = fixture();
+  const leaf = { ...createBlankKpi(), id: 'leaf', name: 'Leaf KPI', sources: sources(1) };
+  const middle = { ...createBlankKpi(), id: 'middle', sources: [prerequisite(leaf.id)] };
+  const dependent = { ...createBlankKpi(), sources: [prerequisite(middle.id)] };
+  config.kpis = [leaf, middle, dependent];
+  for (const index of [1, 2, 0]) {
+    config.kpis = config.kpis.map((kpi) => kpi.id === leaf.id ? { ...kpi, sources: sources(index) } : kpi);
+    const entry = sourceFilterEntry(config, dependent);
+    assert.equal(entry.status, sourceStatuses[index]);
+    assert.equal(matchesSourceFilters(entry, new Set(), [], 'With Sample'), index >= 1);
+    assert.equal(matchesSourceFilters(entry, new Set(), [], 'Ready'), index === 2);
+    assert.equal(buildKpiExcelRows(config, [dependent], { userGroups: [], useCases: [], performanceAreas: [] })[0].sourceStatus, sourceStatuses[index]);
+  }
 });
 
 test('schema migration defaults missing and invalid statuses and preserves explicit statuses through export and merge', () => {

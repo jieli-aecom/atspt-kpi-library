@@ -38,3 +38,14 @@ test('a saved number belongs to its own KPI and does not conflict with itself', 
   const config = { ...createBlankConfig(), kpis: [createBlankKpi(), target] };
   assert.equal(kpiNumberError('10', target.id, config.kpis), '');
 });
+
+test('source edits refresh mounted prerequisite badges through multiple levels', () => {
+  const leaf = { ...createBlankKpi(), id: 'leaf' };
+  const middle = { ...createBlankKpi(), id: 'middle', sources: [{ id: 'leaf-source', type: 'kpi' as const, kpiId: leaf.id, latex: '' }] };
+  const target = { ...createBlankKpi(), sources: [{ id: 'middle-source', type: 'kpi' as const, kpiId: middle.id, latex: '' }] };
+  const previous = { ...createBlankConfig(), kpis: [leaf, middle, target] };
+  const next = { ...previous, kpis: [{ ...leaf, sources: [{ id: 'field-source', type: 'dataField' as const, dataSourceId: 'table', fieldId: 'ready', latex: '' }] }, middle, target] };
+  assert.equal(kpiCatalogChangeAffectsRow(previous, next, middle.id), true);
+  assert.equal(kpiCatalogChangeAffectsRow(previous, next, target.id), true);
+  assert.equal(kpiCatalogChangeAffectsRow(next, previous, target.id), true);
+});
