@@ -32,6 +32,80 @@ const render = (formula: string, semanticTokens: unknown[]) => {
   return katex.renderToString(result.decorated, { output: 'html', throwOnError: true, strict: 'ignore', trust: (context) => context.command === '\\htmlClass' });
 };
 
+const collectorCode = app.slice(app.indexOf('type FormulaFieldDomain ='), app.indexOf('\nfunction DataSourceHeader('));
+const collectDomains = runInNewContext(ts.transpileModule(`${collectorCode}\nformulaFieldDomains;`, {
+  compilerOptions: { target: ts.ScriptTarget.ES2022 }
+}).outputText);
+
+test('lookup input and output domains decorate without custom sources or added KPI dimensions', () => {
+  const config = createBlankConfig();
+  config.valueEnums = [
+    { id: 'power', name: 'Power Type', options: ['Electric', 'Non Electric'] },
+    { id: 'county', name: 'County FIPS', options: ['48201'] },
+    { id: 'uncited', name: 'Uncited', options: ['Other'] }
+  ];
+  config.lookups = [{ id: 'factor', outputName: 'Factor', outputExplanation: '', outputValueType: 'enum',
+    outputOptions: [], outputEnumId: 'county', text: '', inputs: [
+      { id: 'power-input', representation: 'Power', explanation: '', valueType: 'enum', enumId: 'power', options: [] },
+      { id: 'year-input', representation: 'Year', explanation: '', valueType: 'number', options: [] }
+    ] }];
+  const kpi = { sources: [{ id: 'factor-source', type: 'lookup', lookupId: 'factor', latex: 'Factor()' }], dimensions: [] };
+  const domains = collectDomains(config, kpi);
+  assert.deepEqual(Array.from(domains, (domain: { enumId: string }) => domain.enumId), ['power', 'county']);
+  const semanticTokens = getDomainTokens({ domains }, kpi);
+  for (const value of ['PowerType', 'Electric', 'NonElectric', 'CountyFIPS']) {
+    const token = semanticTokens.find((entry: { latex: string }) => entry.latex === value);
+    assert.equal(token.target.sourceId, 'factor-source');
+    assert.match(render(value, semanticTokens), /formula-dimension-token/);
+  }
+  assert.equal(kpi.dimensions.length, 0);
+  assert.equal(semanticTokens.some((entry: { latex: string }) => entry.latex === 'Other'), false);
+});
+
+test('a global domain shared by a field and lookup keeps both citations and refreshes with config changes', () => {
+  const config = createBlankConfig();
+  config.valueEnums = [{ id: 'mode', name: 'Mode', options: ['Car'] }];
+  config.dataSources = [{ id: 'table', name: 'Table', spatialUnit: 'Link', fieldGroups: [], fields: [
+    { id: 'mode-field', name: 'Mode', meaning: '', details: '', status: 'Ready', preprocessingNeeded: false,
+      preferredLatex: '', dataType: 'enum', valueUnit: '', options: [], enumId: 'mode' }
+  ] }];
+  config.lookups = [{ id: 'lookup', outputName: 'Lookup', outputExplanation: '', outputValueType: 'number',
+    outputOptions: [], text: '', inputs: [{ id: 'mode-input', representation: 'Mode', explanation: '', valueType: 'enum', options: [], enumId: 'mode' }] }];
+  const kpi = { sources: [
+    { id: 'field-source', type: 'dataField', dataSourceId: 'table', fieldId: 'mode-field', latex: 'ModeField' },
+    { id: 'lookup-source', type: 'lookup', lookupId: 'lookup', latex: 'Lookup()' }
+  ] };
+  const domains = collectDomains(config, kpi);
+  assert.equal(domains.length, 1);
+  assert.deepEqual(Array.from(domains[0].sourceIds), ['field-source', 'lookup-source']);
+  const domainToken = getDomainTokens({ domains }, kpi).find((entry: { latex: string }) => entry.latex === 'Mode');
+  assert.match(domainToken.label, /field-source; lookup-source/);
+  assert.equal(formulaTokenTarget(domainToken, { kind: 'source', sourceId: 'lookup-source' }).sourceId, 'lookup-source');
+  assert.equal(formulaTokenTarget(domainToken, { kind: 'source', sourceId: 'unrelated-source' }).sourceId, 'field-source');
+  const revised = { ...config, valueEnums: [{ id: 'mode', name: 'Mode', options: ['Car', 'Walk'] }] };
+  assert.deepEqual(Array.from(collectDomains(revised, kpi)[0].options), ['Car', 'Walk']);
+  assert.equal(kpiCatalogChangeAffectsRow(config, revised, 'kpi'), true);
+  const lookupOnlyKpi = { sources: [kpi.sources[1]] };
+  const changedLookup = { ...config, lookups: [{ ...config.lookups[0], inputs: [] }] };
+  assert.equal(collectDomains(config, lookupOnlyKpi).length, 1);
+  assert.equal(collectDomains(changedLookup, lookupOnlyKpi).length, 0);
+  assert.equal(kpiCatalogChangeAffectsRow(config, changedLookup, 'kpi'), true);
+});
+
+test('lookup-local options remain traceable without inventing a global domain', () => {
+  const config = createBlankConfig();
+  config.lookups = [{ id: 'lookup', outputName: 'Factor', outputExplanation: '', outputValueType: 'number',
+    outputOptions: [], text: '', inputs: [{ id: 'input', representation: 'Mode', explanation: '', valueType: 'enum', options: ['Regular Vehicle'] }] }];
+  const kpi = { sources: [{ id: 'lookup-source', type: 'lookup', lookupId: 'lookup', latex: 'Factor()' }] };
+  const domains = collectDomains(config, kpi);
+  assert.equal(domains[0].enumId, undefined);
+  const semanticTokens = getDomainTokens({ domains }, kpi);
+  const token = semanticTokens.find((entry: { latex: string }) => entry.latex === 'RegularVehicle');
+  assert.equal(token.target.sourceId, 'lookup-source');
+  assert.match(render('Factor(RegularVehicle)', semanticTokens), /formula-dimension-token/);
+  assert.equal(semanticTokens.some((entry: { latex: string }) => entry.latex === 'Customdomain'), false);
+});
+
 test('plain and indexed scales, including generic Zone, trace to the scale controller inside field references', () => {
   const config = { spatialScaleDefinitions: defaultSpatialScaleDefinitions() };
   const formula = String.raw`CellID_{Cell}+CellID_{Cell_{j,k}}+Zone+Zone_i+\mathrm{Zone}_{j}`;

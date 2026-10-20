@@ -3678,27 +3678,37 @@ const formulaFieldDomains = (config: KpiPoolConfig, kpi: KpiMetric): FormulaFiel
   const cached = formulaFieldDomainsCache.get(kpi);
   if (cached?.config === config) return cached.value;
   const domains = new Map<string, FormulaFieldDomain>();
-  kpi.sources.forEach((source) => {
-    if (source.type !== 'dataField') return;
-    const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
-    const field = dataSource?.fields.find((entry) => entry.id === source.fieldId);
-    if (!field || (field.dataType !== 'enum' && !(field.dataType === 'collection' && field.collectionItemType === 'enum'))) return;
-    const globalDomain = field.enumId
-      ? config.valueEnums.find((definition) => definition.id === field.enumId)
-      : undefined;
-    const key = globalDomain ? `global:${globalDomain.id}` : `field:${dataSource?.id ?? source.dataSourceId}:${field.id}`;
+  const addDomain = (sourceId: string, localKey: string, enumId: string | undefined, options: string[]) => {
+    const globalDomain = enumId ? config.valueEnums.find((definition) => definition.id === enumId) : undefined;
+    const key = globalDomain ? `global:${globalDomain.id}` : localKey;
     const existing = domains.get(key);
     if (existing) {
-      if (!existing.sourceIds.includes(source.id)) existing.sourceIds.push(source.id);
+      if (!existing.sourceIds.includes(sourceId)) existing.sourceIds.push(sourceId);
     } else {
       domains.set(key, {
         key,
         name: globalDomain?.name.trim() || 'Custom domain',
         enumId: globalDomain?.id,
-        options: [...(globalDomain?.options ?? field.options)],
-        sourceIds: [source.id]
+        options: [...(globalDomain?.options ?? options)],
+        sourceIds: [sourceId]
       });
     }
+  };
+  kpi.sources.forEach((source) => {
+    if (source.type === 'lookup') {
+      const lookup = config.lookups.find((entry) => entry.id === source.lookupId);
+      if (!lookup) return;
+      lookup.inputs.forEach((input) => {
+        if (input.valueType === 'enum') addDomain(source.id, `lookup:${lookup.id}:input:${input.id}`, input.enumId, input.options);
+      });
+      if (lookup.outputValueType === 'enum') addDomain(source.id, `lookup:${lookup.id}:output`, lookup.outputEnumId, lookup.outputOptions);
+      return;
+    }
+    if (source.type !== 'dataField') return;
+    const dataSource = config.dataSources.find((entry) => entry.id === source.dataSourceId);
+    const field = dataSource?.fields.find((entry) => entry.id === source.fieldId);
+    if (!field || (field.dataType !== 'enum' && !(field.dataType === 'collection' && field.collectionItemType === 'enum'))) return;
+    addDomain(source.id, `field:${dataSource?.id ?? source.dataSourceId}:${field.id}`, field.enumId, field.options);
   });
   const value = [...domains.values()];
   formulaFieldDomainsCache.set(kpi, { config, value });
