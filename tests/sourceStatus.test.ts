@@ -140,10 +140,45 @@ test('Excel always accompanies selected Source with Source Status and a dot usin
     assert.match(xml, /<dimension ref="A1:B4"/);
     assert.match(xml, />Source</);
     assert.match(xml, />Source Status</);
+    const sourceCell = xml.match(/<c r="A4"[^>]*>(.*?)<\/c>/s)?.[1] ?? '';
+    assert.ok(sourceCell.includes(`<color rgb="${color}"/>`));
+    assert.ok(sourceCell.includes('>●</t>'));
+    assert.ok(sourceCell.includes(`>Traffic · Field ${index}</t>`));
     assert.ok(xml.includes(`<color rgb="${color}"/>`));
     assert.ok(xml.includes(`<t>●</t>`));
     assert.ok(xml.includes(` ${sourceStatuses[index]}</t>`));
   }
+});
+
+test('Excel Sources preserves mixed sources and colors each field and prerequisite independently', async () => {
+  const config = fixture();
+  config.lookups = [{ id: 'lookup', outputName: 'Rate <lookup> & factor', outputExplanation: '', outputValueType: 'number', outputOptions: [], text: '', inputs: [] }];
+  const leaf = { ...createBlankKpi(), id: 'leaf', name: 'Leaf', sources: sources(1) };
+  const nested = { ...createBlankKpi(), id: 'nested', name: 'Nested KPI', sources: [prerequisite('leaf')] };
+  const cyclic = { ...createBlankKpi(), id: 'cycle', name: 'Cyclic KPI', sources: [prerequisite('cycle')] };
+  const kpi = { ...createBlankKpi(), sources: [
+    ...sources(3, 2),
+    { id: 'lookup-source', type: 'lookup' as const, lookupId: 'lookup', latex: '' },
+    prerequisite('nested'), prerequisite('cycle'), prerequisite('missing'),
+    { id: 'custom-source', type: 'custom' as const, name: 'Literal **text** & input', latex: '' }
+  ] };
+  config.kpis = [leaf, nested, cyclic, kpi];
+  const rows = buildKpiExcelRows(config, [kpi], { userGroups: [], useCases: [], performanceAreas: [] });
+  assert.equal(rows[0].source, 'Traffic · Field 3\nTraffic · Field 2\nLookup: Rate <lookup> & factor\nKPI: Nested KPI\nKPI: Cyclic KPI\nKPI: Missing KPI\nLiteral **text** & input');
+  const zip = await JSZip.loadAsync(await createKpiExcelWorkbook('Test', rows, ['source']));
+  const xml = await zip.file('xl/worksheets/sheet1.xml')!.async('string');
+  const cell = xml.match(/<c r="A4"[^>]*>(.*?)<\/c>/s)?.[1] ?? '';
+  assert.deepEqual([...cell.matchAll(/<color rgb="(.*?)"/g)].map((match) => match[1]),
+    ['FF16A34A', 'FF86CC74', 'FFEAB308', 'FF6B7280', 'FF6B7280']);
+  assert.equal([...cell.matchAll(/>●<\/t>/g)].length, 5);
+  assert.ok(cell.includes('Lookup: Rate &lt;lookup&gt; &amp; factor'));
+  assert.ok(cell.includes('Literal **text** &amp; input'));
+  assert.equal([...cell.matchAll(/<t xml:space="preserve">\n<\/t>/g)].length, 6);
+  assert.ok(Number(xml.match(/<row r="4" ht="(\d+)"/)?.[1]) >= 111);
+
+  config.dataSources[0].fields[1].status = 'Ready';
+  const updated = buildKpiExcelRows(config, [kpi], { userGroups: [], useCases: [], performanceAreas: [] });
+  assert.equal(updated[0].sourceItems?.find(({ label }) => label === 'KPI: Nested KPI')?.status, 'Ready');
 });
 
 test('schema 57 migrates legacy Sample and With Sample values without losing readiness', () => {

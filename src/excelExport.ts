@@ -19,6 +19,7 @@ export type ExcelExportFilters = {
 export type KpiExcelRow = {
   displayNumber?: number | null;
   source?: string;
+  sourceItems?: { label: string; status?: SourceStatus }[];
   sourceStatus?: SourceStatus;
   status?: string;
   unit?: string;
@@ -33,7 +34,7 @@ export type KpiExcelRow = {
 };
 
 type KpiExcelColumnDefinition = {
-  key: Exclude<keyof KpiExcelRow, 'noteMarkdown'>;
+  key: Exclude<keyof KpiExcelRow, 'noteMarkdown' | 'sourceItems'>;
   label: string;
   width: number;
   richTextKey?: 'noteMarkdown';
@@ -61,6 +62,7 @@ export type ExcelRichTextRun = {
   bold?: boolean;
   italic?: boolean;
   strike?: boolean;
+  color?: string;
 };
 
 const unique = (values: readonly string[]) => [...new Set(values)];
@@ -99,7 +101,8 @@ const appendRichTextRun = (
     previous &&
     Boolean(previous.bold) === Boolean(style.bold) &&
     Boolean(previous.italic) === Boolean(style.italic) &&
-    Boolean(previous.strike) === Boolean(style.strike)
+    Boolean(previous.strike) === Boolean(style.strike) &&
+    previous.color === style.color
   ) {
     previous.text += decodedText;
     return;
@@ -327,6 +330,25 @@ export const buildKpiExcelRows = (
 
     if (matchingAssignments.length === 0) return [];
 
+    const sourceItems = kpi.sources.map((source) => {
+      let label: string;
+      switch (source.type) {
+        case 'dataField': {
+          const table = config.dataSources.find((table) => table.id === source.dataSourceId);
+          const group = config.dataSourceGroups.find((group) => group.itemIds.includes(source.dataSourceId));
+          const field = table?.fields.find((field) => field.id === source.fieldId);
+          label = [group?.name, table?.name ?? 'Missing table', field?.name ?? 'Missing field'].filter(Boolean).join(' · ');
+          break;
+        }
+        case 'kpi': label = `KPI: ${config.kpis.find((kpi) => kpi.id === source.kpiId)?.name ?? 'Missing KPI'}`; break;
+        case 'lookup': label = `Lookup: ${config.lookups.find((lookup) => lookup.id === source.lookupId)?.outputName ?? 'Missing lookup'}`; break;
+        case 'variable': label = `Constant: ${config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing constant'}`; break;
+        case 'custom': label = source.name; break;
+      }
+      // Match the Source cell in the app: only fields and prerequisite KPIs have readiness.
+      return { label, status: source.type === 'dataField' || source.type === 'kpi' ? sourceStatus(config, [source]) : undefined };
+    });
+
     return [{
       displayNumber: kpi.displayNumber,
       userGroup: unique(
@@ -340,20 +362,8 @@ export const buildKpiExcelRows = (
           .filter(Boolean)
       ).join(', '),
       status: kpi.status,
-      source: kpi.sources.map((source) => {
-        switch (source.type) {
-          case 'dataField': {
-            const table = config.dataSources.find((table) => table.id === source.dataSourceId);
-            const group = config.dataSourceGroups.find((group) => group.itemIds.includes(source.dataSourceId));
-            const field = table?.fields.find((field) => field.id === source.fieldId);
-            return [group?.name, table?.name ?? 'Missing table', field?.name ?? 'Missing field'].filter(Boolean).join(' · ');
-          }
-          case 'kpi': return `KPI: ${config.kpis.find((kpi) => kpi.id === source.kpiId)?.name ?? 'Missing KPI'}`;
-          case 'lookup': return `Lookup: ${config.lookups.find((lookup) => lookup.id === source.lookupId)?.outputName ?? 'Missing lookup'}`;
-          case 'variable': return `Constant: ${config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing constant'}`;
-          case 'custom': return source.name;
-        }
-      }).join('\n'),
+      source: sourceItems.map(({ label }) => label).join('\n'),
+      sourceItems,
       sourceStatus: sourceStatus(config, kpi.sources),
       unit: kpi.unit,
       name: kpi.name,
@@ -477,7 +487,12 @@ function worksheetXml(
     .join('');
   const dataRows = rows.map((row, index) => {
     const rowNumber = firstDataRow + index;
-    return `<row r="${rowNumber}" ht="45" customHeight="1">${selectedColumns.map((column, columnIndex) => {
+    const sourceLines = selectedColumnKeySet.has('source')
+      ? (row.sourceItems?.map(({ label, status }) => `${status ? '● ' : ''}${label}`).join('\n') ?? row.source ?? '')
+        .split('\n').reduce((count, line) => count + Math.max(1, Math.ceil(line.length / 54)), 0)
+      : 0;
+    const rowHeight = Math.min(409, Math.max(45, sourceLines * 15 + 6));
+    return `<row r="${rowNumber}" ht="${rowHeight}" customHeight="1">${selectedColumns.map((column, columnIndex) => {
       const reference = `${columnName(columnIndex + 1)}${rowNumber}`;
       if (column.key === 'displayNumber') {
         return row.displayNumber == null
@@ -485,6 +500,15 @@ function worksheetXml(
           : `<c r="${reference}" s="4" t="n"><v>${row.displayNumber}</v></c>`;
       }
       if (column.key === 'sourceStatus') return sourceStatusCell(reference, row.sourceStatus ?? 'Unavailable');
+      if (column.key === 'source' && row.sourceItems) {
+        const runs: ExcelRichTextRun[] = [];
+        row.sourceItems.forEach(({ label, status }, index) => {
+          if (index > 0) runs.push({ text: '\n' });
+          if (status) runs.push({ text: '●', color: `FF${sourceStatusColors[status].slice(1).toUpperCase()}` }, { text: ' ' });
+          runs.push({ text: label });
+        });
+        return richTextCell(reference, runs, 4);
+      }
       const richText = 'richTextKey' in column ? row[column.richTextKey] : undefined;
       return richText !== undefined
         ? richMarkdownCell(reference, richText, 4)
@@ -520,14 +544,17 @@ function sourceStatusCell(reference: string, status: SourceStatus) {
 }
 
 function richMarkdownCell(reference: string, markdown: string, style: number) {
-  const runs = markdownToExcelRichText(markdown);
+  return richTextCell(reference, markdownToExcelRichText(markdown), style);
+}
+
+function richTextCell(reference: string, runs: readonly ExcelRichTextRun[], style: number) {
   let remainingCharacters = 32767;
   const runXml = runs.flatMap((run) => {
     if (remainingCharacters <= 0) return [];
     const text = run.text.slice(0, remainingCharacters);
     remainingCharacters -= text.length;
     if (!text) return [];
-    const properties = [run.bold ? '<b/>' : '', run.italic ? '<i/>' : '', run.strike ? '<strike/>' : ''].join('');
+    const properties = [run.bold ? '<b/>' : '', run.italic ? '<i/>' : '', run.strike ? '<strike/>' : '', run.color ? `<color rgb="${escapeXml(run.color)}"/>` : ''].join('');
     return `<r>${properties ? `<rPr>${properties}</rPr>` : ''}<t xml:space="preserve">${escapeXml(text)}</t></r>`;
   }).join('');
   return runXml
