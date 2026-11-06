@@ -7786,6 +7786,10 @@ h1 {
 .table-principal-relation { flex-wrap: wrap; }
 .relation-expand-toggle svg { transform: rotate(-90deg); }
 .relation-expand-toggle svg.is-expanded { transform: rotate(0deg); }
+.kpi-source-status {
+  display: flex;
+  margin-top: 6px;
+}
 .source-status-badge {
   display: inline-flex;
   align-items: center;

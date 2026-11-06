@@ -340,7 +340,12 @@ export const buildKpiExcelRows = (
           label = [group?.name, table?.name ?? 'Missing table', field?.name ?? 'Missing field'].filter(Boolean).join(' · ');
           break;
         }
-        case 'kpi': label = `KPI: ${config.kpis.find((kpi) => kpi.id === source.kpiId)?.name ?? 'Missing KPI'}`; break;
+        case 'kpi': {
+          const prerequisite = config.kpis.find((kpi) => kpi.id === source.kpiId);
+          const number = prerequisite?.displayNumber;
+          label = `KPI${number == null ? '' : ` ${number}`}: ${prerequisite?.name ?? 'Missing KPI'}`;
+          break;
+        }
         case 'lookup': label = `Lookup: ${config.lookups.find((lookup) => lookup.id === source.lookupId)?.outputName ?? 'Missing lookup'}`; break;
         case 'variable': label = `Constant: ${config.variables.find((variable) => variable.id === source.variableId)?.name ?? 'Missing constant'}`; break;
         case 'custom': label = source.name; break;

@@ -10409,6 +10409,9 @@ function KpiRow({
         </td>
         <td>
           <KpiSourceEditor config={config} kpi={kpi} compact transientHighlightedSource={highlightedSource} openOnTransientHighlight={!expanded} onEditLibrarySource={onEditLibrarySource} onViewKpi={onViewKpi} onChange={(sources, formulaUpdates) => patch({ sources, ...(formulaUpdates ?? {}) })} />
+          <div className="kpi-source-status">
+            <SourceStatusBadge status={sourceStatus(config, kpi.sources)} />
+          </div>
         </td>
         <td>
           <FormulaDisplay config={config} kpi={kpi} highlightedFormulaIndex={highlightedFormulaIndex} onSemanticTarget={highlightSemanticTarget} />
