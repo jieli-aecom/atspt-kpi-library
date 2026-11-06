@@ -484,7 +484,7 @@ function worksheetXml(
           ? stringCell(reference, '', 4)
           : `<c r="${reference}" s="4" t="n"><v>${row.displayNumber}</v></c>`;
       }
-      if (column.key === 'sourceStatus') return sourceStatusCell(reference, row.sourceStatus ?? 'Not Ready');
+      if (column.key === 'sourceStatus') return sourceStatusCell(reference, row.sourceStatus ?? 'Unavailable');
       const richText = 'richTextKey' in column ? row[column.richTextKey] : undefined;
       return richText !== undefined
         ? richMarkdownCell(reference, richText, 4)

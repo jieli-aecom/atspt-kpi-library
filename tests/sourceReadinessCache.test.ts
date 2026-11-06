@@ -36,7 +36,7 @@ const kpiSource = (kpiId: string): KpiSourceItem => ({ id: `source-${kpiId}`, ty
 const fixture = (): KpiPoolConfig => ({
   ...createBlankConfig(),
   dataSources: [{ id: 'table', name: 'Table', spatialUnit: '', fieldGroups: [], fields: [
-    { id: 'sample', name: 'Sample', status: 'With Sample', meaning: '', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'number', valueUnit: '', options: [] },
+    { id: 'sample', name: 'Sample', status: 'Stand-In', meaning: '', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'number', valueUnit: '', options: [] },
     { id: 'ready', name: 'Ready', status: 'Ready', meaning: '', details: '', preprocessingNeeded: false, preferredLatex: '', dataType: 'number', valueUnit: '', options: [] }
   ] }],
   kpis: [
@@ -59,14 +59,14 @@ test('cached indexes and an active readiness filter refresh unchanged dependent 
   assert.deepEqual([...filterRows(next, nextIndexes, filters, cache)], ['leaf', 'middle', 'dependent']);
 
   const restoredIndexes = buildIndexes(previous, next, nextIndexes);
-  assert.equal(restoredIndexes.searchByKpiId.get('dependent').sources.status, 'With Sample');
+  assert.equal(restoredIndexes.searchByKpiId.get('dependent').sources.status, 'Stand-In');
   assert.deepEqual([...filterRows(previous, restoredIndexes, filters, cache)], []);
 });
 
 test('readiness caches detect deleted prerequisites and preserve filter results for unrelated edits', () => {
   const previous = fixture();
   const indexes = buildIndexes(previous);
-  const filters = { sourceStatus: 'With Sample', sourceFlags: [] };
+  const filters = { sourceStatus: 'Stand-In', sourceFlags: [] };
   const cache = { current: undefined };
   const matches = filterRows(previous, indexes, filters, cache);
   const renamed = { ...previous, kpis: previous.kpis.map((kpi) => kpi.id === 'leaf' ? { ...kpi, name: 'Updated name' } : kpi) };
@@ -75,6 +75,6 @@ test('readiness caches detect deleted prerequisites and preserve filter results 
 
   const removed = { ...renamed, kpis: renamed.kpis.filter((kpi) => kpi.id !== 'leaf') };
   const removedIndexes = buildIndexes(removed, renamed, renamedIndexes);
-  assert.equal(removedIndexes.searchByKpiId.get('dependent').sources.status, 'Not Ready');
+  assert.equal(removedIndexes.searchByKpiId.get('dependent').sources.status, 'Unavailable');
   assert.deepEqual([...filterRows(removed, removedIndexes, filters, cache)], []);
 });

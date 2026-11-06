@@ -4556,7 +4556,7 @@ function DataSourceHeader({
         name: uniqueFieldName(current, fallbackPrimaryKeyName(current)),
         meaning: `Primary key for ${current.name || 'this table'}`,
         details: '',
-        status: 'Not Ready', preprocessingNeeded: false,
+        status: 'Unavailable', preprocessingNeeded: false,
         preferredLatex: '',
         dataType: 'id',
         valueUnit: '',
@@ -4848,7 +4848,7 @@ function DataSourceHeader({
       name: 'New field',
       meaning: '',
       details: '',
-      status: 'Not Ready', preprocessingNeeded: false,
+      status: 'Unavailable', preprocessingNeeded: false,
       preferredLatex: '',
       dataType: 'number',
       valueUnit: '',
@@ -7412,7 +7412,7 @@ function KpiSourceEditor({
       }}>
         {filterMode ? <span>{sourceFilterCount || filterMode.flags.length || filterMode.status
           ? `${sourceFilterCount ? `${sourceFilterCount} source${sourceFilterCount === 1 ? '' : 's'} (OR)` : 'Any source'}${filterMode.flags.length ? ` AND ${filterMode.flags.length} flag${filterMode.flags.length === 1 ? '' : 's'}` : ''}`
-          : 'Filter sources / flags…'}{filterMode.status ? ` · ${filterMode.status === 'Ready' ? 'Ready' : 'At least With Sample'}` : ''}</span>
+          : 'Filter sources / flags…'}{filterMode.status ? ` · ${filterMode.status === 'Ready' ? 'Ready' : `At least ${filterMode.status}`}` : ''}</span>
           : kpi.sources.length ? <KpiSourceGroupedSummary config={config} kpi={kpi} onSourceClick={viewSelectedSource} highlightedSourceId={transientHighlightedSourceId} /> : <span className="muted-dash">Select sources...</span>}
         <ChevronDown size={13} className={open ? 'rotate' : ''} />
       </button>
@@ -7456,9 +7456,10 @@ function KpiSourceEditor({
             <fieldset className="source-status-filter">
               <legend>Source status</legend>
               <label><input type="radio" name="source-status-filter" checked={!filterMode.status} onChange={() => filterMode.onStatusChange('')} />None</label>
-              <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'With Sample'} onChange={() => filterMode.onStatusChange('With Sample')} /><SourceStatusBadge status="With Sample" />or better</label>
+              <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'Stand-In'} onChange={() => filterMode.onStatusChange('Stand-In')} /><SourceStatusBadge status="Stand-In" />or better</label>
+              <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'Partial'} onChange={() => filterMode.onStatusChange('Partial')} /><SourceStatusBadge status="Partial" />or better</label>
               <label><input type="radio" name="source-status-filter" checked={filterMode.status === 'Ready'} onChange={() => filterMode.onStatusChange('Ready')} /><SourceStatusBadge status="Ready" /></label>
-              <p>All table fields and prerequisite KPIs in the KPI’s Source cell must meet this status. Prerequisite KPIs inherit the status of their own sources. KPIs without either source type, missing prerequisites, and circular dependencies are Not Ready.</p>
+              <p>All table fields and prerequisite KPIs in the KPI’s Source cell must meet this status. Prerequisite KPIs inherit the status of their own sources. KPIs without either source type, missing prerequisites, and circular dependencies are Unavailable.</p>
             </fieldset>
             <fieldset className="source-filter-flags">
               <legend>Source flags <span className="source-filter-logic">AND</span></legend>

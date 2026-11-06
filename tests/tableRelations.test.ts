@@ -7,7 +7,7 @@ import { buildTableSchemaJsonExport } from '../src/tableSchemaJsonExport.ts';
 import type { DataSource, DataSourceField, TableRelation, TableSourceCategory } from '../src/types.ts';
 
 const field = (id: string, extra: Partial<DataSourceField> = {}): DataSourceField => ({
-  id, name: id, meaning: '', details: '', status: 'Not Ready', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: [], ...extra
+  id, name: id, meaning: '', details: '', status: 'Unavailable', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: [], ...extra
 });
 const table = (id: string, category: TableSourceCategory = 'Preprocessed Constants'): DataSource => ({
   id, name: id, category, spatialUnit: '', primaryKeyFieldId: `${id}ID`, fields: [field(`${id}ID`)], fieldGroups: []
@@ -133,7 +133,7 @@ for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
       assert.equal(original.dataSources.find((source) => source.id === principalId)!.fields.length, 1);
       optionalField.name = 'Custom linked records';
       optionalField.details = 'Preserve these notes';
-      optionalField.status = 'With Sample';
+      optionalField.status = 'Stand-In';
       const json = buildTableSchemaJsonExport(expanded).PreprocessedConstants;
       assert.ok(json[principalId].Fields.some((entry) => entry.Name === 'Customlinkedrecords'));
       const zip = await JSZip.loadAsync(await createTableSchemaExcelWorkbook(expanded));
@@ -148,9 +148,18 @@ for (const cardinality of ['oneToMany', 'manyToMany'] as const) {
       legacyCollapsed.schemaVersion = 56;
       delete legacyCollapsed.tableRelations[0].collapsedPrincipalField.status;
       const legacyRestored = repairConfig(legacyCollapsed).config.tableRelations[0].collapsedPrincipalField!;
-      assert.equal(legacyRestored.status, 'Not Ready');
+      assert.equal(legacyRestored.status, 'Unavailable');
       assert.equal(legacyRestored.details, optionalField.details);
       assert.equal(legacyRestored.name, optionalField.name);
+      for (const status of ['Sample', 'With Sample']) {
+        legacyCollapsed.schemaVersion = 57;
+        legacyCollapsed.tableRelations[0].collapsedPrincipalField.status = status;
+        const migrated = repairConfig(legacyCollapsed).config;
+        assert.equal(migrated.tableRelations[0].collapsedPrincipalField!.status, 'Stand-In');
+        const restored = setPrincipalFieldExpanded(migrated, 'r', true);
+        assert.equal(restored.dataSources.find((source) => source.id === principalId)!.fields
+          .find((entry) => entry.generatedRelationId === 'r')!.status, 'Stand-In');
+      }
       assert.equal(collapsed.tableRelations.length, 1);
       assert.equal(collapsed.dataSources.find((source) => source.id === principalId)!.fields.length, 1);
       assert.equal(collapsed.dataSources.find((source) => source.id === otherId)!.fields.length, 2);

@@ -2088,7 +2088,7 @@ const repairDataSources = (rawValue: unknown, valueEnums: ValueEnumDefinition[],
       return [{
         id: ensureUniqueId(rawField.id, 'field', usedFieldIds, warnings, `${name}: field "${fieldName}"`),
         name: fieldName,
-        status: fieldStatus(rawField as Partial<DataSourceField>),
+        status: fieldStatus(rawField),
         meaning: stringValue(rawField.meaning ?? rawField.description ?? rawField.Meaning),
         details: stringValue(rawField.details ?? rawField.note ?? rawField.Details),
         preprocessingNeeded: Boolean(rawField.preprocessingNeeded) || (legacyFlags && Boolean(stringValue(rawField.details ?? rawField.note ?? rawField.Details).trim())),
@@ -2258,7 +2258,7 @@ const repairTableRelations = (rawValue: unknown, dataSources: DataSource[], warn
       ...(() => {
         const rawCached = rawRelation.collapsedPrincipalField;
         const cached = dataSourceFieldSchema.safeParse(isRecord(rawCached)
-          ? { ...rawCached, status: fieldStatus(rawCached as Partial<DataSourceField>) } : rawCached);
+          ? { ...rawCached, status: fieldStatus(rawCached) } : rawCached);
         return cardinality !== 'oneToOne' && cached.success ? { collapsedPrincipalField: cached.data as DataSourceField } : {};
       })(),
       ...(cardinality !== 'oneToMany' ? { principalDataSourceId: relationPrincipalId({
@@ -2279,7 +2279,7 @@ export const reconcileRelationFields = (dataSources: DataSource[], relations: Ta
     if (existing) return { ...source, primaryKeyFieldId: existing.id };
     const key: DataSourceField = {
       id: createId('field'), name: uniqueRelationName(new Set(source.fields.map((field) => field.name.toLocaleLowerCase())), fallbackRelationKeyName(source)),
-      meaning: `Primary key for ${source.name}`, details: '', status: 'Not Ready', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: []
+      meaning: `Primary key for ${source.name}`, details: '', status: 'Unavailable', preprocessingNeeded: false, preferredLatex: '', dataType: 'id', valueUnit: '', options: []
     };
     return { ...source, primaryKeyFieldId: key.id, fields: [...source.fields, key] };
   });
@@ -2307,7 +2307,7 @@ export const reconcileRelationFields = (dataSources: DataSource[], relations: Ta
       const cached = source.id === relationPrincipalId(relation, dataSources) ? relation.collapsedPrincipalField : undefined;
       fields.push({
         meaning: collection ? `Related ${other?.name ?? 'table'} record IDs` : `ID of the related ${other?.name ?? 'table'} record`,
-        details: '', status: 'Not Ready', preprocessingNeeded: false, preferredLatex: '',
+        details: '', status: 'Unavailable', preprocessingNeeded: false, preferredLatex: '',
         ...cached,
         id: cached && !fields.some((field) => field.id === cached.id) ? cached.id : createId('field'),
         name: uniqueRelationName(names, cached?.name || (collection ? collectionRelationFieldName(keyName) : keyName)),

@@ -1,14 +1,15 @@
-import type { DataSourceField, KpiPoolConfig, KpiSourceItem } from './types.js';
+import type { KpiPoolConfig, KpiSourceItem } from './types.js';
 
-export const sourceStatuses = ['Not Ready', 'With Sample', 'Ready'] as const;
+export const sourceStatuses = ['Unavailable', 'Stand-In', 'Partial', 'Ready'] as const;
 export type SourceStatus = typeof sourceStatuses[number];
-export type SourceStatusFilter = '' | 'With Sample' | 'Ready';
+export type SourceStatusFilter = '' | 'Stand-In' | 'Partial' | 'Ready';
 export const sourceStatusColors: Record<SourceStatus, string> = {
-  'Not Ready': '#6b7280', 'With Sample': '#eab308', Ready: '#16a34a'
+  'Unavailable': '#6b7280', 'Stand-In': '#eab308', Partial: '#86cc74', Ready: '#16a34a'
 };
 
-export const fieldStatus = (field?: Partial<Pick<DataSourceField, 'status'>>): SourceStatus =>
-  sourceStatuses.find((status) => status === field?.status) ?? 'Not Ready';
+export const fieldStatus = (field?: { status?: unknown }): SourceStatus =>
+  field?.status === 'Sample' || field?.status === 'With Sample' ? 'Stand-In'
+    : sourceStatuses.find((status) => status === field?.status) ?? 'Unavailable';
 
 // Readiness is limited by every selected table field and prerequisite KPI.
 // Other source types have no status; an empty set must not imply readiness.
@@ -22,7 +23,7 @@ export function sourceStatus(config: Pick<KpiPoolConfig, 'dataSources' | 'kpis'>
     if (cached) return cached;
     const kpi = kpisById.get(kpiId);
     // Missing prerequisites and dependency cycles cannot establish readiness.
-    if (!kpi || resolving.has(kpiId)) return 'Not Ready';
+    if (!kpi || resolving.has(kpiId)) return 'Unavailable';
     resolving.add(kpiId);
     const status = selectedSourceStatus(kpi.sources);
     resolving.delete(kpiId);
@@ -40,13 +41,13 @@ export function sourceStatus(config: Pick<KpiPoolConfig, 'dataSources' | 'kpis'>
         config.dataSources.find((table) => table.id === source.dataSourceId)?.fields.find((field) => field.id === source.fieldId)
       );
       minimum = Math.min(minimum, sourceStatuses.indexOf(status));
-      if (minimum === 0) return 'Not Ready';
+      if (minimum === 0) return 'Unavailable';
     }
-    return hasStatus ? sourceStatuses[minimum] : 'Not Ready';
+    return hasStatus ? sourceStatuses[minimum] : 'Unavailable';
   };
 
   return selectedSourceStatus(sources);
 }
 
 export const meetsSourceStatus = (status: SourceStatus | undefined, minimum: SourceStatusFilter) =>
-  !minimum || sourceStatuses.indexOf(status ?? 'Not Ready') >= sourceStatuses.indexOf(minimum);
+  !minimum || sourceStatuses.indexOf(status ?? 'Unavailable') >= sourceStatuses.indexOf(minimum);

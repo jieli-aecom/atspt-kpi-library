@@ -25,25 +25,25 @@ const prerequisite = (kpiId: string): KpiSourceItem => ({ id: `source-${kpiId}`,
 
 test('source status is the minimum over selected table fields, independent of order and duplicate scenarios', () => {
   const config = fixture();
-  for (const [indices, expected] of [ [[2], 'Ready'], [[1, 2], 'With Sample'], [[2, 1], 'With Sample'], [[0, 1, 2], 'Not Ready'], [[], 'Not Ready'], [[99], 'Not Ready'] ] as const) {
+  for (const [indices, expected] of [ [[3], 'Ready'], [[2], 'Partial'], [[2, 3], 'Partial'], [[3, 2], 'Partial'], [[2, 1], 'Stand-In'], [[1, 3], 'Stand-In'], [[3, 1], 'Stand-In'], [[0, 1, 2, 3], 'Unavailable'], [[], 'Unavailable'], [[99], 'Unavailable'] ] as const) {
     assert.equal(sourceStatus(config, sources(...indices)), expected);
   }
-  assert.equal(sourceStatus(config, [...sources(2), { ...sources(2)[0], id: 'second-scenario', scenarioSlot: 1 }]), 'Ready');
-  assert.equal(sourceStatus(config, [...sources(2), { id: 'custom', type: 'custom', name: 'Input', latex: '' }]), 'Ready');
-  assert.equal(sourceStatus(config, [{ id: 'custom', type: 'custom', name: 'Input', latex: '' }]), 'Not Ready');
+  assert.equal(sourceStatus(config, [...sources(3), { ...sources(3)[0], id: 'second-scenario', scenarioSlot: 1 }]), 'Ready');
+  assert.equal(sourceStatus(config, [...sources(3), { id: 'custom', type: 'custom', name: 'Input', latex: '' }]), 'Ready');
+  assert.equal(sourceStatus(config, [{ id: 'custom', type: 'custom', name: 'Input', latex: '' }]), 'Unavailable');
 });
 
 test('yellow includes green; green requires every field ready; none does not restrict; changes recompute', () => {
   const config = fixture();
-  const kpi = { ...createBlankKpi(), sources: sources(1, 2) };
+  const kpi = { ...createBlankKpi(), sources: sources(1, 3) };
   const entry = sourceFilterEntry(config, kpi);
-  assert.equal(matchesSourceFilters(entry, new Set(), [], 'With Sample'), true);
+  assert.equal(matchesSourceFilters(entry, new Set(), [], 'Stand-In'), true);
   assert.equal(matchesSourceFilters(entry, new Set(), [], 'Ready'), false);
   assert.equal(matchesSourceFilters(entry, new Set(), [], ''), true);
-  assert.equal(matchesSourceFilters(entry, new Set(), ['derived'], 'With Sample'), false);
+  assert.equal(matchesSourceFilters(entry, new Set(), ['derived'], 'Stand-In'), false);
   config.dataSources[0].fields[1].status = 'Ready';
   assert.equal(matchesSourceFilters(sourceFilterEntry(config, kpi), new Set(), [], 'Ready'), true);
-  assert.equal(matchesSourceFilters(sourceFilterEntry(config, createBlankKpi()), new Set(), [], 'With Sample'), false);
+  assert.equal(matchesSourceFilters(sourceFilterEntry(config, createBlankKpi()), new Set(), [], 'Stand-In'), false);
 });
 
 test('prerequisite KPIs contribute their readiness alongside direct fields and other prerequisites', () => {
@@ -52,42 +52,42 @@ test('prerequisite KPIs contribute their readiness alongside direct fields and o
   for (const [index, expected] of sourceStatuses.entries()) {
     const dependency = prerequisite(`kpi-${index}`);
     assert.equal(sourceStatus(config, [dependency]), expected);
-    assert.equal(sourceStatus(config, [...sources(2), dependency]), expected);
-    assert.equal(sourceStatus(config, [dependency, ...sources(2)]), expected);
-    assert.equal(sourceStatus(config, [prerequisite('kpi-2'), dependency]), expected);
+    assert.equal(sourceStatus(config, [...sources(3), dependency]), expected);
+    assert.equal(sourceStatus(config, [dependency, ...sources(3)]), expected);
+    assert.equal(sourceStatus(config, [prerequisite('kpi-3'), dependency]), expected);
   }
-  assert.equal(sourceStatus(config, [...sources(0), prerequisite('kpi-2')]), 'Not Ready');
-  assert.equal(sourceStatus(config, [...sources(1), prerequisite('kpi-2')]), 'With Sample');
+  assert.equal(sourceStatus(config, [...sources(0), prerequisite('kpi-3')]), 'Unavailable');
+  assert.equal(sourceStatus(config, [...sources(1), prerequisite('kpi-3')]), 'Stand-In');
 });
 
 test('readiness follows nested and shared prerequisites, including repeated scenarios', () => {
   const config = fixture();
   const leaf = { ...createBlankKpi(), id: 'leaf', sources: sources(1) };
   const left = { ...createBlankKpi(), id: 'left', sources: [prerequisite(leaf.id)] };
-  const right = { ...createBlankKpi(), id: 'right', sources: [...sources(2), prerequisite(leaf.id)] };
+  const right = { ...createBlankKpi(), id: 'right', sources: [...sources(3), prerequisite(leaf.id)] };
   const root = { ...createBlankKpi(), id: 'root', sources: [prerequisite(left.id), prerequisite(right.id)] };
   config.kpis = [root, right, left, leaf];
   const references: KpiSourceItem[] = [prerequisite(root.id), { ...prerequisite(root.id), id: 'other-scenario', scenarioSlot: 1 }];
-  assert.equal(sourceStatus(config, references), 'With Sample');
+  assert.equal(sourceStatus(config, references), 'Stand-In');
   config.dataSources[0].fields[1].status = 'Ready';
   assert.equal(sourceStatus(config, references), 'Ready');
   leaf.sources = sources(0);
-  assert.equal(sourceStatus(config, references), 'Not Ready');
+  assert.equal(sourceStatus(config, references), 'Unavailable');
 });
 
 test('missing, empty and cyclic prerequisites prevent readiness even beside ready fields', () => {
   const config = fixture();
   const empty = { ...createBlankKpi(), id: 'empty' };
   const custom = { ...createBlankKpi(), id: 'custom', sources: [{ id: 'custom-input', type: 'custom' as const, name: 'Input', latex: '' }] };
-  const self = { ...createBlankKpi(), id: 'self', sources: [...sources(2), prerequisite('self')] };
-  const first = { ...createBlankKpi(), id: 'first', sources: [...sources(2), prerequisite('second')] };
+  const self = { ...createBlankKpi(), id: 'self', sources: [...sources(3), prerequisite('self')] };
+  const first = { ...createBlankKpi(), id: 'first', sources: [...sources(3), prerequisite('second')] };
   const second = { ...createBlankKpi(), id: 'second', sources: [prerequisite('first')] };
   config.kpis = [empty, custom, self, first, second];
   for (const id of ['missing', 'empty', 'custom', 'self', 'first', 'second']) {
-    assert.equal(sourceStatus(config, [prerequisite(id)]), 'Not Ready', id);
-    assert.equal(sourceStatus(config, [...sources(2), prerequisite(id)]), 'Not Ready', id);
+    assert.equal(sourceStatus(config, [prerequisite(id)]), 'Unavailable', id);
+    assert.equal(sourceStatus(config, [...sources(3), prerequisite(id)]), 'Unavailable', id);
   }
-  second.sources = sources(2);
+  second.sources = sources(3);
   assert.equal(sourceStatus(config, [prerequisite(first.id)]), 'Ready', 'removing a cycle restores readiness');
 });
 
@@ -97,12 +97,13 @@ test('source filters and Excel exports use prerequisite readiness and update aft
   const middle = { ...createBlankKpi(), id: 'middle', sources: [prerequisite(leaf.id)] };
   const dependent = { ...createBlankKpi(), sources: [prerequisite(middle.id)] };
   config.kpis = [leaf, middle, dependent];
-  for (const index of [1, 2, 0]) {
+  for (const index of [1, 2, 3, 0]) {
     config.kpis = config.kpis.map((kpi) => kpi.id === leaf.id ? { ...kpi, sources: sources(index) } : kpi);
     const entry = sourceFilterEntry(config, dependent);
     assert.equal(entry.status, sourceStatuses[index]);
-    assert.equal(matchesSourceFilters(entry, new Set(), [], 'With Sample'), index >= 1);
-    assert.equal(matchesSourceFilters(entry, new Set(), [], 'Ready'), index === 2);
+    assert.equal(matchesSourceFilters(entry, new Set(), [], 'Stand-In'), index >= 1);
+    assert.equal(matchesSourceFilters(entry, new Set(), [], 'Partial'), index >= 2);
+    assert.equal(matchesSourceFilters(entry, new Set(), [], 'Ready'), index === 3);
     assert.equal(buildKpiExcelRows(config, [dependent], { userGroups: [], useCases: [], performanceAreas: [] })[0].sourceStatus, sourceStatuses[index]);
   }
 });
@@ -120,7 +121,7 @@ test('schema migration defaults missing and invalid statuses and preserves expli
   legacy.schemaVersion = migrated.schemaVersion;
   legacy.dataSources[0].fields[0].status = 'Unknown';
   assert.equal(kpiPoolConfigSchema.safeParse(legacy).success, false);
-  assert.equal(repairConfig(legacy).config.dataSources[0].fields[0].status, 'Not Ready');
+  assert.equal(repairConfig(legacy).config.dataSources[0].fields[0].status, 'Unavailable');
   const incoming = structuredClone(config);
   incoming.dataSources[0].fields[0].status = 'Ready';
   assert.equal(mergeConcurrentConfig(config, config, incoming).dataSources[0].fields[0].status, 'Ready');
@@ -129,7 +130,7 @@ test('schema migration defaults missing and invalid statuses and preserves expli
 
 test('Excel always accompanies selected Source with Source Status and a dot using the matching color', async () => {
   const config = fixture();
-  for (const [index, color] of ['FF6B7280', 'FFEAB308', 'FF16A34A'].entries()) {
+  for (const [index, color] of ['FF6B7280', 'FFEAB308', 'FF86CC74', 'FF16A34A'].entries()) {
     const kpi = { ...createBlankKpi(), sources: sources(index) };
     const rows = buildKpiExcelRows(config, [kpi], { userGroups: [], useCases: [], performanceAreas: [] });
     assert.equal(rows[0].source, `Traffic · Field ${index}`);
@@ -143,4 +144,18 @@ test('Excel always accompanies selected Source with Source Status and a dot usin
     assert.ok(xml.includes(`<t>●</t>`));
     assert.ok(xml.includes(` ${sourceStatuses[index]}</t>`));
   }
+});
+
+test('schema 57 migrates legacy Sample and With Sample values without losing readiness', () => {
+  const legacy = JSON.parse(JSON.stringify(fixture()));
+  legacy.schemaVersion = 57;
+  const template = legacy.dataSources[0].fields[0];
+  legacy.dataSources[0].fields = ['Not Ready', 'Sample', 'With Sample', 'Ready', 'Partial', 'Stand-In', 'Unavailable']
+    .map((status, index) => ({ ...template, id: 'legacy-' + index, status }));
+  const migrated = repairConfig(legacy).config;
+  assert.deepEqual(migrated.dataSources[0].fields.map((field) => field.status),
+    ['Unavailable', 'Stand-In', 'Stand-In', 'Ready', 'Partial', 'Stand-In', 'Unavailable']);
+  assert.ok(kpiPoolConfigSchema.safeParse(migrated).success);
+  assert.equal(repairConfig(migrated).config, migrated);
+  assert.deepEqual(repairConfig(JSON.parse(JSON.stringify(prepareForExport(migrated)))).config.dataSources[0].fields, migrated.dataSources[0].fields);
 });

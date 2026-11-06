@@ -1,10 +1,10 @@
 # Table schema exports
 
-## Field readiness (schema 57)
+## Field readiness (schema 58)
 
-Each table field has a `status`: `Not Ready` (gray), `With Sample` (yellow), or `Ready` (green). Set it with the compact three-dot controls to the left of the ellipsis button in the field list, or under Status in the Field details window opened by that button. The selected dot has a circular outline; hovering a dot shows its status label. Older configurations default missing statuses to `Not Ready`. Statuses survive save, HTML export/import, and relationship field collapse/expansion. Table-schema JSON includes `Status` on each field, including dimension-expanded fields.
+Each table field has a status: Ready (green), Partial (light green), Stand-In (yellow), or Unavailable (gray). Set it with the compact four-dot controls to the left of the ellipsis button in the field list, or under Status in the Field details window opened by that button. The selected dot has a circular outline; hovering a dot shows its status label. Migration maps Sample and With Sample to Stand-In, and Not Ready, missing, or invalid statuses to Unavailable. Statuses survive save, HTML export/import, and relationship field collapse/expansion. Table-schema JSON includes Status on each field, including dimension-expanded fields.
 
-The KPI Source cell displays a status dot immediately after each selected table field name. Source filtering and Excel use the lowest status among the KPI's directly selected table fields. Lookups, constants, custom inputs, and referenced KPIs have no field status and do not affect this calculation. A KPI with no table fields does not match yellow or green requirements. Source filters offer **None** (no status restriction), **With Sample or better**, and **Ready**. These requirements combine with other source filters.
+The KPI Source cell displays a status dot immediately after each selected table field or prerequisite KPI. Source filtering and Excel use the lowest status among those sources, with prerequisite KPIs inheriting the status of their own sources. Lookups, constants, and custom inputs have no field status. Missing prerequisites, circular dependencies, and KPIs with neither table fields nor prerequisite KPIs are Unavailable. Source filters offer **None** (no status restriction), **Stand-In or better**, **Partial or better**, and **Ready**. These requirements combine with other source filters.
 
 KPI Excel exports include **Source** followed by **Source Status**, with the aggregate status label and colored dot. Selecting Source always includes its status column.
 
