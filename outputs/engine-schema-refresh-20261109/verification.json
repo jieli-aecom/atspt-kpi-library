@@ -1,0 +1,13 @@
+{
+  "crash_rows": 817874,
+  "overlapping_flags_retained": 6747,
+  "highway_rows": 44005,
+  "roadway_class_missing_percent": 1.5498,
+  "implemented_files_preserved": 5,
+  "notebooks_executed": [
+    "create_temp_schema",
+    "test_schema"
+  ],
+  "schema_exports_preserved": true,
+  "checks": "field/type/key/join validation, raw-to-staged equality, nullable flags, current status, notebook preservation"
+}

@@ -1,0 +1,38 @@
+{
+  "passed": true,
+  "changedKpis": [
+    5,
+    72,
+    100
+  ],
+  "kpiCount": 98,
+  "newKpis": 0,
+  "checks": [
+    "full schema",
+    "import and repair without warnings",
+    "merge fidelity",
+    "earlier changes retained",
+    "valid sources and acyclic dependencies",
+    "LaTeX rendering",
+    "same cumulative growth in both crash KPIs",
+    "weighted period growth",
+    "base-year identity and uniform-rate equivalence",
+    "declining traffic",
+    "invalid zero anchors",
+    "link-to-zone baseline aggregation",
+    "distinct link-project joins",
+    "single annualization and annual bike/ped deduction",
+    "project spatial totals"
+  ],
+  "website": {
+    "importSucceeded": true,
+    "verifiedKpis": [
+      5,
+      72,
+      100
+    ],
+    "kpiCount": 98,
+    "saved": false,
+    "state": "Unsaved changes"
+  }
+}

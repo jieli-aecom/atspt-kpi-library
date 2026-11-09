@@ -7,10 +7,36 @@ const kr = (kpiId: string): KpiSourceItem => ({ id: kpiId, type: 'kpi', kpiId, l
 const kpi = (id: string, sources: KpiSourceItem[], prerequisites: string[] = []) => ({ id, name: id, sources, prerequisite: { kpis: prerequisites } });
 const config = (kpis: unknown[], fields: unknown[] = [{ id: 'raw', name: 'raw' }, { id: 'derived', name: 'derived', sources: [ref('raw')] }]) => ({ dataSources: [{ id: 't', name: 'Table', fields }], kpis } as KpiPoolConfig);
 
-test('traces fields through processing, KPI sources and legacy prerequisites', () => {
-  const result = traceKpiSupport(config([kpi('a', [ref('raw')]), kpi('b', [ref('derived')]), kpi('c', [kr('b')]), kpi('d', [], ['c'])]), { dataSourceId: 't', fieldId: 'raw' });
+test('traces fields through processing and current KPI sources', () => {
+  const result = traceKpiSupport(config([kpi('a', [ref('raw')]), kpi('b', [ref('derived')]), kpi('c', [kr('b')]), kpi('d', [kr('c')])]), { dataSourceId: 't', fieldId: 'raw' });
   assert.deepEqual(result.map((r) => [r.kpiId, Boolean(r.direct), Boolean(r.indirect)]), [['a', true, false], ['b', false, true], ['c', false, true], ['d', false, true]]);
   assert.deepEqual(result[3].indirect?.map((n) => [n.tableName, n.label]), [['Table', 'raw'], ['Table', 'derived'], [undefined, 'b'], [undefined, 'c'], [undefined, 'd']]);
+});
+test('removed KPI sources do not leave support paths through legacy prerequisites', () => {
+  const c = config([
+    kpi('Historic Crashes', [ref('severity')]),
+    kpi('Persons Involved in Historic Crashes', [ref('personCount')]),
+    kpi('Preventable Crash Reduction Person Count', [kr('Historic Crashes')], ['Historic Crashes']),
+    kpi('Monetized Crash Reduction Benefit', [kr('Preventable Crash Reduction Person Count')])
+  ], [{ id: 'severity', name: 'Severity' }, { id: 'personCount', name: 'Person Count' }]);
+  const severity = { dataSourceId: 't', fieldId: 'severity' };
+  assert.equal(traceKpiSupport(c, severity).length, 3);
+
+  c.kpis[2].sources = [kr('Persons Involved in Historic Crashes')];
+  assert.deepEqual(traceKpiSupport(c, severity).map((r) => r.kpiId), ['Historic Crashes']);
+  const personSupport = traceKpiSupport(c, { dataSourceId: 't', fieldId: 'personCount' });
+  assert.deepEqual(personSupport.map((r) => r.kpiId), [
+    'Persons Involved in Historic Crashes', 'Preventable Crash Reduction Person Count', 'Monetized Crash Reduction Benefit'
+  ]);
+  assert.deepEqual(personSupport[1].indirect?.map((n) => n.label), [
+    'Person Count', 'Persons Involved in Historic Crashes', 'Preventable Crash Reduction Person Count'
+  ]);
+
+  c.kpis[2].sources = [];
+  assert.deepEqual(traceKpiSupport(c, severity).map((r) => r.kpiId), ['Historic Crashes']);
+  assert.deepEqual(traceKpiSupport(c, { dataSourceId: 't' }).map((r) => r.kpiId), [
+    'Historic Crashes', 'Persons Involved in Historic Crashes'
+  ]);
 });
 test('keeps direct and indirect support and deduplicates table totals', () => {
   const result = traceKpiSupport(config([kpi('a', [ref('raw'), ref('derived'), ref('raw')])]), { dataSourceId: 't' });

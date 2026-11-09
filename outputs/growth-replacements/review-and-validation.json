@@ -1,0 +1,136 @@
+{
+  "reviewedKpis": 98,
+  "yearDimensionKpis": [
+    {
+      "number": 5,
+      "name": "Preventable Crash Reduction Count"
+    },
+    {
+      "number": 75,
+      "name": "Preventable Fatality Serious Injury Reduction Count"
+    },
+    {
+      "number": 72,
+      "name": "Fatalities and Serious Injuries After Projects"
+    },
+    {
+      "number": 57,
+      "name": "Monetized Crash Reduction Benefit"
+    },
+    {
+      "number": 97,
+      "name": "Induced Walk Trips"
+    },
+    {
+      "number": 98,
+      "name": "Induced Bike Trips"
+    },
+    {
+      "number": 99,
+      "name": "Induced Walk-Bike Trips"
+    },
+    {
+      "number": 56,
+      "name": "Peak Period Delay Reduction Vehicle Hours (Project-Based)"
+    },
+    {
+      "number": 100,
+      "name": "New Roadway Detour Reduction Vehicle Hours"
+    },
+    {
+      "number": 58,
+      "name": "Intersection Delay Reduction (Project-Based)"
+    },
+    {
+      "number": 14,
+      "name": "Emission Reduction"
+    },
+    {
+      "number": 92,
+      "name": "Cost per Ton of Emission Reduced"
+    },
+    {
+      "number": 62,
+      "name": "Walk/Bike-Induced VMT Reduction"
+    },
+    {
+      "number": 66,
+      "name": "Annual Avoided Flood Damages"
+    },
+    {
+      "number": 102,
+      "name": "Any-Year Travel Time Minutes"
+    },
+    {
+      "number": 103,
+      "name": "Any-Year Volume"
+    }
+  ],
+  "growthRateCandidates": [
+    5,
+    56,
+    58,
+    72,
+    100
+  ],
+  "changed": [
+    {
+      "number": 56,
+      "dependencies": [
+        102,
+        103
+      ],
+      "change": "Replace base-year peak delay extrapolation with analysis-year travel time and volume, retaining AM/PM, 365-day annualization, project links and reduction factors."
+    },
+    {
+      "number": 58,
+      "dependencies": [
+        103
+      ],
+      "change": "Sum period volumes for daily traffic, retain project links and annualization, convert source seconds to output hours, and carry Year through spatial formulas."
+    }
+  ],
+  "retained": [
+    {
+      "number": 5,
+      "reason": "Project-level crash-growth methodology explicitly operates without TDM; switching to model-based exposure requires choosing a matched baseline/link/VMT aggregation method."
+    },
+    {
+      "number": 72,
+      "reason": "The no-build crash projection must stay consistent with KPI 5; its existing link-to-zone aggregation is unresolved."
+    },
+    {
+      "number": 100,
+      "reason": "The existing project-volume expression contains an unbound Link, and Saved Minutes applies to diverted trips. Summing link volumes would not identify unique diverted trips and could double count; new links may also lack KPI 103 base anchors."
+    }
+  ],
+  "otherGrowthRates": "Bike/ped trip growth and health/amenity growth are not vehicle-volume growth and remain unchanged.",
+  "hostedSaved": false,
+  "validation": {
+    "passed": true,
+    "checks": [
+      "schema",
+      "import parsing",
+      "repair without warnings",
+      "merge fidelity",
+      "unrelated records unchanged",
+      "dependency integrity and cycles",
+      "LaTeX rendering",
+      "period coverage",
+      "Year in spatial output",
+      "minutes and seconds conversions",
+      "annualization",
+      "numeric examples and zero cases"
+    ],
+    "website": {
+      "importSucceeded": true,
+      "kpiCount": 98,
+      "verifiedRows": [
+        56,
+        58
+      ],
+      "state": "Unsaved changes",
+      "saved": false
+    }
+  }
+}

@@ -1,0 +1,16 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import { traceKpiSupport } from '../../src/kpiSupport.ts';
+const {config}=JSON.parse(await fs.readFile(new URL('./live-response.json',import.meta.url),'utf8'));
+const table=config.dataSources.find(t=>t.name==='Historic Crashes');
+assert(table,'Historic Crashes table exists');
+const severity=table.fields.find(f=>f.name==='Severity');
+assert(severity,'Severity field exists');
+const target=config.kpis.find(k=>k.name==='Preventable Crash Reduction Person Count');
+const severitySupport=traceKpiSupport(config,{dataSourceId:table.id,fieldId:severity.id});
+assert(!severitySupport.some(k=>k.kpiId===target.id),'Severity no longer supports person-count reduction');
+const current=config.kpis.find(k=>k.name==='Persons Involved in Historic Crashes');
+const person=current.sources.find(s=>s.type==='dataField'&&s.latex.startsWith('PersonCount'));
+const retained=traceKpiSupport(config,person).find(k=>k.kpiId===target.id);
+assert(retained?.indirect,'Actual person-count dependency remains');
+console.log(JSON.stringify({passed:true,severitySupports:severitySupport.map(k=>k.name),retainedPath:retained.indirect.map(n=>n.label)},null,2));

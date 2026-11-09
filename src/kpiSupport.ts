@@ -6,7 +6,7 @@ export type KpiSupport = { kpiId: string; name: string; direct?: SupportNode[]; 
 const fieldKey = (tableId: string, fieldId: string) => JSON.stringify(['field', tableId, fieldId]);
 const kpiKey = (id: string) => JSON.stringify(['kpi', id]);
 
-/** Follow declared dependencies downstream; table relationships alone do not imply KPI support. */
+/** Follow current Source dependencies downstream; table relationships alone do not imply KPI support. */
 export function traceKpiSupport(config: KpiPoolConfig, target: SupportTarget): KpiSupport[] {
   const nodes = new Map<string, SupportNode>();
   const edges = new Map<string, Set<string>>();
@@ -33,7 +33,8 @@ export function traceKpiSupport(config: KpiPoolConfig, target: SupportTarget): K
       if (source.type === 'dataField') connect(fieldKey(source.dataSourceId, source.fieldId), kpiKey(kpi.id));
       if (source.type === 'kpi') connect(kpiKey(source.kpiId), kpiKey(kpi.id));
     });
-    kpi.prerequisite.kpis.forEach((id) => connect(kpiKey(id), kpiKey(kpi.id)));
+    // Match the Source editor and readiness calculation. Legacy prerequisite.kpis
+    // can retain references that have since been removed or replaced in sources.
   });
   const results = new Map<string, KpiSupport>();
   const table = config.dataSources.find((entry) => entry.id === target.dataSourceId);

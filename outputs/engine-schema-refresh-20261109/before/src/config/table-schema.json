@@ -1,0 +1,2261 @@
+{
+  "PreprocessedConstants": {
+    "SubRegions": {
+      "PK": "SubRegionID",
+      "Fields": [
+        {
+          "Name": "SubRegionID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "SubRegionType",
+          "Status": "Ready",
+          "Type": "enum"
+        },
+        {
+          "Name": "SubRegionName",
+          "Status": "Ready",
+          "Type": "text"
+        },
+        {
+          "Name": "FIPS",
+          "Status": "Ready",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "TAZs",
+          "Type": "N:N",
+          "LeftOn": "SubRegionID",
+          "RightOn": "SubRegionIDs",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "N:N",
+          "LeftOn": "SubRegionID",
+          "RightOn": "SubRegionIDs",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "Cells",
+          "Type": "N:N",
+          "LeftOn": "SubRegionID",
+          "RightOn": "SubRegionIDs",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        }
+      ]
+    },
+    "Corridors": {
+      "PK": "CorridorID",
+      "Fields": [
+        {
+          "Name": "CorridorID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "CorridorName",
+          "Status": "Ready",
+          "Type": "text"
+        },
+        {
+          "Name": "RoadCategory",
+          "Status": "Ready",
+          "Type": "enum"
+        },
+        {
+          "Name": "TxDOTRTEName",
+          "Status": "Ready",
+          "Type": "text"
+        },
+        {
+          "Name": "LengthMiles",
+          "Status": "Ready",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "1:N",
+          "LeftOn": "CorridorID",
+          "RightOn": "CorridorID"
+        },
+        {
+          "With": "TAZs",
+          "Type": "N:N",
+          "LeftOn": "CorridorID",
+          "RightOn": "CorridorIDs",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "Cells",
+          "Type": "N:N",
+          "LeftOn": "CorridorID",
+          "RightOn": "CorridorIDs",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        }
+      ]
+    },
+    "TAZs": {
+      "PK": "TAZID",
+      "Fields": [
+        {
+          "Name": "TAZID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "SubRegionIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        },
+        {
+          "Name": "CorridorIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        },
+        {
+          "Name": "BaseYearPopulation",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearWorkers",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearJobs",
+          "Status": "Partial",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "Cells",
+          "Type": "N:N",
+          "LeftOn": "TAZID",
+          "RightOn": "TAZIDs",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "SubRegions",
+          "Type": "N:N",
+          "LeftOn": "SubRegionIDs",
+          "RightOn": "SubRegionID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        },
+        {
+          "With": "SkimmedZones",
+          "Type": "1:N",
+          "LeftOn": "TAZID",
+          "RightOn": "OriginTAZID"
+        },
+        {
+          "With": "Corridors",
+          "Type": "N:N",
+          "LeftOn": "CorridorIDs",
+          "RightOn": "CorridorID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        },
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "1:N",
+          "LeftOn": "TAZID",
+          "RightOn": "TAZID"
+        },
+        {
+          "With": "ZoneAccessibilityMatrix",
+          "Type": "1:1",
+          "LeftOn": "TAZID",
+          "RightOn": "TAZID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "TAZDemographics",
+          "Type": "1:1",
+          "LeftOn": "TAZID",
+          "RightOn": "TAZID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        }
+      ]
+    },
+    "Cells": {
+      "PK": "CellID",
+      "Fields": [
+        {
+          "Name": "CellID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "AreaSqft",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearContainsRetail",
+          "Status": "Ready",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearContainsRecreation",
+          "Status": "Ready",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearContainsHealthcare",
+          "Status": "Ready",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "FloodExposure",
+          "Status": "Ready",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Requires preprocessing"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearPopulation",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearHouseholds",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearWorkers",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearJobs",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearImperviousness",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "TAZIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        },
+        {
+          "Name": "SubRegionIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        },
+        {
+          "Name": "CorridorIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "TAZs",
+          "Type": "N:N",
+          "LeftOn": "TAZIDs",
+          "RightOn": "TAZID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        },
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "1:N",
+          "LeftOn": "CellID",
+          "RightOn": "CellID"
+        },
+        {
+          "With": "CellLandUse",
+          "Type": "1:1",
+          "LeftOn": "CellID",
+          "RightOn": "CellID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "Projects",
+          "Type": "N:N",
+          "LeftOn": "CellID",
+          "RightOn": "CellIDs",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "SubRegions",
+          "Type": "N:N",
+          "LeftOn": "SubRegionIDs",
+          "RightOn": "SubRegionID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        },
+        {
+          "With": "Corridors",
+          "Type": "N:N",
+          "LeftOn": "CorridorIDs",
+          "RightOn": "CorridorID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        },
+        {
+          "With": "BikePedAccessibilityMatrix",
+          "Type": "1:1",
+          "LeftOn": "CellID",
+          "RightOn": "CellID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        }
+      ]
+    },
+    "HistoricCrashes": {
+      "PK": "CrashPointID",
+      "Fields": [
+        {
+          "Name": "CrashPointID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "IsIntersection",
+          "Status": "Unavailable",
+          "Type": "boolean"
+        },
+        {
+          "Name": "InvolvesPedestrianCyclist",
+          "Status": "Unavailable",
+          "Type": "boolean"
+        },
+        {
+          "Name": "Severity",
+          "Status": "Ready",
+          "Type": "enum"
+        },
+        {
+          "Name": "CommercialVehicle",
+          "Status": "Unavailable",
+          "Type": "boolean"
+        },
+        {
+          "Name": "Year",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "LinkID",
+          "Status": "Ready",
+          "Type": "id",
+          "Virtual": true
+        }
+      ],
+      "Joins": [
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "N:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID"
+        }
+      ]
+    },
+    "BaseYearTDM": {
+      "PK": "LinkID",
+      "Fields": [
+        {
+          "Name": "LinkID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "BaseYearTotalDailyVMT",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearTotalDailyTruckVMT",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearTotalDailyVolume",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearTravelTimeMinutes_AM",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearTravelTimeMinutes_PM",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearTravelTimeMinutes_MD",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearTravelTimeMinutes_OV",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearVolume_AM",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearVolume_PM",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearVolume_MD",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearVolume_OV",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearMediumTruckRatio_AM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearMediumTruckRatio_PM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearMediumTruckRatio_MD",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearMediumTruckRatio_OV",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearHeavyTruckRatio_AM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearHeavyTruckRatio_PM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearHeavyTruckRatio_MD",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearHeavyTruckRatio_OV",
+          "Status": "Unavailable",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    },
+    "INRIX": {
+      "PK": "LinkID",
+      "Fields": [
+        {
+          "Name": "LinkID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "BaseYearObservedVolume_AM",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearObservedVolume_PM",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearObservedVolume_MD",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearObservedVolume_OV",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearPlanningTimeIndex",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearObservedSpeed_AM",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearObservedSpeed_PM",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearObservedSpeed_MD",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearObservedSpeed_OV",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearReferenceSpeed_AM",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearReferenceSpeed_PM",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearReferenceSpeed_MD",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearReferenceSpeed_OV",
+          "Status": "Ready",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    },
+    "BaseHighwayLinks": {
+      "PK": "LinkID",
+      "Fields": [
+        {
+          "Name": "LinkID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Node1ID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Node2ID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "BaseYearDistanceMiles",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearLanesCount",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearCapacity",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearFreeFlowSpeedMPH",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearCrossSection",
+          "Status": "Ready",
+          "Type": "enum",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearFacilityType",
+          "Status": "Stand-In",
+          "Type": "enum",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearAreaAccessType",
+          "Status": "Ready",
+          "Type": "enum",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearHINPercent",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Segments are ranked by EPDO density \\(EPDO points per mile per year\\) in descending order\\. The HIN is defined as the set of top\\-ranked segments that together \\(a\\) account for at least 65% of all matched K\\+A crashes and \\(b\\) represent no more than 10% of network segments\\. In practice, 5\\.0% of segments were sufficient to capture 90\\.4% of K\\+A crashes\\."
+            }
+          ]
+        },
+        {
+          "Name": "IsBridge",
+          "Status": "Ready",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearPavementScore",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearBridgeScore",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearVulnerabilityScore",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearCriticalityScore",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "BaseYearSRTSStatus",
+          "Status": "Unavailable",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Needs preprocessing"
+            }
+          ]
+        },
+        {
+          "Name": "IsIn1MileSchoolBuffer",
+          "Status": "Ready",
+          "Type": "boolean"
+        },
+        {
+          "Name": "IsIn100YearFloodPlain",
+          "Status": "Ready",
+          "Type": "boolean"
+        },
+        {
+          "Name": "IsDesignatedFreightNetwork",
+          "Status": "Ready",
+          "Type": "boolean"
+        },
+        {
+          "Name": "CellID",
+          "Status": "Ready",
+          "Type": "id",
+          "Virtual": true
+        },
+        {
+          "Name": "CorridorID",
+          "Status": "Ready",
+          "Type": "id",
+          "Virtual": true
+        },
+        {
+          "Name": "SubRegionIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        },
+        {
+          "Name": "TAZID",
+          "Status": "Ready",
+          "Type": "id",
+          "Virtual": true
+        },
+        {
+          "Name": "BaseYearRoadwayClass",
+          "Status": "Unavailable",
+          "Type": "enum"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "HistoricCrashes",
+          "Type": "1:N",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID"
+        },
+        {
+          "With": "BaseYearTDM",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "Cells",
+          "Type": "N:1",
+          "LeftOn": "CellID",
+          "RightOn": "CellID"
+        },
+        {
+          "With": "INRIX",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "Corridors",
+          "Type": "N:1",
+          "LeftOn": "CorridorID",
+          "RightOn": "CorridorID"
+        },
+        {
+          "With": "ScenarioLinks",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "SubRegions",
+          "Type": "N:N",
+          "LeftOn": "SubRegionIDs",
+          "RightOn": "SubRegionID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        },
+        {
+          "With": "TAZs",
+          "Type": "N:1",
+          "LeftOn": "TAZID",
+          "RightOn": "TAZID"
+        }
+      ]
+    },
+    "BikePedAccessibilityMatrix": {
+      "PK": "CellID",
+      "Fields": [
+        {
+          "Name": "CellID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Bike30minCellIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "needs network analysis"
+            }
+          ],
+          "ElementType": "id"
+        },
+        {
+          "Name": "Buffer1MileCellIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Requires preprocessing"
+            }
+          ],
+          "ElementType": "id"
+        },
+        {
+          "Name": "BufferQuarterMileCellIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Requires preprocessing"
+            }
+          ],
+          "ElementType": "id"
+        },
+        {
+          "Name": "Walk15minCellIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "needs network analysis"
+            }
+          ],
+          "ElementType": "id"
+        },
+        {
+          "Name": "BufferHalfMileCellIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Requires preprocessing"
+            }
+          ],
+          "ElementType": "id"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "Cells",
+          "Type": "1:1",
+          "LeftOn": "CellID",
+          "RightOn": "CellID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    }
+  },
+  "ScenarioUpstream": {
+    "ScenarioInfo": {
+      "PK": null,
+      "Fields": [
+        {
+          "Name": "ScenarioID",
+          "Status": "Stand-In",
+          "Type": "id"
+        },
+        {
+          "Name": "ScenarioName",
+          "Status": "Stand-In",
+          "Type": "text"
+        },
+        {
+          "Name": "ScenarioBudget",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "ElectricVehicleRate",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "ScenarioYear",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "ElectricVehicleRatio",
+          "Status": "Stand-In",
+          "Type": "number"
+        }
+      ],
+      "Joins": []
+    },
+    "Projects": {
+      "PK": "ProjectID",
+      "Fields": [
+        {
+          "Name": "ProjectID",
+          "Status": "Stand-In",
+          "Type": "id"
+        },
+        {
+          "Name": "Name",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "CrashImprovementProjects",
+          "Status": "Stand-In",
+          "Type": "collection",
+          "ElementType": "enum"
+        },
+        {
+          "Name": "DelayReductionProjects",
+          "Status": "Stand-In",
+          "Type": "collection",
+          "ElementType": "enum"
+        },
+        {
+          "Name": "FreeFlowSpeedMPHChangedTo",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "DiscountedInvestmentCost",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearBikeTrips",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "BaseYearWalkTrips",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "AddedSidewalkLengthMiles",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "AddedSidewalkWidthFeet",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "AddedBikeAmenityLengthMiles",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "DelayReductionPerVehicle",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "SavedMinutes",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "SavedMiles",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "OpenYear",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "EndYear",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "UsefulLife",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_1_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_1_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_5_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_5_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_10_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_10_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_25_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_25_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_50_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_50_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_100_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_100_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_500_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_500_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_1000_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DaysDisrupted_1000_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_1_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_1_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_5_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_5_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_10_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_10_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_25_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_25_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_50_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_50_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_100_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_100_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_500_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_500_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_1000_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "DirectPhysicalDamage_1000_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_1_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_1_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_5_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_5_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_10_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_10_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_25_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_25_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_50_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_50_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_100_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_100_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_500_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_500_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_1000_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerCount_1000_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_1_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_1_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_5_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_5_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_10_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_10_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_25_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_25_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_50_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_50_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_100_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_100_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_500_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_500_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_1000_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "VolunteerHours_1000_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_1_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_1_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_5_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_5_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_10_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_10_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_25_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_25_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_50_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_50_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_100_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_100_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_500_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_500_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_1000_WithProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "LodgingDays_1000_NoProject",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "CellIDs",
+          "Status": "Stand-In",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        },
+        {
+          "Name": "LinkIDs",
+          "Status": "Stand-In",
+          "Type": "collection",
+          "Virtual": true,
+          "ElementType": "id"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "ScenarioLinks",
+          "Type": "1:N",
+          "LeftOn": "ProjectID",
+          "RightOn": "ProjectID"
+        },
+        {
+          "With": "Cells",
+          "Type": "N:N",
+          "LeftOn": "CellIDs",
+          "RightOn": "CellID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    },
+    "ScenarioLinks": {
+      "PK": "LinkID",
+      "Fields": [
+        {
+          "Name": "LinkID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Node1ID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Node2ID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "IsRemovedFromBase",
+          "Status": "Ready",
+          "Type": "boolean"
+        },
+        {
+          "Name": "IsAddedToBase",
+          "Status": "Ready",
+          "Type": "boolean"
+        },
+        {
+          "Name": "DistanceMiles",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "RoadwayClass",
+          "Status": "Ready",
+          "Type": "enum"
+        },
+        {
+          "Name": "FacilityType",
+          "Status": "Stand-In",
+          "Type": "enum"
+        },
+        {
+          "Name": "LanesCount",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "AreaAccessType",
+          "Status": "Ready",
+          "Type": "enum"
+        },
+        {
+          "Name": "FreeFlowSpeedMPH",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "Capacity",
+          "Status": "Ready",
+          "Type": "number"
+        },
+        {
+          "Name": "CrossSectionType",
+          "Status": "Ready",
+          "Type": "enum"
+        },
+        {
+          "Name": "IsIn1MileSchoolBuffer",
+          "Status": "Ready",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "IsIn100YearFloodPlain",
+          "Status": "Ready",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Needs reprocessing"
+            }
+          ]
+        },
+        {
+          "Name": "SRTSStatus",
+          "Status": "Unavailable",
+          "Type": "boolean",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "ProjectID",
+          "Status": "Stand-In",
+          "Type": "id",
+          "Virtual": true
+        }
+      ],
+      "Joins": [
+        {
+          "With": "NetworkOutput",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        },
+        {
+          "With": "Projects",
+          "Type": "N:1",
+          "LeftOn": "ProjectID",
+          "RightOn": "ProjectID"
+        },
+        {
+          "With": "BaseHighwayLinks",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        },
+        {
+          "With": "CalibratedNetworkOutput",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "principal",
+          "RightRole": "secondary"
+        }
+      ]
+    },
+    "CellLandUse": {
+      "PK": "CellID",
+      "Fields": [
+        {
+          "Name": "CellID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Imperviousness",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "ContainsTransit",
+          "Status": "Unavailable",
+          "Type": "boolean"
+        },
+        {
+          "Name": "ContainsRetail",
+          "Status": "Partial",
+          "Type": "boolean"
+        },
+        {
+          "Name": "Population",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "Jobs",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "Households",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "Workers",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "VulnerablePopulation",
+          "Status": "Partial",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed",
+              "Note": "Use land use household demographics to preprocess"
+            }
+          ]
+        },
+        {
+          "Name": "eVTOLCompatability",
+          "Status": "Unavailable",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "Cells",
+          "Type": "1:1",
+          "LeftOn": "CellID",
+          "RightOn": "CellID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    },
+    "TAZDemographics": {
+      "PK": "TAZID",
+      "Fields": [
+        {
+          "Name": "TAZID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Population",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "Jobs",
+          "Status": "Partial",
+          "Type": "number"
+        },
+        {
+          "Name": "Workers",
+          "Status": "Partial",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "TAZs",
+          "Type": "1:1",
+          "LeftOn": "TAZID",
+          "RightOn": "TAZID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    },
+    "NetworkOutput": {
+      "Flags": [
+        {
+          "Name": "Potentially Unavailable",
+          "Note": "Not available in quick mode"
+        }
+      ],
+      "PK": "LinkID",
+      "Fields": [
+        {
+          "Name": "LinkID",
+          "Status": "Stand-In",
+          "Type": "id"
+        },
+        {
+          "Name": "Volume_AM",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "Volume_PM",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "Volume_MD",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "Volume_OV",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "MediumTruckRatio_AM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "MediumTruckRatio_PM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "MediumTruckRatio_MD",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "MediumTruckRatio_OV",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "HeavyTruckRatio_AM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "HeavyTruckRatio_PM",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "HeavyTruckRatio_MD",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "HeavyTruckRatio_OV",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "Occupancy_AM",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "Occupancy_PM",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "Occupancy_MD",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "Occupancy_OV",
+          "Status": "Stand-In",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "ScenarioLinks",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    },
+    "SkimmedZones": {
+      "PK": "SkimItemID",
+      "Fields": [
+        {
+          "Name": "SkimItemID",
+          "Status": "Unavailable",
+          "Type": "id"
+        },
+        {
+          "Name": "OriginTAZID",
+          "Status": "Unavailable",
+          "Type": "id",
+          "Virtual": true
+        },
+        {
+          "Name": "DistanceBand",
+          "Status": "Unavailable",
+          "Type": "enum"
+        },
+        {
+          "Name": "CostBand",
+          "Status": "Unavailable",
+          "Type": "enum"
+        },
+        {
+          "Name": "OccupancyMode",
+          "Status": "Unavailable",
+          "Type": "enum"
+        },
+        {
+          "Name": "Period",
+          "Status": "Unavailable",
+          "Type": "enum"
+        },
+        {
+          "Name": "PeriodTripCount",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "PeriodHBWTripCount",
+          "Status": "Unavailable",
+          "Type": "number"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "TAZs",
+          "Type": "N:1",
+          "LeftOn": "OriginTAZID",
+          "RightOn": "TAZID"
+        }
+      ]
+    },
+    "ZoneAccessibilityMatrix": {
+      "PK": "TAZID",
+      "Fields": [
+        {
+          "Name": "TAZID",
+          "Status": "Ready",
+          "Type": "id"
+        },
+        {
+          "Name": "Drive15minTAZIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "ElementType": "id"
+        },
+        {
+          "Name": "Drive30minTAZIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "ElementType": "id"
+        },
+        {
+          "Name": "Transit45minTAZIDs",
+          "Status": "Ready",
+          "Type": "collection",
+          "ElementType": "id"
+        }
+      ],
+      "Joins": [
+        {
+          "With": "TAZs",
+          "Type": "1:1",
+          "LeftOn": "TAZID",
+          "RightOn": "TAZID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    }
+  },
+  "KPIPreparation": {
+    "CalibratedNetworkOutput": {
+      "PK": "LinkID",
+      "Fields": [
+        {
+          "Name": "LinkID",
+          "Status": "Stand-In",
+          "Type": "id"
+        },
+        {
+          "Name": "CalibratedVC_AM",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVC_PM",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVC_MD",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVC_OV",
+          "Status": "Ready",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVolume_AM",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVolume_PM",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVolume_MD",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVolume_OV",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVolume_AM",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            },
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVolume_PM",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            },
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVolume_MD",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            },
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVolume_OV",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Preprocessing Needed"
+            },
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVMT_AM",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVMT_PM",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVMT_MD",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedVMT_OV",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVMT_AM",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVMT_PM",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVMT_MD",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTruckVMT_OV",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "CalibratedTravelMinutes_AM",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "CalibratedTravelMinutes_PM",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "CalibratedTravelMinutes_MD",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "CalibratedTravelMinutes_OV",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "TotalCalibratedDailyVolume",
+          "Status": "Stand-In",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        },
+        {
+          "Name": "TotalCalibratedDailyVMT",
+          "Status": "Stand-In",
+          "Type": "number"
+        },
+        {
+          "Name": "TotalCalibratedDailyTruckVolume",
+          "Status": "Unavailable",
+          "Type": "number"
+        },
+        {
+          "Name": "TotalDailyTruckVMT",
+          "Status": "Unavailable",
+          "Type": "number",
+          "Flags": [
+            {
+              "Name": "Derived"
+            }
+          ]
+        }
+      ],
+      "Joins": [
+        {
+          "With": "ScenarioLinks",
+          "Type": "1:1",
+          "LeftOn": "LinkID",
+          "RightOn": "LinkID",
+          "LeftRole": "secondary",
+          "RightRole": "principal"
+        }
+      ]
+    }
+  }
+}

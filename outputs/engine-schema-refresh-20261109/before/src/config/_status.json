@@ -1,0 +1,455 @@
+{
+  "TAZs": {
+    "completed_fields": [
+      "taz_id",
+      "subregion_ids",
+      "corridor_ids"
+    ],
+    "fields_with_missing_values": {
+      "base_year_population": 92.6136,
+      "base_year_workers": 92.6136,
+      "base_year_jobs": 92.6136
+    },
+    "problematic_fields": {}
+  },
+  "Corridors": {
+    "completed_fields": [
+      "corridor_id",
+      "corridor_name",
+      "road_category",
+      "txdot_rte_name",
+      "length_miles"
+    ],
+    "fields_with_missing_values": {},
+    "problematic_fields": {}
+  },
+  "SubRegions": {
+    "completed_fields": [
+      "subregion_id",
+      "subregion_type",
+      "subregion_name"
+    ],
+    "fields_with_missing_values": {
+      "fips": 24.5283
+    },
+    "problematic_fields": {}
+  },
+  "Cells": {
+    "completed_fields": [
+      "cell_id",
+      "area_sqft",
+      "base_year_contains_retail",
+      "base_year_contains_recreation",
+      "base_year_contains_healthcare",
+      "flood_exposure",
+      "taz_ids",
+      "subregion_ids",
+      "corridor_ids"
+    ],
+    "fields_with_missing_values": {
+      "base_year_population": 92.2724,
+      "base_year_households": 92.2724,
+      "base_year_workers": 92.2724,
+      "base_year_jobs": 92.2724,
+      "base_year_imperviousness": 92.2763
+    },
+    "problematic_fields": {}
+  },
+  "BaseHighwayLinks": {
+    "completed_fields": [
+      "link_id",
+      "node_1_id",
+      "node_2_id",
+      "base_year_distance_miles",
+      "subregion_ids"
+    ],
+    "fields_with_missing_values": {
+      "base_year_lanes_count": 1.5498,
+      "base_year_capacity": 1.5498,
+      "base_year_free_flow_speed_mph": 1.5498,
+      "base_year_cross_section": 1.5498,
+      "base_year_facility_type": 1.5498,
+      "base_year_area_access_type": 2.7906,
+      "base_year_hin_percent": 1.5498,
+      "is_bridge": 1.5498,
+      "base_year_pavement_score": 69.1421,
+      "base_year_bridge_score": 91.7123,
+      "base_year_vulnerability_score": 32.21,
+      "base_year_criticality_score": 32.2009,
+      "base_year_srts_status": 1.5498,
+      "is_in_1_mile_school_buffer": 1.5498,
+      "is_in_100_year_flood_plain": 1.5498,
+      "is_designated_freight_network": 1.5498,
+      "cell_id": 1.5544,
+      "corridor_id": 85.263,
+      "taz_id": 1.5589,
+      "base_year_roadway_class": 100.0
+    },
+    "problematic_fields": {
+      "base_year_facility_type": "tentative facility crosswalk; confirm NHS membership",
+      "base_year_hin_percent": "Segments are ranked by EPDO density \\(EPDO points per mile per year\\) in descending order\\. The HIN is defined as the set of top\\-ranked segments that together \\(a\\) account for at least 65% of all matched K\\+A crashes and \\(b\\) represent no more than 10% of network segments\\. In practice, 5\\.0% of segments were sufficient to capture 90\\.4% of K\\+A crashes\\.",
+      "base_year_srts_status": "Needs preprocessing",
+      "base_year_roadway_class": "100% missing values; nullable placeholder"
+    }
+  },
+  "BaseYearTDM": {
+    "completed_fields": [
+      "link_id",
+      "base_year_total_daily_vmt",
+      "base_year_total_daily_truck_vmt",
+      "base_year_total_daily_volume",
+      "base_year_travel_time_minutes_am",
+      "base_year_travel_time_minutes_pm",
+      "base_year_travel_time_minutes_md",
+      "base_year_travel_time_minutes_ov",
+      "base_year_volume_am",
+      "base_year_volume_pm",
+      "base_year_volume_md",
+      "base_year_volume_ov"
+    ],
+    "fields_with_missing_values": {
+      "base_year_medium_truck_ratio_am": 100.0,
+      "base_year_medium_truck_ratio_pm": 100.0,
+      "base_year_medium_truck_ratio_md": 100.0,
+      "base_year_medium_truck_ratio_ov": 100.0,
+      "base_year_heavy_truck_ratio_am": 100.0,
+      "base_year_heavy_truck_ratio_pm": 100.0,
+      "base_year_heavy_truck_ratio_md": 100.0,
+      "base_year_heavy_truck_ratio_ov": 100.0
+    },
+    "problematic_fields": {
+      "base_year_medium_truck_ratio_am": "100% missing values; nullable placeholder",
+      "base_year_medium_truck_ratio_pm": "100% missing values; nullable placeholder",
+      "base_year_medium_truck_ratio_md": "100% missing values; nullable placeholder",
+      "base_year_medium_truck_ratio_ov": "100% missing values; nullable placeholder",
+      "base_year_heavy_truck_ratio_am": "100% missing values; nullable placeholder",
+      "base_year_heavy_truck_ratio_pm": "100% missing values; nullable placeholder",
+      "base_year_heavy_truck_ratio_md": "100% missing values; nullable placeholder",
+      "base_year_heavy_truck_ratio_ov": "100% missing values; nullable placeholder"
+    }
+  },
+  "BikePedAccessibilityMatrix": {
+    "completed_fields": [
+      "cell_id",
+      "bike_30_min_cell_ids",
+      "buffer_1_mile_cell_ids",
+      "buffer_quarter_mile_cell_ids",
+      "walk_15_min_cell_ids",
+      "buffer_half_mile_cell_ids"
+    ],
+    "fields_with_missing_values": {},
+    "problematic_fields": {}
+  },
+  "HistoricCrashes": {
+    "completed_fields": [
+      "crash_point_id",
+      "commercial_vehicle",
+      "year"
+    ],
+    "fields_with_missing_values": {
+      "type": 100.0,
+      "severity": 3.535,
+      "link_id": 19.7043
+    },
+    "problematic_fields": {
+      "type": "source supplies crash_type_ped_cyclist and crash_type_intersection flags; 6,747 rows have both flags; single-category mapping unresolved; 100% missing values; nullable placeholder"
+    }
+  },
+  "ScenarioLinks": {
+    "completed_fields": [
+      "link_id",
+      "node_1_id",
+      "node_2_id",
+      "is_removed_from_base",
+      "is_added_to_base",
+      "distance_miles"
+    ],
+    "fields_with_missing_values": {
+      "roadway_class": 4.7147,
+      "facility_type": 4.7147,
+      "lanes_count": 4.7147,
+      "area_access_type": 7.108,
+      "free_flow_speed_mph": 4.7147,
+      "capacity": 4.7147,
+      "cross_section_type": 4.7147,
+      "is_in_1_mile_school_buffer": 4.7147,
+      "is_in_100_year_flood_plain": 4.7147,
+      "srts_status": 4.7147,
+      "project_id": 99.8099
+    },
+    "problematic_fields": {
+      "facility_type": "tentative facility crosswalk; confirm NHS membership",
+      "is_in_100_year_flood_plain": "Needs reprocessing",
+      "project_id": "synthetic sample: three links per project selected within its sample cell_ids; other links intentionally unassigned"
+    }
+  },
+  "INRIX": {
+    "completed_fields": [
+      "link_id"
+    ],
+    "fields_with_missing_values": {
+      "base_year_observed_volume_am": 94.387,
+      "base_year_observed_volume_pm": 94.387,
+      "base_year_observed_volume_md": 94.387,
+      "base_year_observed_volume_ov": 94.387,
+      "base_year_planning_time_index": 94.387,
+      "base_year_observed_speed_am": 94.387,
+      "base_year_observed_speed_pm": 94.387,
+      "base_year_observed_speed_md": 94.387,
+      "base_year_observed_speed_ov": 94.387,
+      "base_year_reference_speed_am": 94.387,
+      "base_year_reference_speed_pm": 94.387,
+      "base_year_reference_speed_md": 94.387,
+      "base_year_reference_speed_ov": 94.387
+    },
+    "problematic_fields": {}
+  },
+  "ZoneAccessibilityMatrix": {
+    "completed_fields": [
+      "taz_id",
+      "drive_15_min_taz_ids",
+      "drive_30_min_taz_ids",
+      "transit_45_min_taz_ids"
+    ],
+    "fields_with_missing_values": {},
+    "problematic_fields": {}
+  },
+  "NetworkOutput": {
+    "completed_fields": [
+      "link_id",
+      "volume_am",
+      "volume_pm",
+      "volume_md",
+      "volume_ov"
+    ],
+    "fields_with_missing_values": {
+      "medium_truck_ratio_am": 100.0,
+      "medium_truck_ratio_pm": 100.0,
+      "medium_truck_ratio_md": 100.0,
+      "medium_truck_ratio_ov": 100.0,
+      "heavy_truck_ratio_am": 100.0,
+      "heavy_truck_ratio_pm": 100.0,
+      "heavy_truck_ratio_md": 100.0,
+      "heavy_truck_ratio_ov": 100.0,
+      "occupancy_am": 100.0,
+      "occupancy_pm": 100.0,
+      "occupancy_md": 100.0,
+      "occupancy_ov": 100.0
+    },
+    "problematic_fields": {
+      "medium_truck_ratio_am": "100% missing values; nullable placeholder",
+      "medium_truck_ratio_pm": "100% missing values; nullable placeholder",
+      "medium_truck_ratio_md": "100% missing values; nullable placeholder",
+      "medium_truck_ratio_ov": "100% missing values; nullable placeholder",
+      "heavy_truck_ratio_am": "100% missing values; nullable placeholder",
+      "heavy_truck_ratio_pm": "100% missing values; nullable placeholder",
+      "heavy_truck_ratio_md": "100% missing values; nullable placeholder",
+      "heavy_truck_ratio_ov": "100% missing values; nullable placeholder",
+      "occupancy_am": "100% missing values; nullable placeholder",
+      "occupancy_pm": "100% missing values; nullable placeholder",
+      "occupancy_md": "100% missing values; nullable placeholder",
+      "occupancy_ov": "100% missing values; nullable placeholder"
+    }
+  },
+  "CellLandUse": {
+    "completed_fields": [
+      "cell_id"
+    ],
+    "fields_with_missing_values": {
+      "imperviousness": 92.2763,
+      "contains_transit": 100.0,
+      "contains_retail": 92.2724,
+      "population": 92.2724,
+      "jobs": 92.2724,
+      "households": 92.2724,
+      "workers": 92.2724,
+      "vulnerable_population": 92.2724,
+      "e_vtol_compatability": 100.0
+    },
+    "problematic_fields": {
+      "imperviousness": "base-year sample used as scenario placeholder; scenario data pending",
+      "contains_transit": "100% missing values; nullable placeholder",
+      "contains_retail": "base-year sample used as scenario placeholder; scenario data pending",
+      "population": "base-year sample used as scenario placeholder; scenario data pending",
+      "jobs": "base-year sample used as scenario placeholder; scenario data pending",
+      "households": "base-year sample used as scenario placeholder; scenario data pending",
+      "workers": "base-year sample used as scenario placeholder; scenario data pending",
+      "vulnerable_population": "base-year sample used as scenario placeholder; scenario data pending; Use land use household demographics to preprocess",
+      "e_vtol_compatability": "100% missing values; nullable placeholder"
+    }
+  },
+  "TAZDemographics": {
+    "completed_fields": [
+      "taz_id"
+    ],
+    "fields_with_missing_values": {
+      "population": 92.6136,
+      "jobs": 92.6136,
+      "workers": 92.6136
+    },
+    "problematic_fields": {
+      "population": "base-year sample used as scenario placeholder; scenario data pending",
+      "jobs": "base-year sample used as scenario placeholder; scenario data pending",
+      "workers": "base-year sample used as scenario placeholder; scenario data pending"
+    }
+  },
+  "Projects": {
+    "completed_fields": [
+      "project_id",
+      "name",
+      "crash_improvement_projects",
+      "delay_reduction_projects",
+      "free_flow_speed_mph_changed_to",
+      "discounted_investment_cost",
+      "base_year_bike_trips",
+      "base_year_walk_trips",
+      "added_sidewalk_length_miles",
+      "added_sidewalk_width_feet",
+      "added_bike_amenity_length_miles",
+      "delay_reduction_per_vehicle",
+      "saved_minutes",
+      "saved_miles",
+      "open_year",
+      "end_year",
+      "useful_life",
+      "days_disrupted_1_with_project",
+      "days_disrupted_1_no_project",
+      "days_disrupted_5_with_project",
+      "days_disrupted_5_no_project",
+      "days_disrupted_10_with_project",
+      "days_disrupted_10_no_project",
+      "days_disrupted_25_with_project",
+      "days_disrupted_25_no_project",
+      "days_disrupted_50_with_project",
+      "days_disrupted_50_no_project",
+      "days_disrupted_100_with_project",
+      "days_disrupted_100_no_project",
+      "days_disrupted_500_with_project",
+      "days_disrupted_500_no_project",
+      "days_disrupted_1000_with_project",
+      "days_disrupted_1000_no_project",
+      "direct_physical_damage_1_with_project",
+      "direct_physical_damage_1_no_project",
+      "direct_physical_damage_5_with_project",
+      "direct_physical_damage_5_no_project",
+      "direct_physical_damage_10_with_project",
+      "direct_physical_damage_10_no_project",
+      "direct_physical_damage_25_with_project",
+      "direct_physical_damage_25_no_project",
+      "direct_physical_damage_50_with_project",
+      "direct_physical_damage_50_no_project",
+      "direct_physical_damage_100_with_project",
+      "direct_physical_damage_100_no_project",
+      "direct_physical_damage_500_with_project",
+      "direct_physical_damage_500_no_project",
+      "direct_physical_damage_1000_with_project",
+      "direct_physical_damage_1000_no_project",
+      "volunteer_count_1_with_project",
+      "volunteer_count_1_no_project",
+      "volunteer_count_5_with_project",
+      "volunteer_count_5_no_project",
+      "volunteer_count_10_with_project",
+      "volunteer_count_10_no_project",
+      "volunteer_count_25_with_project",
+      "volunteer_count_25_no_project",
+      "volunteer_count_50_with_project",
+      "volunteer_count_50_no_project",
+      "volunteer_count_100_with_project",
+      "volunteer_count_100_no_project",
+      "volunteer_count_500_with_project",
+      "volunteer_count_500_no_project",
+      "volunteer_count_1000_with_project",
+      "volunteer_count_1000_no_project",
+      "volunteer_hours_1_with_project",
+      "volunteer_hours_1_no_project",
+      "volunteer_hours_5_with_project",
+      "volunteer_hours_5_no_project",
+      "volunteer_hours_10_with_project",
+      "volunteer_hours_10_no_project",
+      "volunteer_hours_25_with_project",
+      "volunteer_hours_25_no_project",
+      "volunteer_hours_50_with_project",
+      "volunteer_hours_50_no_project",
+      "volunteer_hours_100_with_project",
+      "volunteer_hours_100_no_project",
+      "volunteer_hours_500_with_project",
+      "volunteer_hours_500_no_project",
+      "volunteer_hours_1000_with_project",
+      "volunteer_hours_1000_no_project",
+      "lodging_days_1_with_project",
+      "lodging_days_1_no_project",
+      "lodging_days_5_with_project",
+      "lodging_days_5_no_project",
+      "lodging_days_10_with_project",
+      "lodging_days_10_no_project",
+      "lodging_days_25_with_project",
+      "lodging_days_25_no_project",
+      "lodging_days_50_with_project",
+      "lodging_days_50_no_project",
+      "lodging_days_100_with_project",
+      "lodging_days_100_no_project",
+      "lodging_days_500_with_project",
+      "lodging_days_500_no_project",
+      "lodging_days_1000_with_project",
+      "lodging_days_1000_no_project",
+      "cell_ids"
+    ],
+    "fields_with_missing_values": {},
+    "problematic_fields": {}
+  },
+  "CalibratedNetworkOutput": {
+    "completed_fields": [
+      "link_id"
+    ],
+    "fields_with_missing_values": {
+      "calibrated_vc_am": 4.7147,
+      "calibrated_vc_pm": 4.7147,
+      "calibrated_vc_md": 4.7147,
+      "calibrated_vc_ov": 4.7147,
+      "calibrated_truck_volume_am": 100.0,
+      "calibrated_truck_volume_pm": 100.0,
+      "calibrated_truck_volume_md": 100.0,
+      "calibrated_truck_volume_ov": 100.0,
+      "calibrated_truck_vmt_am": 100.0,
+      "calibrated_truck_vmt_pm": 100.0,
+      "calibrated_truck_vmt_md": 100.0,
+      "calibrated_truck_vmt_ov": 100.0,
+      "calibrated_travel_minutes_am": 100.0,
+      "calibrated_travel_minutes_pm": 100.0,
+      "calibrated_travel_minutes_md": 100.0,
+      "calibrated_travel_minutes_ov": 100.0,
+      "total_calibrated_daily_truck_volume": 100.0,
+      "total_daily_truck_vmt": 100.0
+    },
+    "problematic_fields": {
+      "calibrated_vc_am": "synthetic from NetworkOutput (TestScenario); calibration pending; percent = 100 * calibrated volume / (ScenarioLinks capacity / period hours); unavailable or nonpositive capacities remain null; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated V/C: PeriodHours_{Period,Link} = \\begin{cases}\n    3 & \\text{if } Period=AM \\\\\n    4   & \\text{if } Period=PM \\\\\n    6  & \\text{if } Period=MD\n    11 & \\text{if }Period=OV\n\\end{cases}; V/C_{Period,Link} = \\frac{CalibratedVolume_{Period,Link}}{Capacity_{Link}/PeriodHours_{Period,Link}}",
+      "calibrated_vc_pm": "synthetic from NetworkOutput (TestScenario); calibration pending; percent = 100 * calibrated volume / (ScenarioLinks capacity / period hours); unavailable or nonpositive capacities remain null; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated V/C: PeriodHours_{Period,Link} = \\begin{cases}\n    3 & \\text{if } Period=AM \\\\\n    4   & \\text{if } Period=PM \\\\\n    6  & \\text{if } Period=MD\n    11 & \\text{if }Period=OV\n\\end{cases}; V/C_{Period,Link} = \\frac{CalibratedVolume_{Period,Link}}{Capacity_{Link}/PeriodHours_{Period,Link}}",
+      "calibrated_vc_md": "synthetic from NetworkOutput (TestScenario); calibration pending; percent = 100 * calibrated volume / (ScenarioLinks capacity / period hours); unavailable or nonpositive capacities remain null; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated V/C: PeriodHours_{Period,Link} = \\begin{cases}\n    3 & \\text{if } Period=AM \\\\\n    4   & \\text{if } Period=PM \\\\\n    6  & \\text{if } Period=MD\n    11 & \\text{if }Period=OV\n\\end{cases}; V/C_{Period,Link} = \\frac{CalibratedVolume_{Period,Link}}{Capacity_{Link}/PeriodHours_{Period,Link}}",
+      "calibrated_vc_ov": "synthetic from NetworkOutput (TestScenario); calibration pending; percent = 100 * calibrated volume / (ScenarioLinks capacity / period hours); unavailable or nonpositive capacities remain null; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated V/C: PeriodHours_{Period,Link} = \\begin{cases}\n    3 & \\text{if } Period=AM \\\\\n    4   & \\text{if } Period=PM \\\\\n    6  & \\text{if } Period=MD\n    11 & \\text{if }Period=OV\n\\end{cases}; V/C_{Period,Link} = \\frac{CalibratedVolume_{Period,Link}}{Capacity_{Link}/PeriodHours_{Period,Link}}",
+      "calibrated_volume_am": "synthetic from NetworkOutput (TestScenario); calibration pending",
+      "calibrated_volume_pm": "synthetic from NetworkOutput (TestScenario); calibration pending",
+      "calibrated_volume_md": "synthetic from NetworkOutput (TestScenario); calibration pending",
+      "calibrated_volume_ov": "synthetic from NetworkOutput (TestScenario); calibration pending",
+      "calibrated_truck_volume_am": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck Volume: CalibrateTruckVolume_{Period,Link} = CalibratedVolume_{Period,Link}\\times (CalibratedMediumTruckRatio_{Period,Link}+CalibratedHeavyTruckRatio_{Period,Link})",
+      "calibrated_truck_volume_pm": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck Volume: CalibrateTruckVolume_{Period,Link} = CalibratedVolume_{Period,Link}\\times (CalibratedMediumTruckRatio_{Period,Link}+CalibratedHeavyTruckRatio_{Period,Link})",
+      "calibrated_truck_volume_md": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck Volume: CalibrateTruckVolume_{Period,Link} = CalibratedVolume_{Period,Link}\\times (CalibratedMediumTruckRatio_{Period,Link}+CalibratedHeavyTruckRatio_{Period,Link})",
+      "calibrated_truck_volume_ov": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck Volume: CalibrateTruckVolume_{Period,Link} = CalibratedVolume_{Period,Link}\\times (CalibratedMediumTruckRatio_{Period,Link}+CalibratedHeavyTruckRatio_{Period,Link})",
+      "calibrated_vmt_am": "synthetic from NetworkOutput (TestScenario); calibration pending; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated VMT: CalibratedVMT_{Period,Link} = CalibratedVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_vmt_pm": "synthetic from NetworkOutput (TestScenario); calibration pending; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated VMT: CalibratedVMT_{Period,Link} = CalibratedVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_vmt_md": "synthetic from NetworkOutput (TestScenario); calibration pending; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated VMT: CalibratedVMT_{Period,Link} = CalibratedVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_vmt_ov": "synthetic from NetworkOutput (TestScenario); calibration pending; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated VMT: CalibratedVMT_{Period,Link} = CalibratedVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_truck_vmt_am": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck VMT: CalibratedTruckVMT_{Period,Link} = CalibratedTruckVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_truck_vmt_pm": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck VMT: CalibratedTruckVMT_{Period,Link} = CalibratedTruckVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_truck_vmt_md": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck VMT: CalibratedTruckVMT_{Period,Link} = CalibratedTruckVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_truck_vmt_ov": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Calibrated Truck VMT: CalibratedTruckVMT_{Period,Link} = CalibratedTruckVolume_{Period,Link}\\times DistanceMiles_{Link}",
+      "calibrated_travel_minutes_am": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder",
+      "calibrated_travel_minutes_pm": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder",
+      "calibrated_travel_minutes_md": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder",
+      "calibrated_travel_minutes_ov": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder",
+      "total_calibrated_daily_volume": "synthetic from NetworkOutput (TestScenario); calibration pending; derivation reference: library-schema.json / CalibratedNetworkOutput / Total Calibrated Daily Volume: TotalCalibratedDailyVolume_{Link} = \\sum_{Period}CalibratedVolume_{Period,Link}",
+      "total_calibrated_daily_vmt": "synthetic from NetworkOutput (TestScenario); calibration pending",
+      "total_calibrated_daily_truck_volume": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder",
+      "total_daily_truck_vmt": "synthetic from NetworkOutput (TestScenario); calibration pending; 100% missing values; nullable placeholder; derivation reference: library-schema.json / CalibratedNetworkOutput / Total Daily Truck VMT: TotalDailyTruckVMT_{Link} = TotalCalibratedDailyTruckVolume_{Link}\\times DistanceMiles_{Link}"
+    }
+  }
+}
